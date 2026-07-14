@@ -10,6 +10,18 @@ the reasoning behind every major decision is the **[Product Vision](Butler.Knowl
 read it before making product or architecture choices. The v1 scope is a hard line (see the vision's
 "What we are NOT building in v1"); when in doubt, do not expand it.
 
+## Building v1: the BRD and its tickets
+
+The v1 build is specified in `Butler.KnowledgeBase/brd/` - a master BRD (`00-brd-master.md`, whose
+**Section 7 "Engineering Contract" is binding**: Azure Table Storage keyed by `householdId`, layered +
+MediatR adopted from the QControl house style, Entra External ID organizer auth with no-password
+tap-to-claim, a simulated store connector behind a real `IStoreConnector` seam, a hard 98% coverage
+gate, .NET 10) plus one file per epic of ready-to-file GitHub issue specs. The work is tracked as
+GitHub issues in this repo; **`Butler.KnowledgeBase/brd/ticket-issue-map.md` is the canonical crosswalk**
+between ticket IDs (F1, H1, ...), the epic-file specs, and live issue numbers - consult it to translate
+between the planning docs and the tracker (regenerate it with `brd/tools/generate_issue_map.py`).
+Implement an issue with `/implement-issue <n>` and land it with `/merge-issue <n>`.
+
 ## Monorepo shape
 
 Three independent sub-services, each with its own build, deploy, and `infra/`. There is no root build
@@ -18,7 +30,7 @@ that spans them - operate inside the relevant folder.
 - `Butler.UI/` - Expo (React Native + react-native-web) app. Cross-platform (web/iOS/Android/desktop),
   **web-first**: the v1 hub is the Expo web export deployed as an Azure Static Web App (installable
   PWA). Has its own Expo-generated `CLAUDE.md`/`AGENTS.md` that apply within the folder.
-- `Butler.API/` - .NET 9 Web API (`Butler.API.sln` -> `src/Butler.Api`), deployed to Azure App Service.
+- `Butler.API/` - .NET 10 Web API (`Butler.API.sln` -> `src/Butler.Api`), deployed to Azure App Service.
 - `Butler.KnowledgeBase/` - an **agent-managed** wiki of canonical Markdown. `docs/` holds articles,
   `intake/` holds source material (not articles), `README.md` is the graph index. This is not product
   code; it is maintained with the `knowledge-base` skill.
