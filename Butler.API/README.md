@@ -1,6 +1,6 @@
 # Butler.API
 
-The backend service for Butler - the household concierge. A .NET 9 Web API hosted in Azure.
+The backend service for Butler - the household concierge. A .NET 10 Web API hosted in Azure.
 
 See the [product vision](../Butler.KnowledgeBase/docs/10-product-vision.md) for what Butler is and the
 [v1 scope](../Butler.KnowledgeBase/docs/10-product-vision.md#what-we-are-not-building-in-v1).
@@ -11,7 +11,7 @@ See the [product vision](../Butler.KnowledgeBase/docs/10-product-vision.md) for 
 Butler.API/
 ├── Butler.API.sln
 ├── src/
-│   └── Butler.Api/          .NET 9 Web API (entry point: Program.cs)
+│   └── Butler.Api/          .NET 10 Web API (entry point: Program.cs)
 ├── infra/
 │   ├── main.bicep           Azure App Service (Linux) - parameter-driven, policy-agnostic
 │   └── main.bicepparam      per-environment values (fill in before deploy)
