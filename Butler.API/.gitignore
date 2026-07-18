@@ -152,6 +152,8 @@ _TeamCity*
 coverage*.json
 coverage*.xml
 coverage*.info
+# coverlet.collector (`--collect:"XPlat Code Coverage"`) writes per-run results here
+[Tt]est[Rr]esults/
 
 # Visual Studio code coverage results
 *.coverage

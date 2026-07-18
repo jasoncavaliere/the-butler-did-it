@@ -23,6 +23,30 @@
     <NoWarn>$(NoWarn);NETSDK1188;CA1707;CA1822</NoWarn>
   </PropertyGroup>
 
+  <!--
+    Coverage gate (Engineering Contract 7.7). These defaults apply whenever
+    coverage is collected (`dotnet test /p:CollectCoverage=true`, as CI runs in
+    F5), so the 98% line/branch/method threshold is enforced without repeating
+    every flag on the command line. Plain `dotnet test` stays fast (no coverage).
+    Only the executed application assembly is measured; the test assembly itself
+    is excluded so test-support scaffolding does not inflate the number.
+  -->
+  <PropertyGroup>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <Threshold>98</Threshold>
+    <ThresholdType>line,branch,method</ThresholdType>
+    <ThresholdStat>total</ThresholdStat>
+    <Include>[Butler.Api]*</Include>
+    <!--
+      Justified, minimal exclusion: the Microsoft.AspNetCore.OpenApi package runs
+      a source generator that emits an XML-comment support interceptor ([GeneratedCode])
+      into this assembly. It is third-party generated code, not authored Butler
+      code, so it is excluded from the coverage gate. This excludes source-generator
+      output only - hand-written code (records, controllers, handlers) is unaffected.
+    -->
+    <ExcludeByAttribute>GeneratedCodeAttribute</ExcludeByAttribute>
+  </PropertyGroup>
+
   <!-- xUnit types (Fact, IClassFixture, Assert, ...) available without a per-file using. -->
   <ItemGroup>
     <Using Include="Xunit" />
@@ -33,6 +57,15 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="coverlet.msbuild">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
