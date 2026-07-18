@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Test project for Butler.Api. Target framework, nullable, implicit usings,
+    and analyzers are inherited from ../../Directory.Build.props; package
+    versions come from ../../Directory.Packages.props (central package
+    management). These are the first tests in the repo: they back-test the
+    F1 skeleton (health liveness, the System reference slice round trip, and
+    the RFC 7807 exception handler) end to end through the real HTTP pipeline.
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      Analyzer relaxations scoped to this test project only:
+        NETSDK1188 - Microsoft.TestPlatform.TestHost ships satellite resources
+                     with locale names .NET does not recognize (package issue).
+        CA1707     - underscored test method names are the xUnit convention and
+                     read as sentences (Given_When_Then).
+        CA1822     - test-only controller actions read fine as instance methods;
+                     MVC never invokes them statically.
+    -->
+    <NoWarn>$(NoWarn);NETSDK1188;CA1707;CA1822</NoWarn>
+  </PropertyGroup>
+
+  <!-- xUnit types (Fact, IClassFixture, Assert, ...) available without a per-file using. -->
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Butler.Api\Butler.Api.csproj" />
+  </ItemGroup>
+
+</Project>

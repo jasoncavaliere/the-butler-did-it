@@ -1,4 +1,26 @@
+using Butler.Api.Application.System;
+using Butler.Api.Mediation;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// --- Composition root ----------------------------------------------------
+// Program.cs wires each feature via its Add<Feature>Feature() extension. To add
+// a feature: create Application/<Feature>/ (+ Infrastructure/<Feature>/), expose
+// Add<Feature>Feature(), and register it below. See Engineering Contract 7.2.
+
+// Thin controllers hand requests to MediatR.
+builder.Services.AddControllers();
+
+// MediatR: discover commands/queries and their handlers in this assembly.
+builder.Services.AddMediatR(cfg =>
+    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+
+// RFC 7807 problem details for every error path (Section 7.5).
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+
+// Features.
+builder.Services.AddSystemFeature();
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();
@@ -21,6 +43,9 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// All errors become RFC 7807 problem details via the shared handler.
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -40,28 +65,10 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
     .WithName("Health")
     .WithTags("System");
 
-// Sample payload: a slice of the household model (rooms -> people -> chores),
-// the shared spine the product vision describes. Placeholder data for now.
-app.MapGet("/api/hello", () => Results.Ok(new HelloResponse(
-        Service: "Butler.API",
-        Status: "ok",
-        Message: "The Butler is at your service.",
-        TimestampUtc: DateTime.UtcNow,
-        SampleHousehold: new Household(
-            Name: "The Cavaliere Household",
-            Rooms: new[] { "Kitchen", "Living Room", "Garage" },
-            Members: new[]
-            {
-                new Member("Alex", "organizer"),
-                new Member("Maya", "child"),
-            },
-            SampleChore: new Chore("Take out the trash", Room: "Kitchen", AssignedTo: "Maya", Done: false)))))
-    .WithName("Hello")
-    .WithTags("Butler");
+app.MapControllers();
 
 app.Run();
 
-record HelloResponse(string Service, string Status, string Message, DateTime TimestampUtc, Household SampleHousehold);
-record Household(string Name, string[] Rooms, Member[] Members, Chore SampleChore);
-record Member(string Name, string Role);
-record Chore(string Title, string Room, string AssignedTo, bool Done);
+// Exposed so the test project (arriving in F2) and MediatR's assembly scan can
+// reference this assembly by its entry-point type.
+public partial class Program;
