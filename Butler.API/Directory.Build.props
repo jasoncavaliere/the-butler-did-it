@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    Solution-wide build settings for Butler.API. Every project under this
+    directory inherits these; individual .csproj files carry only what is
+    genuinely project-specific.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Analyzers on, latest ruleset. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!--
+      Warnings are NOT errors by default so day-to-day inner-loop builds stay
+      fast and forgiving. The CI gate opts in explicitly with
+      /p:TreatWarningsAsErrors=true, so a warning still fails the build there.
+    -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
