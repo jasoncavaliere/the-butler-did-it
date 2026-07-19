@@ -20,6 +20,7 @@ Butler.API/
 │       ├── Infrastructure/   one folder per feature (external I/O, storage, providers)
 │       ├── Domain/           one folder per feature (entities/value types with no framework dependency)
 │       └── Mediation/         cross-cutting MediatR wiring, incl. ApiExceptionHandler (RFC 7807)
+│   └── Butler.Api.Tests/    xUnit + NSubstitute unit tests; coverlet enforces the 98% coverage gate
 ├── infra/
 │   ├── main.bicep           Azure App Service (Linux) - parameter-driven, policy-agnostic
 │   └── main.bicepparam      per-environment values (fill in before deploy)
@@ -34,7 +35,8 @@ dotnet restore
 dotnet run --project src/Butler.Api      # serves on the URL in launchSettings.json
 dotnet build                              # build the whole solution
 dotnet build --configuration Release /p:TreatWarningsAsErrors=true  # CI gate - zero warnings
-dotnet test                               # (no test project yet - add src/Butler.Api.Tests)
+dotnet test                               # run xUnit suite (src/Butler.Api.Tests)
+dotnet test /p:CollectCoverage=true       # + enforce the 98% coverage gate (Contract 7.7)
 ```
 
 ## Deploy (Azure)

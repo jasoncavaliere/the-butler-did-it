@@ -50,7 +50,8 @@ Butler.API (from `Butler.API/`):
 dotnet restore
 dotnet run --project src/Butler.Api   # run the API locally
 dotnet build                          # build the solution
-dotnet test                           # no test project exists yet - add src/Butler.Api.Tests
+dotnet test                           # run xUnit suite (src/Butler.Api.Tests)
+dotnet test /p:CollectCoverage=true   # + enforce the 98% coverage gate (Contract 7.7)
 ```
 
 Infra (both services) - Bicep, deployed per-service:
