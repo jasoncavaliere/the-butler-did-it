@@ -43,9 +43,47 @@ az deployment group create \
 
 App source is published via CI/CD (GitHub Actions / azd), not from the Bicep template.
 
+## Project structure
+
+Application code lives under `src/`, layered so later capability tickets have a clear home:
+
+```
+App.tsx                     # thin composition root: providers + navigation
+src/
+  api/        config.ts     # typed API base config (env-driven, dev default)
+  components/ Screen.tsx     # shared layout primitives
+  navigation/ RootNavigator.tsx  # navigation graph
+  screens/    HomeScreen.tsx # one screen per route
+  state/      AppConfigContext.tsx # app-wide config/context providers
+```
+
+**Navigation** uses [React Navigation](https://reactnavigation.org/) with a native stack
+(`@react-navigation/native` + `@react-navigation/native-stack`). `RootNavigator` mounts the
+`NavigationContainer` and registers routes; the `Home` route is the entry. Add a screen under
+`src/screens`, then register it in `RootNavigator` and extend `RootStackParamList`.
+
+**API base URL** comes from `src/api/config.ts`: it reads `EXPO_PUBLIC_API_BASE_URL` (inlined by Expo
+at build time) and falls back to `http://localhost:5108` for local dev. Use `apiUrl(path)` to build
+request URLs; later tickets build the real client on this seam.
+
+## Quality gates
+
+```bash
+npm run lint           # eslint (eslint-config-expo)
+npm run typecheck      # tsc --noEmit
+npm test               # jest (jest-expo preset)
+npm run test:coverage  # jest with the 98% global coverage gate
+npm run ci:verify      # lint + typecheck + coverage-gated test (the CI gate)
+```
+
+Tests use `jest-expo` + `@testing-library/react-native` and live next to the code they cover
+(`*.test.ts[x]`). Coverage is gated at 98% for statements, branches, functions, and lines
+(`coverageThreshold.global` in `jest.config.js`), per Engineering Contract 7.7 - keep new code covered.
+Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are async - `await` them.
+
 ## Notes
 
 - `CLAUDE.md` / `AGENTS.md` here are Expo-generated UI guidance and apply within this folder; the
   monorepo-level guide is the root [`CLAUDE.md`](../CLAUDE.md).
 - The hub UI (tap-to-claim profiles, the glanceable weekly board, offline behavior) is not built yet -
-  this is the scaffold.
+  `HomeScreen` is a placeholder; this ticket establishes the structure, navigation, and test harness.
