@@ -1,0 +1,60 @@
+# CI gate for the Butler.UI sub-service (Expo / React Native + web).
+#
+# Path-filtered: this runs only when a change touches Butler.UI/** (or this
+# workflow file itself). Independent from api-ci.yml - the two sub-services have
+# separate toolchains and no root build - so each gets its own required check.
+name: ui-ci
+
+on:
+  pull_request:
+    paths:
+      - "Butler.UI/**"
+      - ".github/workflows/ui-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Butler.UI/**"
+      - ".github/workflows/ui-ci.yml"
+
+# Least privilege: this job only reads the checked-out source.
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same ref so a new push cancels stale work.
+concurrency:
+  group: ui-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui:
+    name: lint + typecheck + coverage-gated test + web export
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Butler.UI
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin Node to the active LTS (22.x, "Jod") so CI matches a supported
+      # runtime. npm cache is keyed off Butler.UI/package-lock.json.
+      - name: Set up Node (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Butler.UI/package-lock.json
+
+      # Clean, lockfile-exact install (fails if package-lock.json is out of sync).
+      - name: Install
+        run: npm ci
+
+      # ci:verify = lint + typecheck + coverage-gated test. The Jest config
+      # gates coverage at 98% globally (Engineering Contract 7.7), so a drop
+      # below the threshold fails this step.
+      - name: Verify (lint, typecheck, 98% coverage gate)
+        run: npm run ci:verify
+
+      # Prove the web bundle still builds - the v1 hub ships as this static
+      # export (deployed to Azure Static Web Apps).
+      - name: Web export
+        run: npx expo export --platform web

@@ -17,3 +17,10 @@ Start with the **[Product Vision](Butler.KnowledgeBase/docs/10-product-vision.md
 
 Each sub-service is independent (its own build, deploy, and `infra/`). See [`CLAUDE.md`](CLAUDE.md) for
 how to work in this repo.
+
+## CI
+
+Every PR runs path-filtered GitHub Actions gates - the API builds (warnings-as-errors) and runs a
+coverage-gated test suite; the UI lints, typechecks, runs a coverage-gated test suite, and web-exports.
+Both enforce the 98% coverage gate (Engineering Contract 7.7). See [`CONTRIBUTING.md`](CONTRIBUTING.md)
+for the local commands that mirror CI.
