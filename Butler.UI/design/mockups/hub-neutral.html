@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butler mockup - Hub, neutral glance</title>
+<!--
+  Self-contained, theme-aware mockup for Butler. Every value is a CSS variable that
+  mirrors Butler.UI/design-tokens.json, so the mockup and the tokens never drift.
+  Theme: light by default, dark via prefers-color-scheme AND the top-right toggle.
+  Styling is react-native-web realizable: flexbox only, per-element token styles,
+  #rrggbbaa for the claim tint wash (RN supports 8-digit hex), no grid, no sticky.
+-->
+<style>
+  :root {
+    --bg:#FAF7F2; --surface:#FFFFFF; --text:#22201C; --text-muted:#6B6259;
+    --primary:#0F5A54; --on-primary:#FFFFFF; --border:#E7E0D6; --border-strong:#918979;
+    --success:#1F7A46; --danger:#A5332A; --focus-ring:#0F5A54;
+    --berry:#B0206F; --marigold:#8A6410; --grass:#3F7A1E; --blue:#2A5AD0; --violet:#7A34C0; --clay:#B0472A;
+    --on-claim:#FFFFFF; --claim-wash:#0F5A5400;
+    --caption:14px; --body:18px; --subhead:22px; --title:28px; --display:44px;
+    --sans:Inter,'Nunito Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s7:32px; --s8:48px; --s9:64px;
+    --r-sm:4px; --r-md:8px; --r-lg:16px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --dark:1; } }
+  :root[data-theme="dark"], :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+      --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+      --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+      --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+      --on-claim:#0E0B08;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+    --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+    --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+    --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+    --on-claim:#0E0B08;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans);
+         font-size:var(--body); line-height:1.4; }
+  .toggle { position:fixed; top:12px; right:12px; min-height:44px; padding:0 16px;
+            border:1px solid var(--border-strong); border-radius:var(--r-pill);
+            background:var(--surface); color:var(--text); font-size:var(--caption); cursor:pointer; }
+  /* focus token (ADR-0010): 3px ring, 2px offset. Web uses outline; .is-focused shows
+     the same token-driven ring without the pseudo-class, as RN draws a border ring. */
+  :focus-visible { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .is-focused { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .hub { max-width:1180px; margin:0 auto; padding:var(--s6); }
+  .caption-note { color:var(--text-muted); font-size:var(--caption); margin:0 0 var(--s6); }
+
+  /* zone 1: header */
+  .header { display:flex; flex-direction:row; align-items:flex-end; justify-content:space-between;
+            gap:var(--s4); padding-bottom:var(--s4); border-bottom:1px solid var(--border); }
+  .greeting { font-size:var(--display); font-weight:700; margin:0; }
+  .household { color:var(--text-muted); font-size:var(--subhead); margin:var(--s1) 0 0; }
+  .header-right { display:flex; flex-direction:column; align-items:flex-end; gap:var(--s2); }
+  .date { font-size:var(--subhead); font-weight:600; }
+  .chip { display:inline-flex; align-items:center; gap:var(--s2); min-height:36px;
+          padding:0 var(--s3); border-radius:var(--r-pill); font-size:var(--body);
+          border:1px solid var(--border-strong); color:var(--text-muted); background:var(--surface); }
+  .chip.sync { color:var(--success); border-color:var(--success); }
+
+  /* zone 2: name tiles */
+  .tiles { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin:var(--s6) 0; }
+  .tile { display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:var(--s2); min-height:96px; min-width:120px; padding:var(--s4);
+          background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); }
+  .tile .glyph { font-size:var(--subhead); }
+  .tile .name { font-size:var(--title); font-weight:600; }
+  .tile .bar { height:6px; width:56px; border-radius:var(--r-pill); }
+
+  /* zone 3: today panel */
+  .today { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+           padding:var(--s6); }
+  .today h2 { font-size:var(--title); margin:0 0 var(--s4); }
+  .row { display:flex; flex-direction:row; align-items:center; gap:var(--s4);
+         min-height:64px; padding:var(--s4); border-radius:var(--r-md);
+         border:1px solid var(--border); border-left-width:6px; margin-bottom:var(--s3);
+         background:var(--surface); }
+  .row .glyph { font-size:var(--subhead); width:28px; text-align:center; }
+  .row .what { font-size:var(--subhead); flex:1; }
+  .row .who { color:var(--text-muted); font-size:var(--body); }
+  .b-berry{border-left-color:var(--berry);} .b-marigold{border-left-color:var(--marigold);}
+  .b-grass{border-left-color:var(--grass);} .b-blue{border-left-color:var(--blue);}
+  .b-violet{border-left-color:var(--violet);} .b-clay{border-left-color:var(--clay);}
+  .g-berry{color:var(--berry);} .g-marigold{color:var(--marigold);} .g-grass{color:var(--grass);}
+  .g-blue{color:var(--blue);} .g-violet{color:var(--violet);} .g-clay{color:var(--clay);}
+
+  /* states strip */
+  .states { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin-top:var(--s7); }
+  .state { flex:1; min-width:260px; background:var(--surface); border:1px solid var(--border);
+           border-radius:var(--r-lg); padding:var(--s4); }
+  .state h3 { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:0 0 var(--s3); }
+  .empty { font-size:var(--title); font-weight:600; }
+  .empty small { display:block; font-size:var(--body); font-weight:400; color:var(--text-muted); margin-top:var(--s2); }
+  .skeleton { height:20px; border-radius:var(--r-sm); background:var(--border); margin-bottom:var(--s3); }
+  .skeleton.short { width:60%; }
+  .section-label { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:var(--s7) 0 var(--s3); }
+</style>
+</head>
+<body>
+  <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'?'light':'dark')">Toggle theme</button>
+  <main class="hub">
+    <p class="caption-note">Hub, neutral glance (ADR-0005). Ambient density. Nobody has tapped in; the whole household board is on show. The teal ring on Maya's tile is the cross-platform focus token (3px ring, 2px offset), which RN draws as a border ring.</p>
+
+    <div class="header">
+      <div>
+        <h1 class="greeting">Good morning.</h1>
+        <p class="household">The Rivera House</p>
+      </div>
+      <div class="header-right">
+        <span class="date">Tuesday, July 21</span>
+        <span class="chip sync">Synced 9:12am</span>
+      </div>
+    </div>
+
+    <div class="tiles" role="group" aria-label="Tap your name">
+      <button class="tile is-focused" aria-label="Maya, keyboard focused"><span class="glyph g-berry">*</span><span class="name">Maya</span><span class="bar" style="background:var(--berry)"></span></button>
+      <button class="tile"><span class="glyph g-blue">~</span><span class="name">Sam</span><span class="bar" style="background:var(--blue)"></span></button>
+      <button class="tile"><span class="glyph g-violet">(</span><span class="name">Elena</span><span class="bar" style="background:var(--violet)"></span></button>
+      <button class="tile"><span class="glyph g-grass">^</span><span class="name">Theo</span><span class="bar" style="background:var(--grass)"></span></button>
+      <button class="tile"><span class="glyph g-marigold">o</span><span class="name">Nana</span><span class="bar" style="background:var(--marigold)"></span></button>
+      <button class="tile"><span class="glyph g-clay">v</span><span class="name">Leo</span><span class="bar" style="background:var(--clay)"></span></button>
+    </div>
+
+    <section class="today" aria-label="Today">
+      <h2>Today</h2>
+      <div class="row b-berry"><span class="glyph g-berry">*</span><span class="what">Empty the dishwasher</span><span class="who">Maya</span></div>
+      <div class="row b-blue"><span class="glyph g-blue">~</span><span class="what">Walk the dog</span><span class="who">Sam</span></div>
+      <div class="row b-grass"><span class="glyph g-grass">^</span><span class="what">Take out the trash - trash night</span><span class="who">Theo</span></div>
+      <div class="row b-violet"><span class="glyph g-violet">(</span><span class="what">Set the table for dinner</span><span class="who">Elena</span></div>
+      <div class="row b-marigold"><span class="glyph g-marigold">o</span><span class="what">Water the front plants</span><span class="who">Nana</span></div>
+    </section>
+
+    <p class="section-label">The same panel in its other states</p>
+    <div class="states">
+      <div class="state">
+        <h3>Empty</h3>
+        <p class="empty">All caught up.<small>Nothing due today. Enjoy the quiet.</small></p>
+      </div>
+      <div class="state">
+        <h3>Loading</h3>
+        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton short"></div>
+        <p class="who" style="color:var(--text-muted);font-size:var(--body)">Last-known board stays visible while we refresh.</p>
+      </div>
+      <div class="state">
+        <h3>Offline</h3>
+        <span class="chip">Offline. Showing last synced 9:12am.</span>
+        <p class="who" style="color:var(--text-muted);font-size:var(--body);margin-top:var(--s3)">The board stays fully usable. No red banner.</p>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

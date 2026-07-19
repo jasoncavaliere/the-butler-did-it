@@ -1,0 +1,192 @@
+{
+  "_comment": "Butler design tokens - the machine-readable contract for the shared-tablet family concierge. The decision record (design/design-decision-record.md) explains WHY; this file is WHAT gets implemented on Expo / react-native-web. Values are density-independent px. Every fg/bg pair the design ships is listed in contrast_pairs so design_score.py can verify WCAG 2.1 AA in both themes. The decorative hairline `border` is intentionally low-contrast and is NOT a meaning-carrying boundary (surface already separates from bg), so it is exempt from the 3:1 rule and not declared as a contrast pair; input and other meaning-carrying boundaries use `border-strong`, which IS declared and passes 3:1. Established under spike #42; see Butler.KnowledgeBase/adr/ ADR-0001..0010.",
+  "brand": {
+    "name": "Butler",
+    "voice": "Calm concierge: understated, competent, gracious. Says 'Ready when you are.' and 'All caught up.', never 'You forgot!' and never gamified or naggy.",
+    "personality": ["warm", "dignified", "quietly-helpful", "unhurried", "legible-for-kids"]
+  },
+  "colors": {
+    "bg": "#FAF7F2",
+    "surface": "#FFFFFF",
+    "text": "#22201C",
+    "text-muted": "#6B6259",
+    "primary": "#0F5A54",
+    "on-primary": "#FFFFFF",
+    "border": "#E7E0D6",
+    "border-strong": "#918979",
+    "success": "#1F7A46",
+    "danger": "#A5332A",
+    "focus-ring": "#0F5A54"
+  },
+  "colors_dark": {
+    "bg": "#16130F",
+    "surface": "#211D18",
+    "text": "#F2EDE4",
+    "text-muted": "#A99F92",
+    "primary": "#4FB3A8",
+    "on-primary": "#08201E",
+    "border": "#3A342C",
+    "border-strong": "#786F60",
+    "success": "#69C08A",
+    "danger": "#E0796E",
+    "focus-ring": "#4FB3A8"
+  },
+  "claim_colors": {
+    "_comment": "Six mutually distinguishable person colors. Each is permanently paired with a glyph and always accompanied by the person's name, so the identity survives with color removed entirely (redundant encoding: color + glyph + name). Blue is a deliberate royal/sky blue kept visibly distinct from the teal `primary` so a glow never reads as the app accent. Light variants are dark enough to serve as a glyph/left-bar on the ivory surface at >= 3:1 and to carry `on-claim` white text as a filled chip; dark variants lighten for the warm-black surface and carry `on-claim` dark ink. Used primarily as accents (left color-bar, glyph, subtle tint wash) with body text kept on `surface`.",
+    "on-claim": "#FFFFFF",
+    "on-claim-dark": "#0E0B08",
+    "berry":    { "glyph": "star", "light": "#B0206F", "dark": "#EC77B4" },
+    "marigold": { "glyph": "sun",  "light": "#8A6410", "dark": "#E3B23C" },
+    "grass":    { "glyph": "leaf", "light": "#3F7A1E", "dark": "#83C24E" },
+    "blue":     { "glyph": "wave", "light": "#2A5AD0", "dark": "#77A8FF" },
+    "violet":   { "glyph": "moon", "light": "#7A34C0", "dark": "#B98CEE" },
+    "clay":     { "glyph": "fox",  "light": "#B0472A", "dark": "#E58A69" }
+  },
+  "contrast_pairs": [
+    { "name": "L body text on bg",         "fg": "#22201C", "bg": "#FAF7F2", "use": "normal" },
+    { "name": "L body text on surface",    "fg": "#22201C", "bg": "#FFFFFF", "use": "normal" },
+    { "name": "L muted text on bg",        "fg": "#6B6259", "bg": "#FAF7F2", "use": "normal" },
+    { "name": "L muted text on surface",   "fg": "#6B6259", "bg": "#FFFFFF", "use": "normal" },
+    { "name": "L on-primary on primary",   "fg": "#FFFFFF", "bg": "#0F5A54", "use": "normal" },
+    { "name": "L success on surface",      "fg": "#1F7A46", "bg": "#FFFFFF", "use": "normal" },
+    { "name": "L danger on surface",       "fg": "#A5332A", "bg": "#FFFFFF", "use": "normal" },
+    { "name": "L primary text on surface", "fg": "#0F5A54", "bg": "#FFFFFF", "use": "normal" },
+    { "name": "L primary accent on surface","fg": "#0F5A54", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L primary accent on bg",    "fg": "#0F5A54", "bg": "#FAF7F2", "use": "ui" },
+    { "name": "L border-strong on surface","fg": "#918979", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L border-strong on bg",     "fg": "#918979", "bg": "#FAF7F2", "use": "ui" },
+    { "name": "L focus ring on bg",        "fg": "#0F5A54", "bg": "#FAF7F2", "use": "ui" },
+    { "name": "L focus ring on surface",   "fg": "#0F5A54", "bg": "#FFFFFF", "use": "ui" },
+
+    { "name": "D body text on bg",         "fg": "#F2EDE4", "bg": "#16130F", "use": "normal" },
+    { "name": "D body text on surface",    "fg": "#F2EDE4", "bg": "#211D18", "use": "normal" },
+    { "name": "D muted text on bg",        "fg": "#A99F92", "bg": "#16130F", "use": "normal" },
+    { "name": "D muted text on surface",   "fg": "#A99F92", "bg": "#211D18", "use": "normal" },
+    { "name": "D on-primary on primary",   "fg": "#08201E", "bg": "#4FB3A8", "use": "normal" },
+    { "name": "D success on surface",      "fg": "#69C08A", "bg": "#211D18", "use": "normal" },
+    { "name": "D danger on surface",       "fg": "#E0796E", "bg": "#211D18", "use": "normal" },
+    { "name": "D primary text on surface", "fg": "#4FB3A8", "bg": "#211D18", "use": "normal" },
+    { "name": "D primary accent on surface","fg": "#4FB3A8", "bg": "#211D18", "use": "ui" },
+    { "name": "D primary accent on bg",    "fg": "#4FB3A8", "bg": "#16130F", "use": "ui" },
+    { "name": "D border-strong on surface","fg": "#786F60", "bg": "#211D18", "use": "ui" },
+    { "name": "D border-strong on bg",     "fg": "#786F60", "bg": "#16130F", "use": "ui" },
+    { "name": "D focus ring on bg",        "fg": "#4FB3A8", "bg": "#16130F", "use": "ui" },
+
+    { "name": "L claim berry glyph on surface",    "fg": "#B0206F", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L claim marigold glyph on surface", "fg": "#8A6410", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L claim grass glyph on surface",    "fg": "#3F7A1E", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L claim blue glyph on surface",     "fg": "#2A5AD0", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L claim violet glyph on surface",   "fg": "#7A34C0", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L claim clay glyph on surface",     "fg": "#B0472A", "bg": "#FFFFFF", "use": "ui" },
+    { "name": "L on-claim on berry chip",    "fg": "#FFFFFF", "bg": "#B0206F", "use": "large" },
+    { "name": "L on-claim on marigold chip", "fg": "#FFFFFF", "bg": "#8A6410", "use": "large" },
+    { "name": "L on-claim on grass chip",    "fg": "#FFFFFF", "bg": "#3F7A1E", "use": "large" },
+    { "name": "L on-claim on blue chip",     "fg": "#FFFFFF", "bg": "#2A5AD0", "use": "large" },
+    { "name": "L on-claim on violet chip",   "fg": "#FFFFFF", "bg": "#7A34C0", "use": "large" },
+    { "name": "L on-claim on clay chip",     "fg": "#FFFFFF", "bg": "#B0472A", "use": "large" },
+
+    { "name": "D claim berry glyph on surface",    "fg": "#EC77B4", "bg": "#211D18", "use": "ui" },
+    { "name": "D claim marigold glyph on surface", "fg": "#E3B23C", "bg": "#211D18", "use": "ui" },
+    { "name": "D claim grass glyph on surface",    "fg": "#83C24E", "bg": "#211D18", "use": "ui" },
+    { "name": "D claim blue glyph on surface",     "fg": "#77A8FF", "bg": "#211D18", "use": "ui" },
+    { "name": "D claim violet glyph on surface",   "fg": "#B98CEE", "bg": "#211D18", "use": "ui" },
+    { "name": "D claim clay glyph on surface",     "fg": "#E58A69", "bg": "#211D18", "use": "ui" },
+    { "name": "D on-claim on berry chip",    "fg": "#0E0B08", "bg": "#EC77B4", "use": "large" },
+    { "name": "D on-claim on marigold chip", "fg": "#0E0B08", "bg": "#E3B23C", "use": "large" },
+    { "name": "D on-claim on grass chip",    "fg": "#0E0B08", "bg": "#83C24E", "use": "large" },
+    { "name": "D on-claim on blue chip",     "fg": "#0E0B08", "bg": "#77A8FF", "use": "large" },
+    { "name": "D on-claim on violet chip",   "fg": "#0E0B08", "bg": "#B98CEE", "use": "large" },
+    { "name": "D on-claim on clay chip",     "fg": "#0E0B08", "bg": "#E58A69", "use": "large" }
+  ],
+  "type_scale": {
+    "caption": 14,
+    "body": 18,
+    "subhead": 22,
+    "title": 28,
+    "display": 44
+  },
+  "type_scale_note": "1.25 modular scale with an 18px body floor. Adjacent steps are close to but not all exactly 1.25 (14, 18, 22, 28 are single steps); display 44 sits two steps above title 28 (28 -> 35 -> 44), skipping the ~35 step on purpose for a stronger hero size. So do not read every adjacent pair as an exact 1.25 ratio.",
+  "type_family": {
+    "sans": "Inter, 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    "_note": "One warm humanist sans (Inter / Nunito Sans character), weights 400/600/700, line-height ~1.4 for body. On this stack the family is a role: if a bundled font is not present, fall back to the system humanist sans in the stack above at zero cost."
+  },
+  "type_weights": { "regular": 400, "semibold": 600, "bold": 700 },
+  "line_heights": { "tight": 1.2, "body": 1.4 },
+  "spacing": [4, 8, 12, 16, 24, 32, 48, 64],
+  "radii": { "sm": 4, "md": 8, "lg": 16, "pill": 999 },
+  "min_touch_target": 44,
+  "focus": {
+    "_comment": "Cross-platform visible focus (ADR-0010). WCAG 2.5 focus ring at >= 3:1. On web this renders as an outline; on RN/native there is no :focus-visible pseudo-class, so the ring is drawn as a real bordered ring (a View border or a wrapping ring layer) toggled on focus state, wired via accessibilityState. The visible-focus requirement therefore has a concrete cross-platform realization, not only a web pseudo-class.",
+    "ring-color": "focus-ring",
+    "ring-width": 3,
+    "ring-offset": 2,
+    "web-render": "outline: 3px solid focus-ring; outline-offset: 2px",
+    "native-render": "a 3px border-ring at 2px offset drawn around the focused element on focus, not the web :focus-visible pseudo-class"
+  },
+  "density": {
+    "_comment": "Two contexts, one system (ADR-0008). The hub is the ambient config read across a room; organizer flows are the focused config on a phone/portrait. Same palette, type, and components; two densities. secondary-size is the assignee/who and status text: at hub density it steps up from caption 14 to body 18 so the 'who' stays legible at room distance, while the focused density keeps caption 14.",
+    "hub": { "row-min-height": 64, "primary-size": "title", "heading-size": "display", "secondary-size": "body" },
+    "focused": { "row-min-height": 48, "primary-size": "body", "heading-size": "title", "secondary-size": "caption" }
+  },
+  "motion": {
+    "_comment": "Gentle and quick; always gated on prefers-reduced-motion (ADR-0006).",
+    "duration-ms": { "fast": 150, "base": 200, "slow": 250 },
+    "easing": "ease-out",
+    "reduced-motion": "respect"
+  },
+  "components": {
+    "button-primary": {
+      "bg": "primary", "fg": "on-primary", "radius": "md",
+      "min-height": 44, "padding-x": 16, "font-size": "body", "font-weight": 600,
+      "a11y": { "role": "button", "label": "action verb, e.g. Confirm order" }
+    },
+    "button-secondary": {
+      "bg": "surface", "fg": "primary", "border": "border-strong", "radius": "md",
+      "min-height": 44, "padding-x": 16, "font-size": "body", "font-weight": 600,
+      "a11y": { "role": "button" }
+    },
+    "input": {
+      "bg": "surface", "fg": "text", "border": "border-strong", "radius": "md",
+      "min-height": 48, "padding-x": 12, "font-size": "body",
+      "a11y": { "label": "a visible bound label, never placeholder-as-label" }
+    },
+    "card": {
+      "bg": "surface", "border": "border", "radius": "lg", "padding": 16,
+      "_note": "border here is the decorative hairline; the surface fill is what separates the card from bg."
+    },
+    "name-tile": {
+      "_context": "hub - ambient",
+      "bg": "surface", "fg": "text", "radius": "lg",
+      "min-height": 64, "min-width": 96, "padding": 16, "font-size": "title", "font-weight": 600,
+      "neutral": { "claim-cue": "small glyph + thin claim-color underbar, calm" },
+      "active": { "claim-tint-wash": "claim light/dark at low alpha over surface", "elevation": "slight", "glyph": "claim color", "name-weight": 700 },
+      "a11y": { "role": "button", "label": "person name", "state": "selected when active", "note": "identity carried by color AND glyph AND name" }
+    },
+    "chore-item": {
+      "_context": "hub - ambient",
+      "bg": "surface", "fg": "text", "radius": "md",
+      "min-height": 64, "padding": 16, "font-size": "subhead", "secondary-size": "body",
+      "left-bar": "assignee claim color", "leading-glyph": "assignee claim glyph",
+      "active-owner": { "state": "glow: claim left-bar + glyph + slight elevation" },
+      "inactive-owner": { "state": "recede via a DECLARED muted treatment: text at text-muted and lighter weight, NOT blanket opacity; every fg/bg stays a declared contrast pair passing AA, so a receded row is still legible in the glance" },
+      "done": { "fg": "text-muted", "check": "success", "strike-or-mute": true, "undo": "brief undo affordance" },
+      "queued": { "glyph": "clock", "fg": "text-muted", "note": "offline write, resolves to done on sync" },
+      "failed": { "mark": "danger", "fg": "danger", "retry": "Retry affordance", "note": "optimistic completion that did not go through: icon AND text AND color (danger) with a retry; copy 'That did not go through. Tap to try again.'" },
+      "a11y": { "role": "checkbox", "state": "checked when done", "note": "done shown by check icon AND muted text, never color alone; failed shown by icon AND text AND color" }
+    },
+    "offline-chip": {
+      "bg": "surface", "fg": "text-muted", "border": "border-strong", "radius": "pill",
+      "min-height": 32, "padding-x": 12, "font-size": "caption", "hub-font-size": "body", "leading-glyph": "cloud-off",
+      "_note": "quiet and muted, never an alarming red banner; the board stays fully usable behind it. At hub density the text steps up to body 18 so it is legible at room distance (see density.secondary-size).",
+      "a11y": { "role": "status", "label": "Offline. Showing last synced <time>." }
+    },
+    "balance-bar-segment": {
+      "_context": "fairness view (ADR-0009)",
+      "fill": "assignee claim color", "leading-glyph": "assignee claim glyph",
+      "min-height": 44, "radius": "pill",
+      "order": "stable household/roster order, NOT sorted by share, so the bar never reads as a ranking",
+      "_note": "one horizontal proportional bar; each person's completed share is a segment in their claim color + glyph, laid out in stable household order; framed as trending toward even; no rank, no numbers-first (exact percentages are not foregrounded on the segments), no leaderboard",
+      "a11y": { "role": "image", "label": "Balance this week: trending toward even. Each person's share of chores done, in household order: <names in stable order>. No ranking language." }
+    }
+  }
+}

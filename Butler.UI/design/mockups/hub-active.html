@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butler mockup - Hub, active participant + balance bar</title>
+<!--
+  Active state (ADR-0005, ADR-0006): Maya has tapped in. Her tile lifts and her claim
+  color washes in; her items glow (claim left-bar + glyph + weight + elevation) and
+  everyone else's recede. Includes the calm fairness balance bar (ADR-0009).
+  Theme-aware; flexbox only; claim tint wash uses #rrggbbaa (RN-realizable).
+-->
+<style>
+  :root {
+    --bg:#FAF7F2; --surface:#FFFFFF; --text:#22201C; --text-muted:#6B6259;
+    --primary:#0F5A54; --on-primary:#FFFFFF; --border:#E7E0D6; --border-strong:#918979;
+    --success:#1F7A46; --danger:#A5332A; --focus-ring:#0F5A54;
+    --berry:#B0206F; --marigold:#8A6410; --grass:#3F7A1E; --blue:#2A5AD0; --violet:#7A34C0; --clay:#B0472A;
+    --on-claim:#FFFFFF;
+    --berry-wash:#B0206F1F; --marigold-wash:#8A64101F; --grass-wash:#3F7A1E1F;
+    --blue-wash:#2A5AD01F; --violet-wash:#7A34C01F; --clay-wash:#B0472A1F;
+    --caption:14px; --body:18px; --subhead:22px; --title:28px; --display:44px;
+    --sans:Inter,'Nunito Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s7:32px; --s8:48px; --s9:64px;
+    --r-sm:4px; --r-md:8px; --r-lg:16px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+      --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+      --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+      --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+      --on-claim:#0E0B08;
+      --berry-wash:#EC77B41F; --marigold-wash:#E3B23C1F; --grass-wash:#83C24E1F;
+      --blue-wash:#77A8FF1F; --violet-wash:#B98CEE1F; --clay-wash:#E58A691F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+    --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+    --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+    --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+    --on-claim:#0E0B08;
+    --berry-wash:#EC77B41F; --marigold-wash:#E3B23C1F; --grass-wash:#83C24E1F;
+    --blue-wash:#77A8FF1F; --violet-wash:#B98CEE1F; --clay-wash:#E58A691F;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans);
+         font-size:var(--body); line-height:1.4; }
+  .toggle { position:fixed; top:12px; right:12px; min-height:44px; padding:0 16px;
+            border:1px solid var(--border-strong); border-radius:var(--r-pill);
+            background:var(--surface); color:var(--text); font-size:var(--caption); cursor:pointer; }
+  /* focus token (ADR-0010): 3px ring, 2px offset. Web renders via outline; the
+     .is-focused class shows the same token-driven ring without the pseudo-class,
+     mirroring how RN draws a border ring on focus state. */
+  :focus-visible { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .is-focused { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .hub { max-width:1180px; margin:0 auto; padding:var(--s6); }
+  .caption-note { color:var(--text-muted); font-size:var(--caption); margin:0 0 var(--s6); }
+  .header { display:flex; flex-direction:row; align-items:flex-end; justify-content:space-between;
+            gap:var(--s4); padding-bottom:var(--s4); border-bottom:1px solid var(--border); }
+  .greeting { font-size:var(--display); font-weight:700; margin:0; }
+  .household { color:var(--text-muted); font-size:var(--subhead); margin:var(--s1) 0 0; }
+  .header-right { display:flex; flex-direction:column; align-items:flex-end; gap:var(--s2); }
+  .date { font-size:var(--subhead); font-weight:600; }
+  .chip { display:inline-flex; align-items:center; gap:var(--s2); min-height:36px;
+          padding:0 var(--s3); border-radius:var(--r-pill); font-size:var(--body);
+          border:1px solid var(--border-strong); color:var(--text-muted); background:var(--surface); }
+  .chip.sync { color:var(--success); border-color:var(--success); }
+  .tiles { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin:var(--s6) 0; }
+  .tile { display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:var(--s2); min-height:96px; min-width:120px; padding:var(--s4);
+          background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); }
+  .tile.active { border:2px solid var(--berry); background:var(--berry-wash); transform:translateY(-4px); }
+  .tile .glyph { font-size:var(--subhead); }
+  .tile .name { font-size:var(--title); font-weight:600; }
+  .tile.active .name { font-weight:700; }
+  .tile .bar { height:6px; width:56px; border-radius:var(--r-pill); }
+  .today { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s6); }
+  .today h2 { font-size:var(--title); margin:0 0 var(--s4); }
+  .row { display:flex; flex-direction:row; align-items:center; gap:var(--s4);
+         min-height:64px; padding:var(--s4); border-radius:var(--r-md);
+         border:1px solid var(--border); border-left-width:6px; margin-bottom:var(--s3); background:var(--surface); }
+  .row .glyph { font-size:var(--subhead); width:28px; text-align:center; }
+  .row .what { font-size:var(--subhead); flex:1; }
+  .row .who { color:var(--text-muted); font-size:var(--body); }
+  .row.glow { border-left-color:var(--berry); background:var(--berry-wash); transform:translateY(-2px); }
+  .row.glow .what { font-weight:700; }
+  .row.glow .glyph { color:var(--berry); }
+  /* recede via a DECLARED muted treatment, not opacity: text at text-muted + lighter
+     weight so every fg/bg stays a declared AA-passing pair and the row is still legible. */
+  .row.dim { background:var(--surface); }
+  .row.dim .what { color:var(--text-muted); font-weight:400; }
+  .row.dim .who { color:var(--text-muted); }
+  .b-blue{border-left-color:var(--blue);} .b-grass{border-left-color:var(--grass);}
+  .b-violet{border-left-color:var(--violet);} .b-marigold{border-left-color:var(--marigold);}
+  .g-blue{color:var(--blue);} .g-grass{color:var(--grass);} .g-violet{color:var(--violet);} .g-marigold{color:var(--marigold);}
+
+  /* balance bar (ADR-0009) */
+  .balance { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+             padding:var(--s6); margin-top:var(--s6); }
+  .balance h2 { font-size:var(--title); margin:0 0 var(--s2); }
+  .balance .lead { color:var(--text-muted); font-size:var(--body); margin:0 0 var(--s4); }
+  .bar-track { display:flex; flex-direction:row; width:100%; min-height:44px;
+               border-radius:var(--r-pill); overflow:hidden; border:1px solid var(--border-strong); }
+  .seg { display:flex; align-items:center; justify-content:center; gap:var(--s2);
+         color:var(--on-claim); font-size:var(--body); font-weight:700; }
+  .legend { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin-top:var(--s3);
+            color:var(--text-muted); font-size:var(--body); }
+  .legend span { display:inline-flex; align-items:center; gap:var(--s2); }
+  .dot { width:12px; height:12px; border-radius:var(--r-pill); display:inline-block; }
+  .balanced { color:var(--success); font-weight:600; }
+
+  .states { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin-top:var(--s7); }
+  .state { flex:1; min-width:260px; background:var(--surface); border:1px solid var(--border);
+           border-radius:var(--r-lg); padding:var(--s4); }
+  .state h3 { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:0 0 var(--s3); }
+  .empty { font-size:var(--title); font-weight:600; }
+  .empty small { display:block; font-size:var(--body); font-weight:400; color:var(--text-muted); margin-top:var(--s2); }
+  .skeleton { height:20px; border-radius:var(--r-sm); background:var(--border); margin-bottom:var(--s3); }
+  .skeleton.short { width:60%; }
+  .section-label { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:var(--s7) 0 var(--s3); }
+</style>
+</head>
+<body>
+  <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'?'light':'dark')">Toggle theme</button>
+  <main class="hub">
+    <p class="caption-note">Hub, active participant (ADR-0005, ADR-0006). Maya tapped in: her tile lifts, her items glow, and the rest recede via a muted treatment that stays legible. The teal ring on Sam's tile is the cross-platform focus token (3px ring, 2px offset), which RN draws as a border ring. An idle timeout returns to neutral.</p>
+
+    <div class="header">
+      <div>
+        <h1 class="greeting">Ready when you are, Maya.</h1>
+        <p class="household">The Rivera House</p>
+      </div>
+      <div class="header-right">
+        <span class="date">Tuesday, July 21</span>
+        <span class="chip sync">Synced 9:12am</span>
+      </div>
+    </div>
+
+    <div class="tiles" role="group" aria-label="Tap your name">
+      <button class="tile active" aria-pressed="true"><span class="glyph" style="color:var(--berry)">*</span><span class="name">Maya</span><span class="bar" style="background:var(--berry)"></span></button>
+      <button class="tile is-focused" aria-label="Sam, keyboard focused"><span class="glyph g-blue">~</span><span class="name">Sam</span><span class="bar" style="background:var(--blue)"></span></button>
+      <button class="tile"><span class="glyph g-violet">(</span><span class="name">Elena</span><span class="bar" style="background:var(--violet)"></span></button>
+      <button class="tile"><span class="glyph g-grass">^</span><span class="name">Theo</span><span class="bar" style="background:var(--grass)"></span></button>
+      <button class="tile"><span class="glyph g-marigold">o</span><span class="name">Nana</span><span class="bar" style="background:var(--marigold)"></span></button>
+      <button class="tile"><span class="glyph g-clay">v</span><span class="name">Leo</span><span class="bar" style="background:var(--clay)"></span></button>
+    </div>
+
+    <section class="today" aria-label="Today">
+      <h2>Today</h2>
+      <div class="row glow"><span class="glyph">*</span><span class="what">Empty the dishwasher</span><span class="who">Yours, Maya</span></div>
+      <div class="row glow"><span class="glyph">*</span><span class="what">Feed the cat</span><span class="who">Yours, Maya</span></div>
+      <div class="row dim b-blue"><span class="glyph g-blue">~</span><span class="what">Walk the dog</span><span class="who">Sam</span></div>
+      <div class="row dim b-grass"><span class="glyph g-grass">^</span><span class="what">Take out the trash - trash night</span><span class="who">Theo</span></div>
+      <div class="row dim b-violet"><span class="glyph g-violet">(</span><span class="what">Set the table for dinner</span><span class="who">Elena</span></div>
+    </section>
+
+    <section class="balance" aria-label="Balance this week">
+      <h2>Balance</h2>
+      <p class="lead">Everyone's share of the chores done this week, <span class="balanced">trending toward even</span>. Not a ranking.</p>
+      <div class="bar-track" role="img" aria-label="Balance this week: trending toward even. Each person's share of chores done, in household order: Maya, Sam, Elena, Theo, Nana, Leo. No one is ranked.">
+        <div class="seg" style="flex:22;background:var(--berry)" title="Maya">*</div>
+        <div class="seg" style="flex:20;background:var(--blue)" title="Sam">~</div>
+        <div class="seg" style="flex:16;background:var(--violet)" title="Elena">(</div>
+        <div class="seg" style="flex:18;background:var(--grass)" title="Theo">^</div>
+        <div class="seg" style="flex:14;background:var(--marigold)" title="Nana">o</div>
+        <div class="seg" style="flex:10;background:var(--clay)" title="Leo">v</div>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--berry)"></i> Maya</span>
+        <span><i class="dot" style="background:var(--blue)"></i> Sam</span>
+        <span><i class="dot" style="background:var(--violet)"></i> Elena</span>
+        <span><i class="dot" style="background:var(--grass)"></i> Theo</span>
+        <span><i class="dot" style="background:var(--marigold)"></i> Nana</span>
+        <span><i class="dot" style="background:var(--clay)"></i> Leo</span>
+      </div>
+    </section>
+
+    <p class="section-label">The Today panel in its other states</p>
+    <div class="states">
+      <div class="state">
+        <h3>Empty</h3>
+        <p class="empty">All caught up.<small>No chores left for you. Nice work.</small></p>
+      </div>
+      <div class="state">
+        <h3>Loading</h3>
+        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton short"></div>
+      </div>
+      <div class="state">
+        <h3>Offline</h3>
+        <span class="chip">Offline. Showing last synced 9:12am.</span>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
