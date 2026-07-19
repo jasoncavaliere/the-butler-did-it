@@ -1,4 +1,5 @@
 using Butler.Api.Application.System;
+using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Mediation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +19,12 @@ builder.Services.AddMediatR(cfg =>
 // RFC 7807 problem details for every error path (Section 7.5).
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+
+// Shared persistence seam (Engineering Contract 7.3): the Table Storage client
+// factory + options. Feature modules register their own tables on top with
+// services.AddTableRepository<TEntity>("<TableName>"); with no storage
+// configured the seam falls back to the in-memory seed store automatically.
+builder.Services.AddStorage(builder.Configuration);
 
 // Features.
 builder.Services.AddSystemFeature();

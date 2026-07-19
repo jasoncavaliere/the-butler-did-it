@@ -51,6 +51,28 @@ public sealed class ApiExceptionHandlerTests : IClassFixture<ButlerApiFactory>
         await AssertProblemDetailsAsync(response, expectedStatus: 400, expectedTitle: "Validation failed.");
     }
 
+    [Fact]
+    public async Task Precondition_required_exception_maps_to_428_problem_details()
+    {
+        using var client = _factory.CreateClient();
+
+        using var response = await client.GetAsync(new Uri("/test/precondition-required", UriKind.Relative));
+
+        Assert.Equal((HttpStatusCode)428, response.StatusCode);
+        await AssertProblemDetailsAsync(response, expectedStatus: 428, expectedTitle: "If-Match header is required.");
+    }
+
+    [Fact]
+    public async Task Precondition_failed_exception_maps_to_412_problem_details()
+    {
+        using var client = _factory.CreateClient();
+
+        using var response = await client.GetAsync(new Uri("/test/precondition-failed", UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, response.StatusCode);
+        await AssertProblemDetailsAsync(response, expectedStatus: 412, expectedTitle: "The resource was modified by another request.");
+    }
+
     private static async Task AssertProblemDetailsAsync(
         HttpResponseMessage response,
         int expectedStatus,

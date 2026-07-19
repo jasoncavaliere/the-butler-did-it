@@ -6,10 +6,21 @@
     ../../Directory.Packages.props (central package management).
   -->
 
+  <!--
+    The test project exercises internal seams (for example TableClientFactory's
+    credential-injecting constructor) so the managed-identity path is tested
+    without standing up a real DefaultAzureCredential chain.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Butler.Api.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="MediatR" />
+    <PackageReference Include="Azure.Data.Tables" />
+    <PackageReference Include="Azure.Identity" />
   </ItemGroup>
 
 </Project>
