@@ -1,3 +1,4 @@
+using Butler.Api.Application.Concurrency;
 using Microsoft.AspNetCore.Mvc;
 using DataAnnotationsValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
@@ -33,4 +34,20 @@ public sealed class ThrowingTestController : ControllerBase
     [HttpGet("/test/named-validation")]
     public IActionResult NamedValidation() =>
         throw new StandIn.ValidationException("type-name match validation failure");
+
+    /// <summary>
+    /// Throws <see cref="PreconditionRequiredException"/>, which the handler maps
+    /// to <c>428</c> (a mutation attempted without an <c>If-Match</c>).
+    /// </summary>
+    [HttpGet("/test/precondition-required")]
+    public IActionResult PreconditionRequired() =>
+        throw new PreconditionRequiredException();
+
+    /// <summary>
+    /// Throws <see cref="PreconditionFailedException"/>, which the handler maps to
+    /// <c>412</c> (a mutation attempted with a stale <c>If-Match</c>).
+    /// </summary>
+    [HttpGet("/test/precondition-failed")]
+    public IActionResult PreconditionFailed() =>
+        throw new PreconditionFailedException();
 }

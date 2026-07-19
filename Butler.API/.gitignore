@@ -484,3 +484,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Azurite local Table Storage emulator data (started by Start-LocalSession.ps1)
+.azurite/
+__azurite_db*__.json
+__blobstorage__/
+__queuestorage__/
