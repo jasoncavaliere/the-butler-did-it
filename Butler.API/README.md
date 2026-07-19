@@ -71,6 +71,26 @@ variables):
 | `Storage:TableServiceUri` | Explicit table service endpoint (overrides the derived one; e.g. sovereign clouds). |
 | `Storage:UseInMemoryStore` | Explicit override: `true` forces the in-memory store, `false` forces real storage. Unset = in-memory only when no connection is configured. |
 
+## Organizer authentication
+
+Only the organizer authenticates (Engineering Contract 7.4); participants and the shared hub device
+never do (Epic 30). Endpoints that require an organizer carry
+`[Authorize(Policy = OrganizerAuthorization.PolicyName)]` - `GET /me` (resolves the caller's subject and
+display name) is the sample organizer-only endpoint that proves the seam end to end.
+
+In deployed environments the API validates JWT bearer tokens issued by Entra External ID. Locally and in
+CI (the Development environment), authentication is bypassed by default: every request is authenticated
+as a deterministic dev organizer, so `dotnet run` and `dotnet test` need no live tenant. This bypass
+fails closed everywhere else - a non-Development host refuses to start if authentication is disabled, or
+if it is enabled but no authority is configured. Configure it under the `Authentication` section (or
+`Authentication__*` environment variables):
+
+| Setting | Purpose |
+| --- | --- |
+| `Authentication:Authority` | Entra External ID authority (issuer) that mints organizer tokens, e.g. `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0`. Required whenever authentication is enabled. |
+| `Authentication:Audience` | Expected audience (the API's application/client id). Optional; when unset the audience is not validated. |
+| `Authentication:DisableAuthentication` | Explicit override. Defaults to `true` in Development, refused (fail closed) in every other environment. Never set this outside Development. |
+
 ## Deploy (Azure)
 
 Infra is Bicep. Names and tags are fully parameterized so the template carries no naming policy of its
@@ -95,7 +115,8 @@ RFC 7807 problem-details response via `Mediation/ApiExceptionHandler`.
 
 `System` (`Application/System/`, `Controllers/SystemController`) is the reference vertical slice that
 proves this path end to end - see `GET /api/system/ping`. `GET /health` remains a plain liveness check
-outside the MediatR pipeline.
+outside the MediatR pipeline, and `GET /me` (see "Organizer authentication" above) is the reference
+organizer-only endpoint, gated by the `Organizer` authorization policy rather than MediatR.
 
 Persistence is a shared seam (Engineering Contract 7.3), not per-feature wiring. `Infrastructure/Storage/`
 holds an `ITableClientFactory` that resolves an `Azure.Data.Tables` `TableClient` per table name from the

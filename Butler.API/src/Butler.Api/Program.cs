@@ -1,4 +1,5 @@
 using Butler.Api.Application.System;
+using Butler.Api.Infrastructure.Auth;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Mediation;
 
@@ -25,6 +26,11 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 // services.AddTableRepository<TEntity>("<TableName>"); with no storage
 // configured the seam falls back to the in-memory seed store automatically.
 builder.Services.AddStorage(builder.Configuration);
+
+// Organizer authentication seam (Engineering Contract 7.4): JWT bearer against
+// Entra External ID + the Organizer authorization policy, with a Development-only
+// bypass that fails closed in every other environment.
+builder.Services.AddOrganizerAuthentication(builder.Configuration, builder.Environment);
 
 // Features.
 builder.Services.AddSystemFeature();
@@ -66,6 +72,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(DevCors);
+
+// Authenticate the caller, then enforce authorization policies (the Organizer
+// policy on protected endpoints such as GET /me).
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Liveness probe.
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }))

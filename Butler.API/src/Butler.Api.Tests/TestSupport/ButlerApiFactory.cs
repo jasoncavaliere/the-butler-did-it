@@ -12,10 +12,19 @@ namespace Butler.Api.Tests.TestSupport;
 /// <see cref="ThrowingTestController"/> endpoints are routable. Production
 /// registrations are otherwise untouched.
 /// </summary>
+/// <remarks>
+/// The host is pinned to the Development environment - the "local + CI" default
+/// (Engineering Contract 7.4), where organizer authentication is disabled and a
+/// deterministic dev-organizer principal is injected, so tests need no live
+/// tenant. Tests that need a different environment or auth configuration compose
+/// this factory with <see cref="Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory{TEntryPoint}.WithWebHostBuilder"/>.
+/// </remarks>
 public sealed class ButlerApiFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseEnvironment("Development");
+
         builder.ConfigureTestServices(services =>
             services.AddControllers()
                 .AddApplicationPart(typeof(ButlerApiFactory).Assembly));
