@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butler mockup - Tap to claim</title>
+<!--
+  Tap-to-claim (ADR-0003, ADR-0006): tap a name, become the active participant, no
+  password ever. Identity is color + glyph + name, so it survives with color removed.
+  Three moments shown left to right: neutral, the tap, and claimed. Theme-aware;
+  flexbox only; claim tint wash via #rrggbbaa.
+-->
+<style>
+  :root {
+    --bg:#FAF7F2; --surface:#FFFFFF; --text:#22201C; --text-muted:#6B6259;
+    --primary:#0F5A54; --on-primary:#FFFFFF; --border:#E7E0D6; --border-strong:#918979;
+    --success:#1F7A46; --danger:#A5332A; --focus-ring:#0F5A54;
+    --berry:#B0206F; --marigold:#8A6410; --grass:#3F7A1E; --blue:#2A5AD0; --violet:#7A34C0; --clay:#B0472A;
+    --on-claim:#FFFFFF; --berry-wash:#B0206F1F; --blue-wash:#2A5AD01F;
+    --caption:14px; --body:18px; --subhead:22px; --title:28px; --display:44px;
+    --sans:Inter,'Nunito Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s7:32px; --s8:48px;
+    --r-sm:4px; --r-md:8px; --r-lg:16px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+      --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+      --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+      --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+      --on-claim:#0E0B08; --berry-wash:#EC77B41F; --blue-wash:#77A8FF1F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+    --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+    --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+    --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+    --on-claim:#0E0B08; --berry-wash:#EC77B41F; --blue-wash:#77A8FF1F;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:var(--body); line-height:1.4; }
+  .toggle { position:fixed; top:12px; right:12px; min-height:44px; padding:0 16px;
+            border:1px solid var(--border-strong); border-radius:var(--r-pill);
+            background:var(--surface); color:var(--text); font-size:var(--caption); cursor:pointer; }
+  /* focus token (ADR-0010): 3px ring, 2px offset. Web uses outline; .is-focused shows
+     the same token-driven ring without the pseudo-class, as RN draws a border ring. */
+  :focus-visible { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .is-focused { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .wrap { max-width:1100px; margin:0 auto; padding:var(--s6); }
+  h1 { font-size:var(--title); margin:0 0 var(--s2); }
+  .caption-note { color:var(--text-muted); font-size:var(--caption); margin:0 0 var(--s6); }
+  .steps { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); }
+  .step { flex:1; min-width:280px; background:var(--surface); border:1px solid var(--border);
+          border-radius:var(--r-lg); padding:var(--s4); }
+  .step h2 { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:0 0 var(--s4); }
+  .tile-row { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s3); }
+  .tile { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--s2);
+          min-height:96px; min-width:96px; flex:1; padding:var(--s3);
+          background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); }
+  .tile .glyph { font-size:var(--subhead); }
+  .tile .name { font-size:var(--subhead); font-weight:600; }
+  .tile .bar { height:6px; width:44px; border-radius:var(--r-pill); }
+  .tile.pressing { border:2px solid var(--berry); }
+  .tile.active { border:2px solid var(--berry); background:var(--berry-wash); transform:translateY(-4px); }
+  .tile.active .name { font-weight:700; }
+  .caption { color:var(--text-muted); font-size:var(--body); margin-top:var(--s4); }
+  .noauth { display:inline-flex; align-items:center; gap:var(--s2); min-height:36px; padding:0 var(--s3);
+            border-radius:var(--r-pill); border:1px solid var(--primary); color:var(--primary);
+            background:var(--surface); font-size:var(--body); margin-top:var(--s4); }
+  .g-blue{color:var(--blue);} .g-violet{color:var(--violet);} .g-grass{color:var(--grass);}
+  .g-marigold{color:var(--marigold);} .g-clay{color:var(--clay);}
+  .states { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin-top:var(--s7); }
+  .state { flex:1; min-width:260px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s4); }
+  .state h3 { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:0 0 var(--s3); }
+  .empty { font-size:var(--title); font-weight:600; }
+  .empty small { display:block; font-size:var(--body); font-weight:400; color:var(--text-muted); margin-top:var(--s2); }
+  .skeleton { height:20px; border-radius:var(--r-sm); background:var(--border); margin-bottom:var(--s3); }
+  .skeleton.short { width:60%; }
+  .chip { display:inline-flex; align-items:center; gap:var(--s2); min-height:36px; padding:0 var(--s3);
+          border-radius:var(--r-pill); font-size:var(--body); border:1px solid var(--border-strong); color:var(--text-muted); background:var(--surface); }
+  .section-label { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:var(--s7) 0 var(--s3); }
+</style>
+</head>
+<body>
+  <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'?'light':'dark')">Toggle theme</button>
+  <main class="wrap">
+    <h1>Tap to claim</h1>
+    <p class="caption-note">No password, ever. Tap a name and that person becomes active. Identity is color and glyph and name together, so it works with color removed. The teal ring on Sam's tile below is the cross-platform focus token (3px ring, 2px offset), which RN draws as a border ring.</p>
+
+    <div class="steps">
+      <div class="step">
+        <h2>1. Neutral</h2>
+        <div class="tile-row">
+          <div class="tile"><span class="glyph" style="color:var(--berry)">*</span><span class="name">Maya</span><span class="bar" style="background:var(--berry)"></span></div>
+          <div class="tile is-focused" aria-label="Sam, keyboard focused"><span class="glyph g-blue">~</span><span class="name">Sam</span><span class="bar" style="background:var(--blue)"></span></div>
+          <div class="tile"><span class="glyph g-grass">^</span><span class="name">Theo</span><span class="bar" style="background:var(--grass)"></span></div>
+        </div>
+        <p class="caption">Calm name tiles. Nothing is highlighted until someone taps.</p>
+      </div>
+
+      <div class="step">
+        <h2>2. The tap</h2>
+        <div class="tile-row">
+          <div class="tile pressing"><span class="glyph" style="color:var(--berry)">*</span><span class="name">Maya</span><span class="bar" style="background:var(--berry)"></span></div>
+          <div class="tile"><span class="glyph g-blue">~</span><span class="name">Sam</span><span class="bar" style="background:var(--blue)"></span></div>
+          <div class="tile"><span class="glyph g-grass">^</span><span class="name">Theo</span><span class="bar" style="background:var(--grass)"></span></div>
+        </div>
+        <span class="noauth">No sign-in needed</span>
+        <p class="caption">A gentle press state, 150 to 250ms. No PIN, no prompt.</p>
+      </div>
+
+      <div class="step">
+        <h2>3. Claimed</h2>
+        <div class="tile-row">
+          <div class="tile active" aria-pressed="true"><span class="glyph" style="color:var(--berry)">*</span><span class="name">Maya</span><span class="bar" style="background:var(--berry)"></span></div>
+          <div class="tile"><span class="glyph g-blue">~</span><span class="name">Sam</span><span class="bar" style="background:var(--blue)"></span></div>
+          <div class="tile"><span class="glyph g-grass">^</span><span class="name">Theo</span><span class="bar" style="background:var(--grass)"></span></div>
+        </div>
+        <p class="caption">Maya's tile lifts and her color washes in. Her items now glow on the board. An idle timeout clears this back to neutral.</p>
+      </div>
+    </div>
+
+    <p class="section-label">Roster states</p>
+    <div class="states">
+      <div class="state">
+        <h3>Empty roster</h3>
+        <p class="empty">No one added yet.<small>The organizer can add family from setup.</small></p>
+      </div>
+      <div class="state">
+        <h3>Loading</h3>
+        <div class="skeleton"></div><div class="skeleton short"></div>
+        <p class="caption">Last-known names stay put while the roster refreshes.</p>
+      </div>
+      <div class="state">
+        <h3>Offline</h3>
+        <span class="chip">Offline. Showing last synced 9:12am.</span>
+        <p class="caption">Claiming still works. The completion queues and syncs later.</p>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

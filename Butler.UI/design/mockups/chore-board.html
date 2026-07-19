@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butler mockup - Chore board with a completed item</title>
+<!--
+  Chore board (ADR-0006, ADR-0007): tapping a chore completes it optimistically. It
+  settles to a muted done row with a check and a brief Undo. An offline tap shows a
+  clock glyph and resolves to done on sync. Done is shown by check AND muted text, not
+  color alone. Theme-aware; flexbox only.
+-->
+<style>
+  :root {
+    --bg:#FAF7F2; --surface:#FFFFFF; --text:#22201C; --text-muted:#6B6259;
+    --primary:#0F5A54; --on-primary:#FFFFFF; --border:#E7E0D6; --border-strong:#918979;
+    --success:#1F7A46; --danger:#A5332A; --focus-ring:#0F5A54;
+    --berry:#B0206F; --marigold:#8A6410; --grass:#3F7A1E; --blue:#2A5AD0; --violet:#7A34C0; --clay:#B0472A;
+    --on-claim:#FFFFFF;
+    --caption:14px; --body:18px; --subhead:22px; --title:28px; --display:44px;
+    --sans:Inter,'Nunito Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s7:32px; --s8:48px;
+    --r-sm:4px; --r-md:8px; --r-lg:16px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+      --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+      --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+      --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+      --on-claim:#0E0B08;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+    --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+    --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+    --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+    --on-claim:#0E0B08;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:var(--body); line-height:1.4; }
+  .toggle { position:fixed; top:12px; right:12px; min-height:44px; padding:0 16px;
+            border:1px solid var(--border-strong); border-radius:var(--r-pill);
+            background:var(--surface); color:var(--text); font-size:var(--caption); cursor:pointer; }
+  /* focus token (ADR-0010): 3px ring, 2px offset. Web uses outline; .is-focused shows
+     the same token-driven ring without the pseudo-class, as RN draws a border ring. */
+  :focus-visible { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .is-focused { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .wrap { max-width:820px; margin:0 auto; padding:var(--s6); }
+  h1 { font-size:var(--title); margin:0 0 var(--s2); }
+  .caption-note { color:var(--text-muted); font-size:var(--caption); margin:0 0 var(--s6); }
+  .board { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s6); }
+  .day { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:0 0 var(--s3); }
+  .row { display:flex; flex-direction:row; align-items:center; gap:var(--s4);
+         min-height:64px; padding:var(--s4); border-radius:var(--r-md);
+         border:1px solid var(--border); border-left-width:6px; margin-bottom:var(--s3); background:var(--surface); }
+  .row .glyph { font-size:var(--subhead); width:28px; text-align:center; }
+  .row .what { font-size:var(--subhead); flex:1; }
+  .row .who { color:var(--text-muted); font-size:var(--body); }
+  .b-berry{border-left-color:var(--berry);} .b-blue{border-left-color:var(--blue);}
+  .b-grass{border-left-color:var(--grass);} .b-violet{border-left-color:var(--violet);} .b-marigold{border-left-color:var(--marigold);}
+  .g-berry{color:var(--berry);} .g-blue{color:var(--blue);} .g-grass{color:var(--grass);}
+  .g-violet{color:var(--violet);} .g-marigold{color:var(--marigold);}
+  /* done: muted text + check, not color alone */
+  .row.done { border-left-color:var(--border-strong); }
+  .row.done .what { color:var(--text-muted); text-decoration:line-through; font-weight:400; }
+  .check { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px;
+           border-radius:var(--r-pill); background:var(--success); color:var(--on-primary); font-size:var(--caption); }
+  .undo { min-height:44px; padding:0 var(--s4); border:1px solid var(--border-strong); background:var(--surface);
+          color:var(--primary); border-radius:var(--r-md); font-size:var(--body); font-weight:600; cursor:pointer; }
+  /* queued offline write */
+  .clock { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px;
+           border-radius:var(--r-pill); border:1px solid var(--border-strong); color:var(--text-muted); font-size:var(--caption); }
+  .row.queued .what { color:var(--text-muted); }
+  /* failed optimistic completion (ADR-0006): icon AND text AND color, with a retry */
+  .row.failed { border-left-color:var(--danger); }
+  .mark { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px;
+          border-radius:var(--r-pill); border:2px solid var(--danger); color:var(--danger); font-size:var(--body); font-weight:700; }
+  .row.failed .who { color:var(--danger); font-weight:600; }
+  .retry { min-height:44px; padding:0 var(--s4); border:1px solid var(--danger); background:var(--surface);
+           color:var(--danger); border-radius:var(--r-md); font-size:var(--body); font-weight:600; cursor:pointer; }
+  .states { display:flex; flex-direction:row; flex-wrap:wrap; gap:var(--s4); margin-top:var(--s7); }
+  .state { flex:1; min-width:240px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s4); }
+  .state h3 { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:0 0 var(--s3); }
+  .empty { font-size:var(--title); font-weight:600; }
+  .empty small { display:block; font-size:var(--body); font-weight:400; color:var(--text-muted); margin-top:var(--s2); }
+  .skeleton { height:20px; border-radius:var(--r-sm); background:var(--border); margin-bottom:var(--s3); }
+  .skeleton.short { width:60%; }
+  .chip { display:inline-flex; align-items:center; gap:var(--s2); min-height:36px; padding:0 var(--s3);
+          border-radius:var(--r-pill); font-size:var(--body); border:1px solid var(--border-strong); color:var(--text-muted); background:var(--surface); }
+  .section-label { font-size:var(--body); font-weight:600; color:var(--text-muted); margin:var(--s7) 0 var(--s3); }
+</style>
+</head>
+<body>
+  <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'?'light':'dark')">Toggle theme</button>
+  <main class="wrap">
+    <h1>Today's board</h1>
+    <p class="caption-note">Tap a chore to complete it. It settles to a quiet done state with a check and a brief Undo. Offline taps queue with a clock and resolve on sync. If a completion cannot be recorded, the row shows a calm failure with a retry. The teal ring on the Undo button is the cross-platform focus token (3px ring, 2px offset), which RN draws as a border ring.</p>
+
+    <section class="board" aria-label="Today's chores">
+      <p class="day">Tuesday</p>
+
+      <div class="row done">
+        <span class="check" aria-hidden="true">v</span>
+        <span class="what">Empty the dishwasher</span>
+        <span class="who">Done by Maya, 8:41am</span>
+        <button class="undo is-focused">Undo</button>
+      </div>
+
+      <div class="row queued b-berry">
+        <span class="clock" aria-hidden="true">o</span>
+        <span class="what">Feed the cat</span>
+        <span class="who">Saved. Will sync when online.</span>
+      </div>
+
+      <div class="row failed" role="alert">
+        <span class="mark" aria-hidden="true">!</span>
+        <span class="what">Wipe the counters</span>
+        <span class="who">That did not go through. Tap to try again.</span>
+        <button class="retry">Retry</button>
+      </div>
+
+      <div class="row b-blue"><span class="glyph g-blue">~</span><span class="what">Walk the dog</span><span class="who">Sam</span></div>
+      <div class="row b-grass"><span class="glyph g-grass">^</span><span class="what">Take out the trash - trash night</span><span class="who">Theo</span></div>
+      <div class="row b-violet"><span class="glyph g-violet">(</span><span class="what">Set the table for dinner</span><span class="who">Elena</span></div>
+      <div class="row b-marigold"><span class="glyph g-marigold">o</span><span class="what">Water the front plants</span><span class="who">Nana</span></div>
+    </section>
+
+    <p class="section-label">Board states</p>
+    <div class="states">
+      <div class="state">
+        <h3>Empty</h3>
+        <p class="empty">All caught up.<small>Nothing due today. Enjoy the quiet.</small></p>
+      </div>
+      <div class="state">
+        <h3>Loading</h3>
+        <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton short"></div>
+      </div>
+      <div class="state">
+        <h3>Offline</h3>
+        <span class="chip">Offline. Showing last synced 9:12am.</span>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

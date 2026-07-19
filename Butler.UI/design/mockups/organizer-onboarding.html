@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Butler mockup - Organizer onboarding (focused density)</title>
+<!--
+  Organizer create-household flow (ADR-0008): the focused density. Portrait and
+  phone-friendly, standard ~48px rows, title heading (not display), a normal form with
+  bound labels and auth chrome. Same tokens and voice as the hub, just denser.
+  Theme-aware; flexbox only; labels are bound, never placeholder-as-label.
+-->
+<style>
+  :root {
+    --bg:#FAF7F2; --surface:#FFFFFF; --text:#22201C; --text-muted:#6B6259;
+    --primary:#0F5A54; --on-primary:#FFFFFF; --border:#E7E0D6; --border-strong:#918979;
+    --success:#1F7A46; --danger:#A5332A; --focus-ring:#0F5A54;
+    --berry:#B0206F; --marigold:#8A6410; --grass:#3F7A1E; --blue:#2A5AD0; --violet:#7A34C0; --clay:#B0472A;
+    --on-claim:#FFFFFF;
+    --caption:14px; --body:18px; --subhead:22px; --title:28px; --display:44px;
+    --sans:Inter,'Nunito Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s7:32px; --s8:48px;
+    --r-sm:4px; --r-md:8px; --r-lg:16px; --r-pill:999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+      --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+      --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+      --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+      --on-claim:#0E0B08;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#16130F; --surface:#211D18; --text:#F2EDE4; --text-muted:#A99F92;
+    --primary:#4FB3A8; --on-primary:#08201E; --border:#3A342C; --border-strong:#786F60;
+    --success:#69C08A; --danger:#E0796E; --focus-ring:#4FB3A8;
+    --berry:#EC77B4; --marigold:#E3B23C; --grass:#83C24E; --blue:#77A8FF; --violet:#B98CEE; --clay:#E58A69;
+    --on-claim:#0E0B08;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:var(--body); line-height:1.4; }
+  .toggle { position:fixed; top:12px; right:12px; min-height:44px; padding:0 16px;
+            border:1px solid var(--border-strong); border-radius:var(--r-pill);
+            background:var(--surface); color:var(--text); font-size:var(--caption); cursor:pointer; }
+  /* focus token (ADR-0010): 3px ring, 2px offset. Web uses outline; .is-focused shows
+     the same token-driven ring without the pseudo-class, as RN draws a border ring. */
+  :focus-visible { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  .is-focused { outline:3px solid var(--focus-ring); outline-offset:2px; }
+  /* phone / portrait column */
+  .phone { max-width:420px; margin:0 auto; padding:var(--s6); }
+  .caption-note { color:var(--text-muted); font-size:var(--caption); margin:0 0 var(--s6); }
+  .authbar { display:flex; flex-direction:row; align-items:center; justify-content:space-between;
+             min-height:48px; padding:0 var(--s4); background:var(--surface);
+             border:1px solid var(--border); border-radius:var(--r-md); margin-bottom:var(--s6); }
+  .authbar .who { font-size:var(--caption); color:var(--text-muted); }
+  .authbar .signed { display:inline-flex; align-items:center; gap:var(--s2); color:var(--success); font-size:var(--caption); font-weight:600; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s6); }
+  h1 { font-size:var(--title); margin:0 0 var(--s2); }
+  .sub { color:var(--text-muted); font-size:var(--body); margin:0 0 var(--s6); }
+  .field { display:flex; flex-direction:column; gap:var(--s2); margin-bottom:var(--s4); }
+  .field label { font-size:var(--caption); font-weight:600; }
+  .field .hint { font-size:var(--caption); color:var(--text-muted); }
+  .input { min-height:48px; padding:0 var(--s3); background:var(--surface); color:var(--text);
+           border:1px solid var(--border-strong); border-radius:var(--r-md); font-size:var(--body); }
+  .btn { display:flex; align-items:center; justify-content:center; min-height:48px; width:100%;
+         border:0; border-radius:var(--r-md); background:var(--primary); color:var(--on-primary);
+         font-size:var(--body); font-weight:600; cursor:pointer; margin-top:var(--s2); }
+  .btn.secondary { background:var(--surface); color:var(--primary); border:1px solid var(--border-strong); margin-top:var(--s3); }
+  .states { display:flex; flex-direction:column; gap:var(--s4); margin-top:var(--s7); }
+  .state { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s4); }
+  .state h3 { font-size:var(--caption); font-weight:600; color:var(--text-muted); margin:0 0 var(--s3); }
+  .empty { font-size:var(--subhead); font-weight:600; }
+  .empty small { display:block; font-size:var(--body); font-weight:400; color:var(--text-muted); margin-top:var(--s2); }
+  .skeleton { height:20px; border-radius:var(--r-sm); background:var(--border); margin-bottom:var(--s3); }
+  .skeleton.short { width:60%; }
+  .chip { display:inline-flex; align-items:center; gap:var(--s2); min-height:32px; padding:0 var(--s3);
+          border-radius:var(--r-pill); font-size:var(--caption); border:1px solid var(--border-strong); color:var(--text-muted); background:var(--surface); }
+  .err { display:flex; flex-direction:row; align-items:center; gap:var(--s2); color:var(--danger);
+         font-size:var(--caption); font-weight:600; }
+  .err .mark { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
+               border-radius:var(--r-pill); border:2px solid var(--danger); }
+  .section-label { font-size:var(--caption); font-weight:600; color:var(--text-muted); margin:var(--s7) 0 var(--s3); }
+</style>
+</head>
+<body>
+  <button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'?'light':'dark')">Toggle theme</button>
+  <main class="phone">
+    <p class="caption-note">Organizer onboarding, focused density (ADR-0008). Portrait phone. Same palette, type, and voice as the hub, just denser, with auth chrome.</p>
+
+    <div class="authbar">
+      <span class="who">Setting up as organizer</span>
+      <span class="signed">Signed in</span>
+    </div>
+
+    <div class="card">
+      <h1>Create your household</h1>
+      <p class="sub">This is the only sign-in Butler needs. Everyone else just taps their name at the hub.</p>
+
+      <div class="field">
+        <label for="hh-name">Household name</label>
+        <input id="hh-name" class="input" type="text" value="The Rivera House" aria-describedby="hh-hint">
+        <span class="hint" id="hh-hint">This shows at the top of the hub.</span>
+      </div>
+
+      <div class="field">
+        <label for="first-name">Add the first person</label>
+        <input id="first-name" class="input" type="text" value="Maya">
+        <span class="hint">You can add the rest, and their claim colors, next.</span>
+      </div>
+
+      <button class="btn">Create household</button>
+      <button class="btn secondary">Add another person first</button>
+    </div>
+
+    <p class="section-label">Flow states</p>
+    <div class="states">
+      <div class="state">
+        <h3>Empty</h3>
+        <p class="empty">Let's set up your home.<small>Start with a name and one person.</small></p>
+      </div>
+      <div class="state">
+        <h3>Loading</h3>
+        <div class="skeleton"></div><div class="skeleton short"></div>
+        <p class="hint" style="color:var(--text-muted);font-size:var(--caption)">Creating your household...</p>
+      </div>
+      <div class="state">
+        <h3>Offline</h3>
+        <span class="chip">Offline. We will finish setup when you are back online.</span>
+      </div>
+      <div class="state">
+        <h3>Error</h3>
+        <p class="err"><span class="mark" aria-hidden="true">!</span> That did not go through. Tap Create to try again.</p>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
