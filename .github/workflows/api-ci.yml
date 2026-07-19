@@ -1,0 +1,66 @@
+# CI gate for the Butler.API sub-service (.NET 10 Web API).
+#
+# Path-filtered: this runs only when a change touches Butler.API/** (or this
+# workflow file itself). The monorepo has no root build - each sub-service has
+# its own toolchain - so API and UI get independent, separately-required checks
+# (see ui-ci.yml). This is the pre-merge gate /merge-issue waits on.
+name: api-ci
+
+on:
+  pull_request:
+    paths:
+      - "Butler.API/**"
+      - ".github/workflows/api-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Butler.API/**"
+      - ".github/workflows/api-ci.yml"
+
+# Least privilege: this job only reads the checked-out source.
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same ref so a new push cancels stale work.
+concurrency:
+  group: api-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: build + coverage-gated test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Butler.API
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin the .NET SDK from Butler.API/global.json (currently .NET 10) so CI
+      # uses the same toolchain the repo pins for local builds - no drift.
+      - name: Set up .NET (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Butler.API/global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      # Release build with warnings-as-errors: the CI gate opts in explicitly
+      # (Directory.Build.props keeps TreatWarningsAsErrors=false for the fast
+      # inner loop), so any analyzer/compiler warning fails the build here.
+      - name: Build (Release, warnings as errors)
+        run: dotnet build --configuration Release /p:TreatWarningsAsErrors=true --no-restore
+
+      # Coverage-gated test (Engineering Contract 7.7): coverlet fails the run if
+      # line, branch, or method coverage drops below 98% (total across the run).
+      # ThresholdType is a comma-separated coverlet value, but the `dotnet` CLI
+      # splits an unescaped comma in `/p:` into separate switches (MSB1006), so
+      # the commas are URL-escaped as %2c - this is exactly `line,branch,method`.
+      - name: Test (98% coverage gate)
+        run: >-
+          dotnet test --no-build --configuration Release
+          /p:CollectCoverage=true
+          /p:Threshold=98
+          /p:ThresholdType=line%2cbranch%2cmethod
+          /p:ThresholdStat=total
