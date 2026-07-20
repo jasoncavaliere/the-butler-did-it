@@ -13,6 +13,9 @@ public static class OrganizerAuthorization
     /// <summary>The role claim value that marks a principal as an organizer.</summary>
     public const string OrganizerRole = "Organizer";
 
+    /// <summary>The role value for a non-organizer household member (tap-to-claim participant).</summary>
+    public const string ParticipantRole = "Participant";
+
     /// <summary>
     /// The authentication scheme used when authentication is disabled
     /// (Development only): every request is authenticated as the dev organizer.

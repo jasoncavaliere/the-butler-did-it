@@ -1,4 +1,5 @@
 using Butler.Api.Application.Concurrency;
+using Butler.Api.Application.People;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
@@ -65,6 +66,9 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
             => (StatusCodes.Status428PreconditionRequired, "If-Match header is required."),
         PreconditionFailedException
             => (StatusCodes.Status412PreconditionFailed, "The resource was modified by another request."),
+        // A household must always retain at least one organizer (issue #12).
+        LastOrganizerException
+            => (StatusCodes.Status400BadRequest, "A household must retain an organizer."),
         DataAnnotationsValidationException => (StatusCodes.Status400BadRequest, "Validation failed."),
         // Validators that ship with later features (for example FluentValidation)
         // are surfaced by matching on the type name, so this handler does not

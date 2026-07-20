@@ -160,8 +160,32 @@ shared seam above (7.3) - missing it is `428`, a stale value is `412`. An unknow
 | `PUT /households/{householdId}/rooms/{roomId}` | Updates `Name`/`SortOrder` under the `If-Match` precondition. Returns `200` with the updated room, `404` for an unknown room, `428` when `If-Match` is missing, or `412` when it is stale. |
 | `DELETE /households/{householdId}/rooms/{roomId}` | Deletes the room unconditionally (delete is not concurrency-gated). Returns `204`, or `404` for an unknown room. |
 
+### People (the household's organizer-managed roster)
+
+`People` (`Application/People/`, `Infrastructure/People/`, `Controllers/PeopleController`) is the
+organizer-managed roster of participants and children off the household aggregate; H1's household
+creation already seeds the organizer's own row, so this feature adds participant/child management. Every
+route is scoped under `/households/{householdId}/people`. Reads (`GET`, list and single) are open to the
+hub device and participants so tap-to-claim (Epic 30) can render names; mutations (`POST`, `PUT`,
+`DELETE`) require the `Organizer` authorization policy (Engineering Contract 7.4). Updates carry the
+`If-Match` optimistic-concurrency precondition on the shared seam above (7.3) - missing it is `428`, a
+stale value is `412`. An unknown `personId` is `404` RFC 7807 problem details on `GET`, `PUT`, and
+`DELETE`. A household must always retain at least one organizer: a request that would demote or delete
+the last remaining organizer is rejected with `400` RFC 7807 problem details and the row is left
+unchanged. Persistence goes through `TablePersonRepository` (`IPersonRepository`), and the feature
+registers via `AddPeopleFeature()` in `Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/people` | Creates a person with a server-generated `personId`, the given `DisplayName`, `Role` (`Organizer` or `Participant`), `IsChild`, and `ClaimColor`. Returns `201` with the created person (including `ETag`) and a `Location` pointing at `GET .../people/{personId}`. |
+| `GET /households/{householdId}/people` | Lists the household's people (open read - no organizer policy required, so the hub can render tap-to-claim tiles). |
+| `GET /households/{householdId}/people/{personId}` | Returns the person (with its current `ETag`) for a known id, or `404` for an unknown one. |
+| `PUT /households/{householdId}/people/{personId}` | Updates `DisplayName`/`Role`/`IsChild`/`ClaimColor` under the `If-Match` precondition. Returns `200` with the updated person, `404` for an unknown person, `428` when `If-Match` is missing, `412` when it is stale, or `400` when the change would demote the household's last organizer. |
+| `DELETE /households/{householdId}/people/{personId}` | Deletes the person unconditionally (delete is not concurrency-gated). Returns `204`, `404` for an unknown person, or `400` when the deletion would remove the household's last organizer. |
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
-can be added without re-architecting. `Households` and `Rooms` are the first of these feature modules;
-`People` is the next spine piece to grow, and chores/groceries/calendar have not been built yet.
+can be added without re-architecting. `Households`, `Rooms`, and `People` are the first of these feature
+modules; chores/groceries/calendar have not been built yet. The no-password tap-to-claim CLAIM action
+(Epic 30, T1) that lets participants pick their `People` row on the hub is still out of scope here.
