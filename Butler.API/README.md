@@ -127,8 +127,23 @@ sharing the optimistic-concurrency rules in `Application/Concurrency/` (`If-Matc
 missing, `412` when stale). A feature registers its table with
 `services.AddTableRepository<TEntity>("<TableName>")`; the flag picks in-memory vs Table automatically.
 
+### Households (the root aggregate)
+
+`Households` (`Application/Households/`, `Infrastructure/Households/`, `Controllers/HouseholdsController`)
+is the first data feature and the household model's root aggregate - every later table (rooms, people,
+chores, ...) hangs off a `householdId`. The whole controller requires the `Organizer` authorization
+policy; only the organizer authenticates in v1 (Engineering Contract 7.4). Persistence goes through
+`TableHouseholdRepository` (`IHouseholdRepository`) on the shared Table access seam above, and the
+feature registers via `AddHouseholdFeature()` in `Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households` | Creates a `Households` row with a server-generated `householdId` (partition key = row key), the caller's object id as `OrganizerObjectId`, and `CreatedUtc` from the injected clock. In the same operation it seeds the organizer's `People` row (`Role = Organizer`, `IsChild = false`) so a household is never left without a roster owner. Returns `201` with the created household (including `ETag`) and a `Location` pointing at `GET /households/{householdId}`. |
+| `GET /households/{householdId}` | Returns the household (with its current `ETag`) for a known id, or `404` RFC 7807 problem details for an unknown one. |
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
-can be added without re-architecting. These feature modules do not exist yet - only the scaffold and the
-`System` reference slice do.
+can be added without re-architecting. `Households` is the first of these feature modules; `People` (the
+organizer roster row seeded above) is the next spine piece to grow, and chores/groceries/calendar have
+not been built yet.
