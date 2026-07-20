@@ -27,4 +27,17 @@ describe('TodayPanel', () => {
 
     expect(screen.getByTestId('today-panel-empty')).toBeOnTheScreen();
   });
+
+  it('labels the panel as the active participant\'s day, accented in their claim colour', async () => {
+    await render(<TodayPanel activeParticipant={{ displayName: 'Alex', claimColor: '#B0206F' }} />);
+
+    expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+    expect(screen.queryByText('Today')).toBeNull();
+  });
+
+  it('falls back to the brass accent when the active participant has no claim colour', async () => {
+    await render(<TodayPanel activeParticipant={{ displayName: 'Sam', claimColor: null }} />);
+
+    expect(screen.getByText("Sam's day")).toBeOnTheScreen();
+  });
 });
