@@ -49,6 +49,20 @@ export type PersonResponse = {
   etag: string;
 };
 
+/**
+ * One claimable person on the tap-to-claim roster, as returned by the open
+ * (unauthenticated) people-list read `GET /households/{householdId}/people`.
+ * This is the trimmed projection the hub renders as a name tile: only what a
+ * tile needs, never organizer-only data, the role, or the concurrency ETag
+ * (the single-person read returns the full {@link PersonResponse}).
+ */
+export type RosterEntryResponse = {
+  personId: string;
+  displayName: string;
+  claimColor: string | null;
+  isChild: boolean;
+};
+
 /** Body for `POST /households/{householdId}/people`. */
 export type CreatePersonRequest = {
   displayName: string;
