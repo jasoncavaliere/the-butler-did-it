@@ -1,3 +1,4 @@
+using Butler.Api.Application.Chores;
 using Butler.Api.Application.Households;
 using Butler.Api.Application.People;
 using Butler.Api.Application.Rooms;
@@ -40,6 +41,7 @@ builder.Services.AddSystemFeature();
 builder.Services.AddHouseholdFeature();
 builder.Services.AddPeopleFeature();
 builder.Services.AddRoomsFeature();
+builder.Services.AddChoresFeature();
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();
