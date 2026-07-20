@@ -141,9 +141,27 @@ feature registers via `AddHouseholdFeature()` in `Program.cs`.
 | `POST /households` | Creates a `Households` row with a server-generated `householdId` (partition key = row key), the caller's object id as `OrganizerObjectId`, and `CreatedUtc` from the injected clock. In the same operation it seeds the organizer's `People` row (`Role = Organizer`, `IsChild = false`) so a household is never left without a roster owner. Returns `201` with the created household (including `ETag`) and a `Location` pointing at `GET /households/{householdId}`. |
 | `GET /households/{householdId}` | Returns the household (with its current `ETag`) for a known id, or `404` RFC 7807 problem details for an unknown one. |
 
+### Rooms (the household's physical map)
+
+`Rooms` (`Application/Rooms/`, `Infrastructure/Rooms/`, `Controllers/RoomsController`) is the next spine
+piece off the household aggregate - the physical map chores will attach to (H4). Every route is scoped
+under `/households/{householdId}/rooms`. Reads (`GET`, list and single) are open to the hub device and
+participants; mutations (`POST`, `PUT`, `DELETE`) require the `Organizer` authorization policy
+(Engineering Contract 7.4). Updates carry the `If-Match` optimistic-concurrency precondition on the
+shared seam above (7.3) - missing it is `428`, a stale value is `412`. An unknown `roomId` is `404` RFC
+7807 problem details on `GET`, `PUT`, and `DELETE`. Persistence goes through `TableRoomRepository`
+(`IRoomRepository`), and the feature registers via `AddRoomsFeature()` in `Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/rooms` | Creates a room with a server-generated `roomId`, the given `Name` and `SortOrder`. Returns `201` with the created room (including `ETag`) and a `Location` pointing at `GET .../rooms/{roomId}`. |
+| `GET /households/{householdId}/rooms` | Lists the household's rooms ordered ascending by `SortOrder` (ties broken by `roomId` for stable ordering). |
+| `GET /households/{householdId}/rooms/{roomId}` | Returns the room (with its current `ETag`) for a known id, or `404` for an unknown one. |
+| `PUT /households/{householdId}/rooms/{roomId}` | Updates `Name`/`SortOrder` under the `If-Match` precondition. Returns `200` with the updated room, `404` for an unknown room, `428` when `If-Match` is missing, or `412` when it is stale. |
+| `DELETE /households/{householdId}/rooms/{roomId}` | Deletes the room unconditionally (delete is not concurrency-gated). Returns `204`, or `404` for an unknown room. |
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
-can be added without re-architecting. `Households` is the first of these feature modules; `People` (the
-organizer roster row seeded above) is the next spine piece to grow, and chores/groceries/calendar have
-not been built yet.
+can be added without re-architecting. `Households` and `Rooms` are the first of these feature modules;
+`People` is the next spine piece to grow, and chores/groceries/calendar have not been built yet.
