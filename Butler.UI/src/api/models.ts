@@ -63,6 +63,24 @@ export type RosterEntryResponse = {
   isChild: boolean;
 };
 
+/**
+ * The participant session returned by the T1 claim endpoint
+ * (`POST /households/{householdId}/people/{personId}/claim`), mirroring the
+ * API's `ParticipantSessionResponse` DTO. The hub holds this in UI state to mark
+ * the active participant and, later, to attribute completions (the seam Epic 40
+ * C4 uses via {@link token}). It is never persisted as a credential and never
+ * sent to organizer-policy endpoints - tapping a name never prompts for a
+ * password or PIN.
+ */
+export type ParticipantSessionResponse = {
+  householdId: string;
+  personId: string;
+  displayName: string;
+  claimColor: string | null;
+  isChild: boolean;
+  token: string;
+};
+
 /** Body for `POST /households/{householdId}/people`. */
 export type CreatePersonRequest = {
   displayName: string;

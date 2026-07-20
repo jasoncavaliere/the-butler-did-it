@@ -1,12 +1,26 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { ApiClient } from '../api/client';
 import { describeApiError } from '../api/errors';
-import type { HouseholdResponse, RosterEntryResponse } from '../api/models';
+import type {
+  HouseholdResponse,
+  ParticipantSessionResponse,
+  RosterEntryResponse,
+} from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
 import { useHousehold } from '../state/HouseholdContext';
+
+/**
+ * How long the hub keeps an active participant before clearing back to the
+ * neutral glance state (AC: "no interaction for a configured interval"). A single
+ * constant so the trade-off - too short annoys, too long leaks the wrong actor
+ * into a completion (see the ticket's Risks) - lives in exactly one place. The
+ * completion actor is re-read at write time (C4), so this is purely a UI reset.
+ */
+export const IDLE_TIMEOUT_MS = 45_000;
 
 /**
  * The always-on hub: the shared-device shell the whole product renders inside
@@ -36,10 +50,17 @@ function todayLabel(): string {
   });
 }
 
-export function HubShell() {
+export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: number }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
+
+  // The active participant is UI state only: the person a tap claimed, holding
+  // the T1 session (incl. its token) that Epic 40 C4 attributes completions to.
+  // It is never persisted as a credential and never sent to organizer endpoints.
+  const [activeParticipant, setActiveParticipant] = useState<ParticipantSessionResponse | null>(
+    null,
+  );
 
   useEffect(() => {
     // Without a selected household there is nothing to load; the "no household"
@@ -77,6 +98,33 @@ export function HubShell() {
     };
   }, [client, householdId]);
 
+  // Tapping a name claims that person through T1 and makes them active. There is
+  // no password/PIN step: a successful claim sets the session, a switch (tapping
+  // a different tile, or the active tile again) re-claims and moves the glow. A
+  // failed claim leaves the current state untouched - the wall stays calm.
+  const claim = useCallback(
+    async (household: string, personId: string) => {
+      const result = await claimParticipant(client, household, personId);
+      if (!result.ok) {
+        return;
+      }
+      setActiveParticipant(result.data);
+    },
+    [client],
+  );
+
+  // Idle reset: while a participant is active, no interaction for the configured
+  // interval clears back to the neutral glance. Each claim yields a fresh session
+  // object, so this effect re-arms (its cleanup clears the prior timer) on every
+  // tap and on unmount.
+  useEffect(() => {
+    if (activeParticipant === null) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setActiveParticipant(null), idleTimeoutMs);
+    return () => clearTimeout(timer);
+  }, [activeParticipant, idleTimeoutMs]);
+
   // A missing household is a calm derived state, not a fetch outcome.
   const view: LoadState =
     householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
@@ -113,29 +161,66 @@ export function HubShell() {
               No one has been added to this household yet.
             </Text>
           ) : (
-            view.people.map((person) => <NameTile key={person.personId} person={person} />)
+            view.people.map((person) => (
+              <NameTile
+                key={person.personId}
+                person={person}
+                isActive={activeParticipant?.personId === person.personId}
+                // A `ready` view is only derived when a household is selected
+                // (a null household forces the error state), so this is non-null.
+                onPress={() => claim(householdId as string, person.personId)}
+              />
+            ))
           ))}
       </View>
 
-      <TodayPanel />
+      <TodayPanel activeParticipant={activeParticipant} />
     </View>
   );
 }
 
 /**
- * A participant's name tile: a large, glanceable card accented by the person's
- * claim colour. This ticket renders the tile for the ambient glance only; wiring
- * the tap-to-claim interaction onto it is T3.
+ * Claim a person through the T1 endpoint
+ * (`POST /households/{householdId}/people/{personId}/claim`). No password or PIN
+ * is ever involved; the empty POST body is deliberate. Returns the normalized
+ * {@link ApiResult} so the caller decides what to do with success vs. failure.
  */
-function NameTile({ person }: { person: RosterEntryResponse }) {
+function claimParticipant(client: ApiClient, householdId: string, personId: string) {
+  return client.update<ParticipantSessionResponse>(
+    `/households/${householdId}/people/${personId}/claim`,
+    {},
+    { method: 'POST' },
+  );
+}
+
+/**
+ * A participant's name tile: a large, glanceable, tappable card accented by the
+ * person's claim colour. Tapping it claims the person (T3); when that person is
+ * the active participant the tile glows in their colour ("what's mine glows").
+ */
+function NameTile({
+  person,
+  isActive,
+  onPress,
+}: {
+  person: RosterEntryResponse;
+  isActive: boolean;
+  onPress: () => void;
+}) {
   const accent = person.claimColor ?? colors.brass;
   return (
-    <View style={[styles.tile, { borderColor: accent }]} testID={`name-tile-${person.personId}`}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isActive }}
+      style={[styles.tile, { borderColor: accent }, isActive && { backgroundColor: accent }]}
+      testID={`name-tile-${person.personId}`}
+    >
       <View style={[styles.tileDot, { backgroundColor: accent }]} />
-      <Text style={styles.tileName} numberOfLines={1}>
+      <Text style={[styles.tileName, isActive && styles.tileNameActive]} numberOfLines={1}>
         {person.displayName}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -166,4 +251,7 @@ const styles = StyleSheet.create({
   },
   tileDot: { width: 20, height: 20, borderRadius: 10 },
   tileName: { color: colors.ink, fontSize: 24, fontWeight: '600' },
+  // Active tile glows: its own colour fills the card, so the name flips to the
+  // dark page ink for contrast against the accent.
+  tileNameActive: { color: colors.page },
 });

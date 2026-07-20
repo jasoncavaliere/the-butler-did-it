@@ -57,7 +57,7 @@ src/
               errors.ts     # describeApiError: an ApiError -> one readable line
   auth/       OrganizerGate.tsx # gates children behind an authenticated organizer (probes /me)
   components/ Screen.tsx     # shared layout primitives
-              TodayPanel.tsx # bounded "today" placeholder container (Epic 40 C5 seam)
+              TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3), Epic 40 C5 seam
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -74,17 +74,28 @@ and once `useHousehold` holds an id it mounts the `Home` route, which renders th
 `HubShell` (T2). Add a screen under `src/screens`, then register it in `RootNavigator` and extend
 `RootStackParamList`.
 
-**The hub shell** (`src/screens/HubShell.tsx`, T2) is the shared-device shell the rest of the
+**The hub shell** (`src/screens/HubShell.tsx`, T2/T3) is the shared-device shell the rest of the
 product renders inside (BRD 6.2). It reads the active household from `useHousehold` and, through
 the typed API client, loads the household name (H1) and the open tap-to-claim roster (the
 `RosterEntryResponse[]` projection from `GET /households/{householdId}/people`) to render three
-regions: a header (household name + today's date), a row of participant name tiles (one per
-person, accented by their claim colour), and a bounded `TodayPanel`. Every load outcome - loading,
-ready, no household, or an unreachable API - is a calm, deliberate state; the shell never shows a
-crash or a blank screen. There is no password or sign-in prompt on this shell: participants glance
-and tap, and organizer sign-in is a separate affordance (T4). The shell fetches no chores itself -
-`TodayPanel` (`src/components/TodayPanel.tsx`) is a documented seam: a bounded placeholder
-container that renders whatever children it is given (or a calm "being prepared" empty state) so
+regions: a header (household name + today's date), a row of tappable participant name tiles (one
+per person, accented by their claim colour), and a bounded `TodayPanel`. Every load outcome -
+loading, ready, no household, or an unreachable API - is a calm, deliberate state; the shell never
+shows a crash or a blank screen. There is no password or sign-in prompt on this shell: participants
+glance and tap, and organizer sign-in is a separate affordance (T4).
+
+Tapping a name tile claims that person through the T1 endpoint
+(`POST /households/{householdId}/people/{personId}/claim`) and holds the returned
+`ParticipantSessionResponse` as UI-only state (never persisted as a credential, never sent to
+organizer endpoints). The claimed tile and `TodayPanel` both switch to that person's claim colour
+and `TodayPanel`'s heading becomes "\<name\>'s day" - "what's mine glows" (BRD vision). Tapping a
+different tile (or the active tile again) re-claims and moves the glow; a failed claim leaves the
+current state untouched. With no interaction for `IDLE_TIMEOUT_MS` (45s, exported from
+`HubShell.tsx` and overridable via the `idleTimeoutMs` prop for tests) the active participant clears
+back to the neutral glance automatically - the shared tablet never stays "claimed" by someone who
+walked away. The shell fetches no chores itself - `TodayPanel` (`src/components/TodayPanel.tsx`) is
+a documented seam: a bounded container that renders whatever children it is given (or a calm "being
+prepared" empty state) and, given an `activeParticipant`, accents itself in that person's colour, so
 Epic 40 C5 can fill it with the chore board without restructuring the hub layout.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
@@ -140,6 +151,7 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
 
 - `CLAUDE.md` / `AGENTS.md` here are Expo-generated UI guidance and apply within this folder; the
   monorepo-level guide is the root [`CLAUDE.md`](../CLAUDE.md).
-- The hub shell (`HubShell`) now renders the header, name tiles, and `TodayPanel` seam (T2). The
-  tap-to-claim tap interaction on the name tiles and the glanceable chore board that fills
-  `TodayPanel` are not built yet - those land in T3 and Epic 40 C5 respectively.
+- The hub shell (`HubShell`) renders the header, tappable name tiles, and `TodayPanel` seam (T2),
+  and tap-to-claim - claiming a person, the claim-colour glow, and the idle timeout back to neutral
+  - is wired up (T3). The glanceable chore board that fills `TodayPanel` is not built yet - that
+  lands in Epic 40 C5.
