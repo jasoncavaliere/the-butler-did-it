@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
-import { apiBaseUrl } from '../api/config';
+import { apiBaseUrl, authConfig, type AuthConfig } from '../api/config';
 
 /**
  * App-wide configuration surfaced to the component tree. Intentionally small:
@@ -8,11 +8,14 @@ import { apiBaseUrl } from '../api/config';
  */
 export type AppConfig = {
   apiBaseUrl: string;
+  /** Organizer authentication config (dev bypass vs OIDC/PKCE provider). */
+  auth: AuthConfig;
 };
 
-/** Default config derived from the build-time API base URL. */
+/** Default config derived from the build-time API base URL and auth env. */
 export const defaultAppConfig: AppConfig = {
   apiBaseUrl,
+  auth: authConfig,
 };
 
 const AppConfigContext = createContext<AppConfig>(defaultAppConfig);

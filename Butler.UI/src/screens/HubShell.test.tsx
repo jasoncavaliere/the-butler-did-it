@@ -4,7 +4,9 @@ import { HubShell } from './HubShell';
 import type { ApiClient, ApiResult } from '../api/client';
 import type { ParticipantSessionResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
 import { HouseholdProvider } from '../state/HouseholdContext';
+import { OrganizerProvider } from '../state/OrganizerContext';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
@@ -371,6 +373,91 @@ describe('HubShell', () => {
       expect(screen.getByTestId('name-tile-p1').props.accessibilityState).toEqual({
         selected: false,
       });
+    });
+  });
+
+  describe('organizer sign-in independence (AC8)', () => {
+    const ORGANIZER: OrganizerSession = {
+      organizer: { subject: 'oid-1', name: 'Robin Organizer' },
+      token: 'bearer-abc',
+    };
+
+    /** A fake auth provider injected through the real IAuthProvider seam. */
+    function fakeProvider(overrides: Partial<IAuthProvider> = {}): IAuthProvider {
+      return {
+        kind: 'fake',
+        signIn: overrides.signIn ?? (() => Promise.resolve(ORGANIZER)),
+        signOut: overrides.signOut ?? (() => Promise.resolve()),
+      };
+    }
+
+    /** Render the hub with both the household and a real organizer session context. */
+    async function renderHubWithOrganizer(authProvider: IAuthProvider) {
+      return render(
+        <HouseholdProvider initialHouseholdId="hh-1">
+          <OrganizerProvider authProvider={authProvider}>
+            <HubShell />
+          </OrganizerProvider>
+        </HouseholdProvider>,
+      );
+    }
+
+    it('leaves the active participant claim intact when an organizer signs in', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      // A participant claims the device: Alex is active and their tile glows.
+      await pressTile('p1');
+      expect(screen.getByTestId('name-tile-p1').props.accessibilityState).toEqual({
+        selected: true,
+      });
+      expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+
+      // No organizer yet: the bar offers only the sign-in affordance.
+      expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+
+      // The organizer signs in on the same shared device.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+
+      // Organizer auth is now established - and completely independent of the
+      // participant: Alex remains the active participant (tile still glowing,
+      // today panel still "Alex's day"). Organizer sign-in never touched it.
+      expect(screen.getByTestId('organizer-identity')).toHaveTextContent('Robin Organizer');
+      expect(screen.getByTestId('name-tile-p1').props.accessibilityState).toEqual({
+        selected: true,
+      });
+      expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+    });
+
+    it('leaves the active participant claim intact when an organizer signs out', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      // Organizer signs in first, then a participant claims the device.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+      await pressTile('p1');
+      expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+
+      // The organizer signs out - the participant claim survives untouched.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-out'));
+      });
+
+      expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+      expect(screen.getByTestId('name-tile-p1').props.accessibilityState).toEqual({
+        selected: true,
+      });
+      expect(screen.getByText("Alex's day")).toBeOnTheScreen();
     });
   });
 });

@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { useApiClient } from './useApiClient';
-import { AppConfigProvider } from '../state/AppConfigContext';
+import { AppConfigProvider, defaultAppConfig } from '../state/AppConfigContext';
 
 function Probe() {
   const client = useApiClient();
@@ -12,7 +12,7 @@ function Probe() {
 describe('useApiClient', () => {
   it('builds a client bound to the configured API base URL', async () => {
     await render(
-      <AppConfigProvider value={{ apiBaseUrl: 'http://example.test:1234' }}>
+      <AppConfigProvider value={{ ...defaultAppConfig, apiBaseUrl: 'http://example.test:1234' }}>
         <Probe />
       </AppConfigProvider>,
     );
@@ -29,13 +29,13 @@ describe('useApiClient', () => {
     }
 
     const view = await render(
-      <AppConfigProvider value={{ apiBaseUrl: 'http://stable.test:1' }}>
+      <AppConfigProvider value={{ ...defaultAppConfig, apiBaseUrl: 'http://stable.test:1' }}>
         <Capture />
       </AppConfigProvider>,
     );
 
     await view.rerender(
-      <AppConfigProvider value={{ apiBaseUrl: 'http://stable.test:1' }}>
+      <AppConfigProvider value={{ ...defaultAppConfig, apiBaseUrl: 'http://stable.test:1' }}>
         <Capture />
       </AppConfigProvider>,
     );

@@ -9,6 +9,7 @@ import type {
   RosterEntryResponse,
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import { OrganizerBar } from '../auth/OrganizerBar';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
 import { useHousehold } from '../state/HouseholdContext';
@@ -132,6 +133,7 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
 
   return (
     <View style={styles.hub} testID="hub-shell">
+      <OrganizerBar />
       <View style={styles.header}>
         <Text style={styles.householdName} accessibilityRole="header" testID="hub-household-name">
           {householdName}
