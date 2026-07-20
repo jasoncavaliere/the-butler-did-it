@@ -75,6 +75,13 @@ export type CreateApiClientOptions = {
   baseUrl: string;
   /** Fetch implementation; defaults to the global `fetch` (injectable for tests). */
   fetchImpl?: typeof fetch;
+  /**
+   * Supplies the organizer bearer token per request (T4). Returns the token
+   * when an organizer is signed in, or `null` otherwise. When it yields a
+   * token, an `Authorization: Bearer` header is attached; when it yields `null`
+   * (or is absent), no bearer is sent - participant reads stay unauthenticated.
+   */
+  getAuthToken?: () => string | null;
 };
 
 function messageOf(cause: unknown): string {
@@ -179,9 +186,17 @@ export function createApiClient(options: CreateApiClientOptions): ApiClient {
   async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
     const url = apiUrl(path, baseUrl);
 
+    // Attach the organizer bearer only when a token is available; participant
+    // reads (no organizer signed in) go out unauthenticated.
+    const token = options.getAuthToken?.() ?? null;
+    const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
     let response: Response;
     try {
-      response = await doFetch(url, init);
+      response = await doFetch(url, { ...init, headers });
     } catch (cause) {
       return {
         ok: false,

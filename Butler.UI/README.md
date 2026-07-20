@@ -50,12 +50,17 @@ Application code lives under `src/`, layered so later capability tickets have a 
 ```
 App.tsx                     # thin composition root: providers + navigation
 src/
-  api/        config.ts     # typed API base config (env-driven, dev default)
-              client.ts     # typed fetch client (ApiClient) - the data-access seam
-              useApiClient.ts # hook that binds the client to AppConfigContext's base URL
+  api/        config.ts     # typed API base config (env-driven, dev default) + AuthConfig (T4)
+              client.ts     # typed fetch client (ApiClient) - the data-access seam; attaches the organizer bearer (T4)
+              useApiClient.ts # hook that binds the client to AppConfigContext's base URL + OrganizerContext's token
               models.ts     # typed request/response shapes for the H1-H4 endpoints
               errors.ts     # describeApiError: an ApiError -> one readable line
-  auth/       OrganizerGate.tsx # gates children behind an authenticated organizer (probes /me)
+  auth/       OrganizerGate.tsx    # gates children behind an authenticated organizer (probes /me)
+              authProvider.ts     # IAuthProvider seam: OrganizerIdentity/OrganizerSession (T4)
+              createAuthProvider.ts # config-driven provider selection (dev vs Entra) (T4)
+              devAuthProvider.ts  # dev-mode provider - the deterministic F6 dev organizer, no token (T4)
+              entraAuthProvider.ts # Entra External ID OIDC/PKCE provider - the v1 IAuthProvider (T4)
+              OrganizerBar.tsx    # hub control strip: sign in/out + gated sensitive affordances (T4)
   components/ Screen.tsx     # shared layout primitives
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3), Epic 40 C5 seam
   navigation/ RootNavigator.tsx  # navigation graph
@@ -64,6 +69,7 @@ src/
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
   state/      AppConfigContext.tsx # app-wide config/context providers
               HouseholdContext.tsx # current householdId + setter (useHousehold)
+              OrganizerContext.tsx # signed-in organizer + token, backed by IAuthProvider (T4)
 ```
 
 **Navigation** uses [React Navigation](https://reactnavigation.org/) with a native stack
@@ -106,6 +112,28 @@ failure surfaces the API's problem-details as an in-screen message and does not 
 `OrganizerGate` (`src/auth/OrganizerGate.tsx`), which probes the organizer-only `GET /me` (the F6
 auth seam) so only an authenticated organizer reaches it; the Entra sign-in UI itself is a later
 ticket.
+
+**Organizer sign-in** (`src/auth/`, `src/state/OrganizerContext.tsx`, T4) is the client side of
+Engineering Contract 7.4: the organizer is the product's only authenticated user, and sign-in flows
+through an IdP-agnostic `IAuthProvider` seam (`src/auth/authProvider.ts`) rather than any Entra-specific
+SDK, mirroring the server's generic `AddJwtBearer` and the `IStoreConnector` philosophy. `createAuthProvider`
+(`src/auth/createAuthProvider.ts`) selects the concrete provider from `AuthConfig`
+(`src/api/config.ts`): in dev mode (`EXPO_PUBLIC_DISABLE_AUTH`, defaults to `true` when unset) it
+builds `devAuthProvider.ts`'s deterministic dev organizer (matching the API's `DevOrganizerSubject`/
+`DevOrganizerName`, no token, no live tenant needed); otherwise it builds `entraAuthProvider.ts`'s
+standard OIDC Authorization Code + PKCE flow against `EXPO_PUBLIC_AUTH_AUTHORITY`,
+`EXPO_PUBLIC_AUTH_CLIENT_ID`, `EXPO_PUBLIC_AUTH_REDIRECT_URI`, and `EXPO_PUBLIC_AUTH_SCOPES` (space
+separated, defaults to `openid profile`). `OrganizerProvider` (wrapping the app in `App.tsx`, above
+`HouseholdProvider`) holds the resulting `OrganizerSession` and exposes it through `useOrganizer()` as
+`{ organizer, token, isSignedIn, signIn, signOut }`; `useApiClient()` reads `token` and the client
+(`src/api/client.ts`) attaches it as `Authorization: Bearer` only when present, so participant reads stay
+unauthenticated. `OrganizerBar` (rendered at the top of `HubShell`) offers only a sign-in button with no
+organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
+affordances (edit roster, confirm order, household teardown) - hidden entirely rather than merely
+disabled, so a participant is never presented them. This is defense-in-depth only: the API enforces the
+`Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
+Organizer auth and the active tap-to-claim participant are independent - signing in or out never
+disturbs the other.
 
 **API base URL** comes from `src/api/config.ts`: it reads `EXPO_PUBLIC_API_BASE_URL` (inlined by Expo
 at build time) and falls back to `http://localhost:5108` for local dev. Use `apiUrl(path)` to build
@@ -155,3 +183,8 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
   and tap-to-claim - claiming a person, the claim-colour glow, and the idle timeout back to neutral
   - is wired up (T3). The glanceable chore board that fills `TodayPanel` is not built yet - that
   lands in Epic 40 C5.
+- Organizer sign-in (`OrganizerBar`, `OrganizerContext`, `IAuthProvider`) is wired up (T4): the hub
+  always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
+  client attaches the organizer bearer automatically. Hub device pairing (`HubDevices`, T5) and the
+  actual roster-edit/order-confirm/teardown screens the `OrganizerBar` callbacks wire into are later
+  tickets.

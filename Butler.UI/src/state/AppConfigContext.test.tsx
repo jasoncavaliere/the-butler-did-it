@@ -26,7 +26,7 @@ describe('AppConfigContext', () => {
 
   it('provides an explicit config value to descendants', async () => {
     await render(
-      <AppConfigProvider value={{ apiBaseUrl: 'http://override.test:9' }}>
+      <AppConfigProvider value={{ ...defaultAppConfig, apiBaseUrl: 'http://override.test:9' }}>
         <Probe />
       </AppConfigProvider>,
     );
