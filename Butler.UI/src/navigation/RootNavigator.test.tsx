@@ -9,11 +9,19 @@ jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
 const useApiClientMock = useApiClient as jest.MockedFunction<typeof useApiClient>;
 
-/** A client whose `get` answers both the /me probe and the /health probe. */
-function client(result: ApiResult<unknown>): ApiClient {
+/** A client whose `get` answers by path: /me, the household read, and the roster. */
+function pathAwareClient(): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
-    get: jest.fn(async () => result) as unknown as ApiClient['get'],
+    get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      if (path.endsWith('/people')) {
+        return { ok: true, status: 200, data: [], etag: null };
+      }
+      if (path === '/me') {
+        return { ok: true, status: 200, data: { subject: 'org', name: 'Org' }, etag: null };
+      }
+      return { ok: true, status: 200, data: { name: 'The Test Household' }, etag: null };
+    }) as unknown as ApiClient['get'],
     update: jest.fn() as unknown as ApiClient['update'],
   };
 }
@@ -24,9 +32,7 @@ afterEach(() => {
 
 describe('RootNavigator', () => {
   it('routes to the onboarding flow when no household is selected', async () => {
-    useApiClientMock.mockReturnValue(
-      client({ ok: true, status: 200, data: { subject: 'org', status: 'ok' }, etag: null }),
-    );
+    useApiClientMock.mockReturnValue(pathAwareClient());
 
     await render(
       <HouseholdProvider>
@@ -37,10 +43,8 @@ describe('RootNavigator', () => {
     await waitFor(() => expect(screen.getByTestId('step-household')).toBeOnTheScreen());
   });
 
-  it('routes to the Home hub once a household is selected', async () => {
-    useApiClientMock.mockReturnValue(
-      client({ ok: true, status: 200, data: { subject: 'org', status: 'ok' }, etag: null }),
-    );
+  it('routes to the Home hub shell once a household is selected', async () => {
+    useApiClientMock.mockReturnValue(pathAwareClient());
 
     await render(
       <HouseholdProvider initialHouseholdId="hh-77">
@@ -48,6 +52,9 @@ describe('RootNavigator', () => {
       </HouseholdProvider>,
     );
 
-    expect(await screen.findByText('Welcome home')).toBeOnTheScreen();
+    expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+    await waitFor(() =>
+      expect(screen.getByTestId('hub-household-name')).toHaveTextContent('The Test Household'),
+    );
   });
 });

@@ -57,8 +57,9 @@ src/
               errors.ts     # describeApiError: an ApiError -> one readable line
   auth/       OrganizerGate.tsx # gates children behind an authenticated organizer (probes /me)
   components/ Screen.tsx     # shared layout primitives
+              TodayPanel.tsx # bounded "today" placeholder container (Epic 40 C5 seam)
   navigation/ RootNavigator.tsx  # navigation graph
-  screens/    HomeScreen.tsx # the hub (shown once a household is selected)
+  screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
   state/      AppConfigContext.tsx # app-wide config/context providers
@@ -69,8 +70,22 @@ src/
 (`@react-navigation/native` + `@react-navigation/native-stack`). `RootNavigator` mounts the
 `NavigationContainer` and conditionally registers routes on the selected household (the React
 Navigation auth-flow pattern): with no household it mounts the onboarding flow (`HouseholdSetup`),
-and once `useHousehold` holds an id it mounts the `Home` hub. Add a screen under `src/screens`, then
-register it in `RootNavigator` and extend `RootStackParamList`.
+and once `useHousehold` holds an id it mounts the `Home` route, which renders the always-on
+`HubShell` (T2). Add a screen under `src/screens`, then register it in `RootNavigator` and extend
+`RootStackParamList`.
+
+**The hub shell** (`src/screens/HubShell.tsx`, T2) is the shared-device shell the rest of the
+product renders inside (BRD 6.2). It reads the active household from `useHousehold` and, through
+the typed API client, loads the household name (H1) and the open tap-to-claim roster (the
+`RosterEntryResponse[]` projection from `GET /households/{householdId}/people`) to render three
+regions: a header (household name + today's date), a row of participant name tiles (one per
+person, accented by their claim colour), and a bounded `TodayPanel`. Every load outcome - loading,
+ready, no household, or an unreachable API - is a calm, deliberate state; the shell never shows a
+crash or a blank screen. There is no password or sign-in prompt on this shell: participants glance
+and tap, and organizer sign-in is a separate affordance (T4). The shell fetches no chores itself -
+`TodayPanel` (`src/components/TodayPanel.tsx`) is a documented seam: a bounded placeholder
+container that renders whatever children it is given (or a calm "being prepared" empty state) so
+Epic 40 C5 can fill it with the chore board without restructuring the hub layout.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
@@ -125,6 +140,6 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
 
 - `CLAUDE.md` / `AGENTS.md` here are Expo-generated UI guidance and apply within this folder; the
   monorepo-level guide is the root [`CLAUDE.md`](../CLAUDE.md).
-- The hub UI (tap-to-claim profiles, the glanceable weekly board, offline behavior) is not built yet -
-  `HomeScreen` is still a placeholder screen, but it now proves the API client wiring by calling the
-  System `/health` endpoint on mount and showing a loading, healthy, or graceful-unreachable state.
+- The hub shell (`HubShell`) now renders the header, name tiles, and `TodayPanel` seam (T2). The
+  tap-to-claim tap interaction on the name tiles and the glanceable chore board that fills
+  `TodayPanel` are not built yet - those land in T3 and Epic 40 C5 respectively.
