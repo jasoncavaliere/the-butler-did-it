@@ -183,9 +183,34 @@ registers via `AddPeopleFeature()` in `Program.cs`.
 | `PUT /households/{householdId}/people/{personId}` | Updates `DisplayName`/`Role`/`IsChild`/`ClaimColor` under the `If-Match` precondition. Returns `200` with the updated person, `404` for an unknown person, `428` when `If-Match` is missing, `412` when it is stale, or `400` when the change would demote the household's last organizer. |
 | `DELETE /households/{householdId}/people/{personId}` | Deletes the person unconditionally (delete is not concurrency-gated). Returns `204`, `404` for an unknown person, or `400` when the deletion would remove the household's last organizer. |
 
+### Chores (recurring tasks attached to a room)
+
+`Chores` (`Application/Chores/`, `Infrastructure/Chores/`, `Controllers/ChoresController`) is the last
+spine piece off the household aggregate before assignment - each chore attaches to a `Room` (H2) and
+carries the `Effort`, `Cadence`, and `MinAge` the Epic 40 fair-assignment engine reads. Every route is
+scoped under `/households/{householdId}/chores`. Reads (`GET`, list and single) are open to the hub
+device and participants; mutations (`POST`, `PUT`, `POST .../deactivate`) require the `Organizer`
+authorization policy (Engineering Contract 7.4). Updates carry the `If-Match` optimistic-concurrency
+precondition on the shared seam above (7.3) - missing it is `428`, a stale value is `412`. `RoomId` must
+reference an existing room in the same household (create/update with an unknown `RoomId` is `400`), and
+`Effort` must be a positive integer (a non-positive value is `400`). A chore is deactivated
+(`Active = false`) rather than deleted, so historical assignments and completions keep referential
+meaning; there is no delete endpoint. An unknown `choreId` is `404` RFC 7807 problem details on `GET`,
+`PUT`, and `POST .../deactivate`. Persistence goes through `TableChoreRepository` (`IChoreRepository`),
+and the feature registers via `AddChoresFeature()` in `Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/chores` | Creates a chore with a server-generated `choreId`, the given `Title`, `RoomId`, `Cadence` (`Daily` or `Weekly`), `Effort`, and `MinAge` (nullable). `Active` defaults to `true`. Returns `201` with the created chore (including `ETag`) and a `Location` pointing at `GET .../chores/{choreId}`, `400` for an unknown `RoomId` or non-positive `Effort`. |
+| `GET /households/{householdId}/chores` | Lists the household's chores, optionally filtered with `?active=true`/`?active=false` (open read). |
+| `GET /households/{householdId}/chores/{choreId}` | Returns the chore (with its current `ETag`) for a known id, or `404` for an unknown one. |
+| `PUT /households/{householdId}/chores/{choreId}` | Updates `Title`/`RoomId`/`Cadence`/`Effort`/`MinAge`/`Active` under the `If-Match` precondition. Returns `200` with the updated chore, `404` for an unknown chore, `400` for an unknown `RoomId` or non-positive `Effort`, `428` when `If-Match` is missing, or `412` when it is stale. |
+| `POST /households/{householdId}/chores/{choreId}/deactivate` | Sets `Active = false` and retains the row. Returns `200` with the updated chore, or `404` for an unknown chore. |
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
-can be added without re-architecting. `Households`, `Rooms`, and `People` are the first of these feature
-modules; chores/groceries/calendar have not been built yet. The no-password tap-to-claim CLAIM action
-(Epic 30, T1) that lets participants pick their `People` row on the hub is still out of scope here.
+can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
+these feature modules; the Epic 40 fair-assignment engine, groceries, and calendar have not been built
+yet. The no-password tap-to-claim CLAIM action (Epic 30, T1) that lets participants pick their `People`
+row on the hub is still out of scope here.
