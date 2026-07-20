@@ -73,8 +73,9 @@ variables):
 
 ## Organizer authentication
 
-Only the organizer authenticates (Engineering Contract 7.4); participants and the shared hub device
-never do (Epic 30). Endpoints that require an organizer carry
+Only the organizer authenticates with a real credential (Engineering Contract 7.4); the shared hub
+device and participants never do (Epic 30) - see "Participant sessions (tap-to-claim)" below for how
+they identify themselves instead. Endpoints that require an organizer carry
 `[Authorize(Policy = OrganizerAuthorization.PolicyName)]` - `GET /me` (resolves the caller's subject and
 display name) is the sample organizer-only endpoint that proves the seam end to end.
 
@@ -90,6 +91,24 @@ if it is enabled but no authority is configured. Configure it under the `Authent
 | `Authentication:Authority` | Entra External ID authority (issuer) that mints organizer tokens, e.g. `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0`. Required whenever authentication is enabled. |
 | `Authentication:Audience` | Expected audience (the API's application/client id). Optional; when unset the audience is not validated. |
 | `Authentication:DisableAuthentication` | Explicit override. Defaults to `true` in Development, refused (fail closed) in every other environment. Never set this outside Development. |
+
+## Participant sessions (tap-to-claim)
+
+Claiming a person at the hub (T1, Epic 30) mints a lightweight **participant session** - not an
+organizer credential - scoped to exactly `(householdId, personId)`. It requires no password and no
+organizer JWT, and it can never satisfy the `Organizer` policy: the default authentication scheme is a
+forwarding scheme that routes a request carrying the `X-Participant-Session` header to the participant
+scheme (so it authenticates as that person, but is `403 Forbidden` at any organizer-only endpoint) and
+every other request to the organizer scheme.
+
+- `POST /households/{householdId}/people/{personId}/claim` - see the People section below. The response
+  includes an opaque `token`.
+- Present that token on later requests via the `X-Participant-Session: <token>` header to identify the
+  active participant (for example, the Epic 40 C4 chore-completion endpoint attributes a
+  `ChoreCompletion` to the resulting `personId`).
+- The token is intentionally opaque and unsigned - claiming itself is unauthenticated by design (Decision
+  D-3), and no money moves in v1 (Decision D-8), so a forged token buys nothing beyond identifying a
+  `personId` that already has no organizer authority.
 
 ## Deploy (Azure)
 
@@ -165,21 +184,23 @@ shared seam above (7.3) - missing it is `428`, a stale value is `412`. An unknow
 `People` (`Application/People/`, `Infrastructure/People/`, `Controllers/PeopleController`) is the
 organizer-managed roster of participants and children off the household aggregate; H1's household
 creation already seeds the organizer's own row, so this feature adds participant/child management. Every
-route is scoped under `/households/{householdId}/people`. Reads (`GET`, list and single) are open to the
-hub device and participants so tap-to-claim (Epic 30) can render names; mutations (`POST`, `PUT`,
-`DELETE`) require the `Organizer` authorization policy (Engineering Contract 7.4). Updates carry the
-`If-Match` optimistic-concurrency precondition on the shared seam above (7.3) - missing it is `428`, a
-stale value is `412`. An unknown `personId` is `404` RFC 7807 problem details on `GET`, `PUT`, and
-`DELETE`. A household must always retain at least one organizer: a request that would demote or delete
-the last remaining organizer is rejected with `400` RFC 7807 problem details and the row is left
-unchanged. Persistence goes through `TablePersonRepository` (`IPersonRepository`), and the feature
-registers via `AddPeopleFeature()` in `Program.cs`.
+route is scoped under `/households/{householdId}/people`. The organizer CRUD reads (`GET`, list and
+single) are open to any authenticated caller; the list route now returns the **trimmed tap-to-claim
+roster** (see below) rather than the full organizer shape. Mutations (`POST`, `PUT`, `DELETE`) require
+the `Organizer` authorization policy (Engineering Contract 7.4). Updates carry the `If-Match`
+optimistic-concurrency precondition on the shared seam above (7.3) - missing it is `428`, a stale value
+is `412`. An unknown `personId` is `404` RFC 7807 problem details on `GET`, `PUT`, and `DELETE`. A
+household must always retain at least one organizer: a request that would demote or delete the last
+remaining organizer is rejected with `400` RFC 7807 problem details and the row is left unchanged.
+Persistence goes through `TablePersonRepository` (`IPersonRepository`), and the feature registers via
+`AddPeopleFeature()` in `Program.cs`.
 
 | Endpoint | Behavior |
 | --- | --- |
 | `POST /households/{householdId}/people` | Creates a person with a server-generated `personId`, the given `DisplayName`, `Role` (`Organizer` or `Participant`), `IsChild`, and `ClaimColor`. Returns `201` with the created person (including `ETag`) and a `Location` pointing at `GET .../people/{personId}`. |
-| `GET /households/{householdId}/people` | Lists the household's people (open read - no organizer policy required, so the hub can render tap-to-claim tiles). |
-| `GET /households/{householdId}/people/{personId}` | Returns the person (with its current `ETag`) for a known id, or `404` for an unknown one. |
+| `GET /households/{householdId}/people` | Returns the claimable tap-to-claim roster: `{ personId, displayName, claimColor, isChild }` for every person in the household (open, unauthenticated read - no bearer token needed even when authentication is enabled). It never carries organizer-only fields such as `OrganizerObjectId`, nor `role`/`ETag`. |
+| `GET /households/{householdId}/people/{personId}` | Returns the full person detail (with its current `ETag`) for a known id, or `404` for an unknown one (the organizer CRUD contract; open read). |
+| `POST /households/{householdId}/people/{personId}/claim` | Tap-to-claim (T1): requires no password and no organizer JWT. Issues a participant session scoped to exactly `(householdId, personId)` - see "Participant sessions (tap-to-claim)" above. Returns `200` with `{ householdId, personId, displayName, claimColor, isChild, token }`, or `404` RFC 7807 problem details for an unknown `personId` or `householdId`. |
 | `PUT /households/{householdId}/people/{personId}` | Updates `DisplayName`/`Role`/`IsChild`/`ClaimColor` under the `If-Match` precondition. Returns `200` with the updated person, `404` for an unknown person, `428` when `If-Match` is missing, `412` when it is stale, or `400` when the change would demote the household's last organizer. |
 | `DELETE /households/{householdId}/people/{personId}` | Deletes the person unconditionally (delete is not concurrency-gated). Returns `204`, `404` for an unknown person, or `400` when the deletion would remove the household's last organizer. |
 
@@ -211,6 +232,6 @@ Per the vision's modularity tenet, the API will eventually organize around the *
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
 can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
-these feature modules; the Epic 40 fair-assignment engine, groceries, and calendar have not been built
-yet. The no-password tap-to-claim CLAIM action (Epic 30, T1) that lets participants pick their `People`
-row on the hub is still out of scope here.
+these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
+is the first piece of the participant identity model; the Epic 40 fair-assignment engine, the tap-to-claim
+UI (T3), groceries, and calendar have not been built yet.
