@@ -106,13 +106,22 @@ public sealed class PreventLastOrganizerRemovalTests : IClassFixture<ButlerApiFa
 
     private static async Task<JsonElement> SingleOrganizerAsync(HttpClient client, Uri peopleUri)
     {
+        // The roster read (T1) is the trimmed claimable projection - no role or
+        // ETag. A freshly seeded household holds exactly one person (its organizer),
+        // so take that entry's id and read the single-person detail for the CRUD
+        // fields (role, ETag) the guard tests need.
         using var listResponse = await client.GetAsync(peopleUri);
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         using var listDoc = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
-        var organizers = listDoc.RootElement.EnumerateArray()
-            .Where(p => p.GetProperty("role").GetString() == "Organizer")
-            .ToList();
-        var organizer = Assert.Single(organizers);
+        var entry = Assert.Single(listDoc.RootElement.EnumerateArray().ToList());
+        var personId = entry.GetProperty("personId").GetString();
+
+        var personUri = new Uri($"{peopleUri.OriginalString}/{personId}", UriKind.Relative);
+        using var detailResponse = await client.GetAsync(personUri);
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        using var detailDoc = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync());
+        var organizer = detailDoc.RootElement;
+        Assert.Equal("Organizer", organizer.GetProperty("role").GetString());
         // Clone so the element survives disposal of the JsonDocument.
         return organizer.Clone();
     }

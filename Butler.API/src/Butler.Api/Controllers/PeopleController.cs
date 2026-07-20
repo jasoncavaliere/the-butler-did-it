@@ -50,15 +50,42 @@ public sealed class PeopleController : ControllerBase
             result);
     }
 
-    /// <summary>Lists the household's people (open read for the hub/participants).</summary>
+    /// <summary>
+    /// Reads the claimable tap-to-claim roster (T1): an open, unauthenticated read
+    /// returning only the fields a name tile needs
+    /// (<c>personId, displayName, claimColor, isChild</c>). It never carries
+    /// organizer-only data (for example <c>OrganizerObjectId</c>) nor the role or
+    /// <c>ETag</c>; the single-person read below still returns the full detail for
+    /// the organizer CRUD contract.
+    /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<PersonResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<PersonResponse>>> List(
+    [ProducesResponseType(typeof(IReadOnlyList<RosterEntryResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<RosterEntryResponse>>> List(
         string householdId,
         CancellationToken cancellationToken)
     {
-        var result = await _sender.Send(new ListPeopleQuery(householdId), cancellationToken);
+        var result = await _sender.Send(new GetRosterQuery(householdId), cancellationToken);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Claims a person at the hub (T1): with no password and no organizer JWT,
+    /// issues a lightweight participant session scoped to exactly
+    /// <c>(householdId, personId)</c>. An unknown person or household is a
+    /// <c>404</c>. The returned <c>token</c> is replayed on the
+    /// <c>X-Participant-Session</c> header to attribute later completion writes;
+    /// it grants no organizer authority.
+    /// </summary>
+    [HttpPost("{personId}/claim")]
+    [ProducesResponseType(typeof(ParticipantSessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ParticipantSessionResponse>> Claim(
+        string householdId,
+        string personId,
+        CancellationToken cancellationToken)
+    {
+        var session = await _sender.Send(new ClaimPersonCommand(householdId, personId), cancellationToken);
+        return session is null ? PersonNotFound(householdId, personId) : Ok(session);
     }
 
     /// <summary>Reads one person by id, or <c>404</c> problem details when unknown (open read).</summary>

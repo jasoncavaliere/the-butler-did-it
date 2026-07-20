@@ -56,13 +56,39 @@ public static class AuthenticationServiceCollectionExtensions
                 $"Refusing to start in '{environment.EnvironmentName}' with authentication disabled (fail closed).");
         }
 
+        // The scheme that satisfies the Organizer policy: the dev-organizer bypass
+        // in Development, JWT bearer against Entra External ID otherwise.
+        var organizerScheme = disableAuthentication
+            ? OrganizerAuthorization.DevScheme
+            : JwtBearerDefaults.AuthenticationScheme;
+
+        // The default is a forwarding scheme (T1): a request presenting a
+        // participant session header is authenticated by the participant scheme -
+        // so it is authenticated-but-forbidden (403), never a silent 401 - while
+        // every other request falls through to the organizer scheme. The Organizer
+        // policy therefore needs no explicit scheme list and still fails closed for
+        // a participant session.
+        var authBuilder = services.AddAuthentication(options =>
+            options.DefaultScheme = ParticipantSession.ForwardScheme);
+
+        authBuilder.AddPolicyScheme(
+            ParticipantSession.ForwardScheme,
+            ParticipantSession.ForwardScheme,
+            forward => forward.ForwardDefaultSelector = context =>
+                context.Request.Headers.ContainsKey(ParticipantSession.HeaderName)
+                    ? ParticipantSession.SchemeName
+                    : organizerScheme);
+
+        // Tap-to-claim participant sessions (no password, no organizer authority).
+        authBuilder.AddScheme<AuthenticationSchemeOptions, ParticipantSessionAuthenticationHandler>(
+            ParticipantSession.SchemeName,
+            configureOptions: null);
+
         if (disableAuthentication)
         {
-            services
-                .AddAuthentication(OrganizerAuthorization.DevScheme)
-                .AddScheme<AuthenticationSchemeOptions, DevOrganizerAuthenticationHandler>(
-                    OrganizerAuthorization.DevScheme,
-                    configureOptions: null);
+            authBuilder.AddScheme<AuthenticationSchemeOptions, DevOrganizerAuthenticationHandler>(
+                OrganizerAuthorization.DevScheme,
+                configureOptions: null);
         }
         else
         {
@@ -73,15 +99,13 @@ public static class AuthenticationServiceCollectionExtensions
                     "Refusing to start misconfigured (fail closed).");
             }
 
-            services
-                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddJwtBearer(jwt =>
-                {
-                    jwt.Authority = options.Authority;
-                    jwt.Audience = options.Audience;
-                    jwt.TokenValidationParameters.ValidateAudience =
-                        !string.IsNullOrWhiteSpace(options.Audience);
-                });
+            authBuilder.AddJwtBearer(jwt =>
+            {
+                jwt.Authority = options.Authority;
+                jwt.Audience = options.Audience;
+                jwt.TokenValidationParameters.ValidateAudience =
+                    !string.IsNullOrWhiteSpace(options.Audience);
+            });
         }
 
         services.AddAuthorizationBuilder()
