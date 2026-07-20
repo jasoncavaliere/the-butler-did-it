@@ -1,0 +1,79 @@
+/**
+ * Typed request/response models for the household-model endpoints (H1-H4),
+ * mirroring the API's DTOs (ASP.NET serializes them as camelCase JSON). These
+ * are the shapes the F7 {@link ApiClient} reads and writes; the onboarding flow
+ * (H5) and later capability screens share them instead of re-declaring inline.
+ */
+
+/** The resolved organizer returned by the organizer-gated `GET /me` (F6 seam). */
+export type MeResponse = {
+  subject: string | null;
+  name: string | null;
+};
+
+/** A household as returned by the Households endpoints (H1). */
+export type HouseholdResponse = {
+  householdId: string;
+  name: string;
+  organizerObjectId: string;
+  createdUtc: string;
+  etag: string;
+};
+
+/** Body for `POST /households`. */
+export type CreateHouseholdRequest = {
+  name: string;
+};
+
+/** A room as returned by the Rooms endpoints (H4). */
+export type RoomResponse = {
+  roomId: string;
+  name: string;
+  sortOrder: number;
+  etag: string;
+};
+
+/** Body for `POST /households/{householdId}/rooms`. */
+export type CreateRoomRequest = {
+  name: string;
+  sortOrder: number;
+};
+
+/** A person as returned by the People endpoints (H3). */
+export type PersonResponse = {
+  personId: string;
+  displayName: string;
+  role: string;
+  isChild: boolean;
+  claimColor: string | null;
+  etag: string;
+};
+
+/** Body for `POST /households/{householdId}/people`. */
+export type CreatePersonRequest = {
+  displayName: string;
+  role: string;
+  isChild: boolean;
+  claimColor: string | null;
+};
+
+/** A chore as returned by the Chores endpoints (H2). */
+export type ChoreResponse = {
+  choreId: string;
+  title: string;
+  roomId: string;
+  cadence: string;
+  effort: number;
+  minAge: number | null;
+  active: boolean;
+  etag: string;
+};
+
+/** Body for `POST /households/{householdId}/chores`. */
+export type CreateChoreRequest = {
+  title: string;
+  roomId: string;
+  cadence: string;
+  effort: number;
+  minAge: number | null;
+};

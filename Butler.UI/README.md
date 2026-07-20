@@ -53,17 +53,33 @@ src/
   api/        config.ts     # typed API base config (env-driven, dev default)
               client.ts     # typed fetch client (ApiClient) - the data-access seam
               useApiClient.ts # hook that binds the client to AppConfigContext's base URL
+              models.ts     # typed request/response shapes for the H1-H4 endpoints
+              errors.ts     # describeApiError: an ApiError -> one readable line
+  auth/       OrganizerGate.tsx # gates children behind an authenticated organizer (probes /me)
   components/ Screen.tsx     # shared layout primitives
   navigation/ RootNavigator.tsx  # navigation graph
-  screens/    HomeScreen.tsx # one screen per route
+  screens/    HomeScreen.tsx # the hub (shown once a household is selected)
+              HouseholdSetup.tsx       # organizer onboarding wizard (H5)
+              HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
   state/      AppConfigContext.tsx # app-wide config/context providers
               HouseholdContext.tsx # current householdId + setter (useHousehold)
 ```
 
 **Navigation** uses [React Navigation](https://reactnavigation.org/) with a native stack
 (`@react-navigation/native` + `@react-navigation/native-stack`). `RootNavigator` mounts the
-`NavigationContainer` and registers routes; the `Home` route is the entry. Add a screen under
-`src/screens`, then register it in `RootNavigator` and extend `RootStackParamList`.
+`NavigationContainer` and conditionally registers routes on the selected household (the React
+Navigation auth-flow pattern): with no household it mounts the onboarding flow (`HouseholdSetup`),
+and once `useHousehold` holds an id it mounts the `Home` hub. Add a screen under `src/screens`, then
+register it in `RootNavigator` and extend `RootStackParamList`.
+
+**Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
+household, add rooms, add people (each with a child flag and claim colour), map starter chores to
+rooms - driven entirely through the typed API client. Each step POSTs to its H1-H4 endpoint; a
+failure surfaces the API's problem-details as an in-screen message and does not advance. The new
+`householdId` is published to `HouseholdContext` on completion. The flow is wrapped in
+`OrganizerGate` (`src/auth/OrganizerGate.tsx`), which probes the organizer-only `GET /me` (the F6
+auth seam) so only an authenticated organizer reaches it; the Entra sign-in UI itself is a later
+ticket.
 
 **API base URL** comes from `src/api/config.ts`: it reads `EXPO_PUBLIC_API_BASE_URL` (inlined by Expo
 at build time) and falls back to `http://localhost:5108` for local dev. Use `apiUrl(path)` to build
