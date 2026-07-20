@@ -1,4 +1,5 @@
 using Butler.Api.Application.Households;
+using Butler.Api.Application.Rooms;
 using Butler.Api.Application.System;
 using Butler.Api.Infrastructure.Auth;
 using Butler.Api.Infrastructure.Storage;
@@ -36,6 +37,7 @@ builder.Services.AddOrganizerAuthentication(builder.Configuration, builder.Envir
 // Features.
 builder.Services.AddSystemFeature();
 builder.Services.AddHouseholdFeature();
+builder.Services.AddRoomsFeature();
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();
