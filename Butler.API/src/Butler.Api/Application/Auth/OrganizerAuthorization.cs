@@ -17,6 +17,13 @@ public static class OrganizerAuthorization
     public const string ParticipantRole = "Participant";
 
     /// <summary>
+    /// The role value for a paired hub device (T5). Like the participant role it
+    /// deliberately never satisfies the <c>Organizer</c> policy: a device token
+    /// permits household reads and completion writes but no organizer actions.
+    /// </summary>
+    public const string HubDeviceRole = "HubDevice";
+
+    /// <summary>
     /// The authentication scheme used when authentication is disabled
     /// (Development only): every request is authenticated as the dev organizer.
     /// </summary>

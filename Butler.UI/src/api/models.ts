@@ -81,6 +81,27 @@ export type ParticipantSessionResponse = {
   token: string;
 };
 
+/**
+ * The pairing result returned by the T5 pair endpoint
+ * (`POST /households/{householdId}/hub-devices/pair`), mirroring the API's
+ * `HubDevicePairingResponse` DTO. The hub stores {@link token} - a long-lived,
+ * household-scoped device credential - for subsequent reads and completion
+ * writes. It grants no organizer authority and is minted only from an
+ * organizer-gated pair, so it is never obtained on the participant-only path.
+ */
+export type HubDevicePairingResponse = {
+  householdId: string;
+  deviceId: string;
+  deviceName: string;
+  pairedUtc: string;
+  token: string;
+};
+
+/** Body for `POST /households/{householdId}/hub-devices/pair`. */
+export type PairHubDeviceRequest = {
+  deviceName: string;
+};
+
 /** Body for `POST /households/{householdId}/people`. */
 export type CreatePersonRequest = {
   displayName: string;

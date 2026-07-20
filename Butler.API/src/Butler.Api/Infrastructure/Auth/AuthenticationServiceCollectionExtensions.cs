@@ -62,12 +62,13 @@ public static class AuthenticationServiceCollectionExtensions
             ? OrganizerAuthorization.DevScheme
             : JwtBearerDefaults.AuthenticationScheme;
 
-        // The default is a forwarding scheme (T1): a request presenting a
-        // participant session header is authenticated by the participant scheme -
-        // so it is authenticated-but-forbidden (403), never a silent 401 - while
-        // every other request falls through to the organizer scheme. The Organizer
-        // policy therefore needs no explicit scheme list and still fails closed for
-        // a participant session.
+        // The default is a forwarding scheme (T1/T5): a request presenting a hub
+        // device token is authenticated by the device scheme, one presenting a
+        // participant session header by the participant scheme - so either is
+        // authenticated-but-forbidden (403), never a silent 401 - while every other
+        // request falls through to the organizer scheme. The Organizer policy
+        // therefore needs no explicit scheme list and still fails closed for a
+        // device token or a participant session.
         var authBuilder = services.AddAuthentication(options =>
             options.DefaultScheme = ParticipantSession.ForwardScheme);
 
@@ -75,13 +76,26 @@ public static class AuthenticationServiceCollectionExtensions
             ParticipantSession.ForwardScheme,
             ParticipantSession.ForwardScheme,
             forward => forward.ForwardDefaultSelector = context =>
-                context.Request.Headers.ContainsKey(ParticipantSession.HeaderName)
+            {
+                if (context.Request.Headers.ContainsKey(DeviceToken.HeaderName))
+                {
+                    return DeviceToken.SchemeName;
+                }
+
+                return context.Request.Headers.ContainsKey(ParticipantSession.HeaderName)
                     ? ParticipantSession.SchemeName
-                    : organizerScheme);
+                    : organizerScheme;
+            });
 
         // Tap-to-claim participant sessions (no password, no organizer authority).
         authBuilder.AddScheme<AuthenticationSchemeOptions, ParticipantSessionAuthenticationHandler>(
             ParticipantSession.SchemeName,
+            configureOptions: null);
+
+        // Paired hub device tokens (T5): long-lived, household-scoped, no organizer
+        // authority - reads and completion writes only, never organizer actions.
+        authBuilder.AddScheme<AuthenticationSchemeOptions, HubDeviceAuthenticationHandler>(
+            DeviceToken.SchemeName,
             configureOptions: null);
 
         if (disableAuthentication)

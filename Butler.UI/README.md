@@ -61,6 +61,7 @@ src/
               devAuthProvider.ts  # dev-mode provider - the deterministic F6 dev organizer, no token (T4)
               entraAuthProvider.ts # Entra External ID OIDC/PKCE provider - the v1 IAuthProvider (T4)
               OrganizerBar.tsx    # hub control strip: sign in/out + gated sensitive affordances (T4)
+              HubPairing.tsx      # organizer-only "pair this tablet" affordance (T5)
   components/ Screen.tsx     # shared layout primitives
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3), Epic 40 C5 seam
   navigation/ RootNavigator.tsx  # navigation graph
@@ -70,6 +71,7 @@ src/
   state/      AppConfigContext.tsx # app-wide config/context providers
               HouseholdContext.tsx # current householdId + setter (useHousehold)
               OrganizerContext.tsx # signed-in organizer + token, backed by IAuthProvider (T4)
+              HubDeviceContext.tsx # paired hub device token for the shared tablet (T5)
 ```
 
 **Navigation** uses [React Navigation](https://reactnavigation.org/) with a native stack
@@ -135,6 +137,17 @@ disabled, so a participant is never presented them. This is defense-in-depth onl
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.
 
+**Hub device pairing** (`src/auth/HubPairing.tsx`, `src/state/HubDeviceContext.tsx`, T5) makes the
+shared tablet itself a long-lived, household-scoped actor rather than an anonymous caller. `HubPairing`
+(rendered in `HubShell`, next to `OrganizerBar`) renders only for a signed-in organizer - a participant
+never sees it - and calls the organizer-gated `POST /households/{householdId}/hub-devices/pair` endpoint
+through the typed API client; the hidden affordance is convenience, not the security boundary, since the
+API enforces the `Organizer` policy server-side (T5 API side). A successful pair stores the returned
+long-lived device token in `HubDeviceProvider` (wired in `App.tsx`, alongside `OrganizerProvider` and
+`HouseholdProvider`) via `useHubDevice()`'s `setDeviceToken`; the token lives in memory for the process
+lifetime, mirroring the other hub session state. Presenting the device token on later requests (the
+`X-Device-Token` header) is a later ticket - this ticket only pairs and stores it.
+
 **API base URL** comes from `src/api/config.ts`: it reads `EXPO_PUBLIC_API_BASE_URL` (inlined by Expo
 at build time) and falls back to `http://localhost:5108` for local dev. Use `apiUrl(path)` to build
 request URLs.
@@ -185,6 +198,8 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
   lands in Epic 40 C5.
 - Organizer sign-in (`OrganizerBar`, `OrganizerContext`, `IAuthProvider`) is wired up (T4): the hub
   always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
-  client attaches the organizer bearer automatically. Hub device pairing (`HubDevices`, T5) and the
-  actual roster-edit/order-confirm/teardown screens the `OrganizerBar` callbacks wire into are later
-  tickets.
+  client attaches the organizer bearer automatically.
+- Hub device pairing (`HubPairing`, `HubDeviceContext`, T5) is wired up: a signed-in organizer can pair
+  the tablet and the resulting device token is held in memory for the process lifetime. Presenting that
+  token on later reads/completion writes, and the actual roster-edit/order-confirm/teardown screens the
+  `OrganizerBar` callbacks wire into, are later tickets.
