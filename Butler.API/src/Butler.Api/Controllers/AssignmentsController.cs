@@ -117,10 +117,67 @@ public sealed class AssignmentsController : ControllerBase
         return Ok(result);
     }
 
-    // The completion's actor: a participant session identifies itself, so its own
-    // personId (the NameIdentifier claim) is authoritative. A hub device or an
-    // organizer is not a person, so the actor arrives in the body - the active
-    // participant the UI selected on the shared tablet (T3).
+    /// <summary>
+    /// Reverses a completion from a tap (the inverse of <see cref="Complete"/>). It
+    /// flips the assignment from <c>Done</c> back to <c>Open</c> under optimistic
+    /// concurrency and backs out the credited effort by appending a compensating
+    /// append-only <c>ChoreCompletion</c> (the ledger is never deleted from). Undo is
+    /// not a sensitive action any more than complete is (Decision D-3), so - matching
+    /// C4 - any authenticated caller (a tap-to-claim participant or a paired hub
+    /// device) may drive it; no organizer authority is required. Undoing an
+    /// already-<c>Open</c> assignment is an idempotent success. An unknown assignment
+    /// is a <c>404</c>.
+    /// </summary>
+    /// <remarks>
+    /// The actor the reversal is attributed to is resolved exactly as
+    /// <see cref="Complete"/> resolves it: the participant session's own
+    /// <c>personId</c> when the caller holds one; otherwise (a shared hub tablet or an
+    /// organizer) the <c>personId</c> the caller supplies in the body - the UI's
+    /// active participant (T3). An undo with no resolvable actor is a <c>400</c>.
+    /// </remarks>
+    [HttpPost("{weekIso}/{choreId}/undo")]
+    [Authorize]
+    [ProducesResponseType(typeof(UndoChoreResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UndoChoreResponse>> Undo(
+        string householdId,
+        string weekIso,
+        string choreId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CompleteChoreRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var personId = ResolveActorPersonId(request);
+        if (string.IsNullOrWhiteSpace(personId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "A person is required to undo a chore completion.",
+                detail: "Supply the acting personId in the request body, or present a participant session.",
+                type: $"https://httpstatuses.io/{StatusCodes.Status400BadRequest}");
+        }
+
+        var result = await _sender.Send(
+            new UndoChoreCommand(householdId, weekIso, choreId, personId),
+            cancellationToken);
+
+        if (result is null)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Assignment not found.",
+                detail: $"No assignment for chore '{choreId}' in week '{weekIso}' exists in household '{householdId}'.",
+                type: $"https://httpstatuses.io/{StatusCodes.Status404NotFound}");
+        }
+
+        return Ok(result);
+    }
+
+    // The actor for a completion or its reversal: a participant session identifies
+    // itself, so its own personId (the NameIdentifier claim) is authoritative. A hub
+    // device or an organizer is not a person, so the actor arrives in the body - the
+    // active participant the UI selected on the shared tablet (T3).
     private string? ResolveActorPersonId(CompleteChoreRequest? request)
     {
         if (User.IsInRole(OrganizerAuthorization.ParticipantRole))

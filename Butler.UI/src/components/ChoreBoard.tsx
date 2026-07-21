@@ -6,6 +6,7 @@ import type {
   ChoreResponse,
   CompleteChoreResponse,
   RosterEntryResponse,
+  UndoChoreResponse,
 } from '../api/models';
 import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
@@ -36,10 +37,11 @@ import { colors } from './Screen';
  * the active participant re-focuses on the newly selected person, and the T3
  * idle-timeout clearing the selection restores the full-household view - all
  * without any refetch, since it is a pure derived-render change over the loaded
- * week. A tap on an open item completes it
- * through C4 with an optimistic flip to `Done`, reconciling on the response and
- * reverting on error. A `Done` item is dimmed, checked, and not tappable again,
- * so a completed chore is never re-submitted (matching C4 idempotency).
+ * week. A tap on an open item completes it through C4 with an optimistic flip to
+ * `Done`; a tap on a `Done` item undoes that completion with an optimistic flip
+ * back to `Open`. Both reconcile to the response status and revert on error, so a
+ * mis-tap in either direction is recoverable without leaving the board lying about
+ * the server.
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -126,35 +128,40 @@ export function ChoreBoard({
     };
   }, [client, householdId]);
 
-  // Tapping an open item completes it (C4). The completion is attributed to the
-  // active participant (T3); with no active participant the board is read-only,
-  // so the tap does nothing. A tap on an already-`Done` item is a no-op too - the
-  // completed chore is never re-submitted (matching C4 idempotency). The flip to
-  // `Done` is optimistic - it shows immediately, reconciles to the response
-  // status, and reverts on error.
-  const complete = useCallback(
+  // Tapping an item toggles its completion, attributed to the active participant
+  // (T3): an `Open` item completes through C4, a `Done` item undoes that
+  // completion. With no active participant the board is read-only, so the tap does
+  // nothing. Both directions are optimistic - the flip shows immediately,
+  // reconciles to the response status, and reverts to the item's prior state on
+  // error (or an unconfirmed/empty response), so a mis-tap either way is
+  // recoverable and the board never lies about the server.
+  const toggle = useCallback(
     async (choreId: string) => {
       if (activePersonId === null) {
         return;
       }
       const target = items.find((item) => item.choreId === choreId);
-      if (!target || target.status === 'Done') {
+      if (!target) {
         return;
       }
 
+      const previous = target.status;
+      const optimistic: 'Open' | 'Done' = previous === 'Open' ? 'Done' : 'Open';
+      const action = previous === 'Open' ? 'complete' : 'undo';
+
       setItems((prev) =>
-        prev.map((item) => (item.choreId === choreId ? { ...item, status: 'Done' } : item)),
+        prev.map((item) => (item.choreId === choreId ? { ...item, status: optimistic } : item)),
       );
 
-      const result = await client.update<CompleteChoreResponse>(
-        `/households/${householdId}/assignments/${weekIso}/${choreId}/complete`,
+      const result = await client.update<CompleteChoreResponse | UndoChoreResponse>(
+        `/households/${householdId}/assignments/${weekIso}/${choreId}/${action}`,
         { personId: activePersonId },
         { method: 'POST' },
       );
 
       if (!result || !result.ok) {
         setItems((prev) =>
-          prev.map((item) => (item.choreId === choreId ? { ...item, status: 'Open' } : item)),
+          prev.map((item) => (item.choreId === choreId ? { ...item, status: previous } : item)),
         );
         return;
       }
@@ -246,11 +253,12 @@ export function ChoreBoard({
                       item={item}
                       accent={accent}
                       glow={isActive}
-                      // Read-only when no participant is active, and a Done item
-                      // is already complete: both are surfaced for accessibility,
-                      // and the tap handler makes the press itself a safe no-op.
-                      inert={activePersonId === null || item.status === 'Done'}
-                      onPress={() => complete(item.choreId)}
+                      // Read-only only when no participant is active: with one
+                      // active, both an Open item (tap to complete) and a Done item
+                      // (tap to undo) are actionable. The tap handler still makes a
+                      // read-only press a safe no-op.
+                      inert={activePersonId === null}
+                      onPress={() => toggle(item.choreId)}
                     />
                   ))}
                 </View>

@@ -297,11 +297,19 @@ eligible people, and each person's trailing load into an assignment set per Engi
   (BRD R-2, last-writer-wins per `(householdId, weekIso, choreId)`). Completing an assignment already
   `Done` is a success no-op - no second completion is appended, so trailing-load fairness never
   double-counts and the ledger is never mutated.
+- `IChoreCompletionService.UndoAsync(...)` (C7) is the inverse: it flips the matching `Assignment.Status`
+  back to `Open` under the same `If-Match` precondition, and backs out the credited effort by appending
+  a **compensating** `ChoreCompletion` of `-effort` for the acting `personId` - the ledger stays
+  append-only (BRD R-2: the original entry is never touched or deleted), and net effort nets back to the
+  pre-completion value for the C3 trailing-load read. Undoing an assignment that is already `Open` (or
+  was never completed) is a success no-op - no compensating entry is appended, so effort is never
+  double-subtracted.
 
 | Endpoint | Behavior |
 | --- | --- |
 | `POST /households/{householdId}/assignments/generate` | Generates or regenerates the household's assignments for a week. Accepts an optional JSON body `{ "weekIso": "2026-W29" }`; an empty body (or an omitted `weekIso`) computes the current week from the injected clock. **Regenerate is idempotent:** re-running it for a week that already has assignments replaces only `Open` rows - `Done` assignments and their `ChoreCompletions` are preserved untouched, and their effort is folded into the recomputed trailing loads so a completed chore is never reassigned. Returns `200` with an `AssignmentSetResponse` (`weekIso`, the placed `assignments` - `choreId`, `assignedPersonId`, `effort`, `status`, ordered by `choreId` - and any `unassigned` chores with their reason code, also ordered by `choreId`), or `404` RFC 7807 problem details for an unknown `householdId`. Requires the `OrganizerOrHubDevice` authorization policy - an `Organizer` JWT (or the dev bypass) or a paired hub device token may call it; a plain participant session cannot (`403`). |
 | `POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete` | Completes an assignment from a tap (C4, journey 6.2): appends a `ChoreCompletion` and sets the matching `Assignment.Status` to `Done` under optimistic concurrency. Completion is **not** a sensitive action (Decision D-3), so any authenticated caller may drive it - a tap-to-claim participant session (T1) or a paired hub device (T5) - with no `Organizer` policy required. Accepts an optional JSON body `{ "personId": "..." }`: a participant session attributes the completion to its own `personId` and may omit the body entirely; a hub device or organizer must supply the acting `personId` (the UI's active participant, T3) or the call is `400`. A second complete of an already-`Done` assignment is an idempotent success, not an error. Returns `200` with the completed assignment's `weekIso`, `choreId`, `assignedPersonId`, and `status`, or `404` RFC 7807 problem details when no assignment matches `(householdId, weekIso, choreId)`. |
+| `POST /households/{householdId}/assignments/{weekIso}/{choreId}/undo` | Reverses a completion from a tap (C7, follows up C5): flips the matching `Assignment.Status` back to `Open` under optimistic concurrency and backs out the credited effort with a compensating append-only `ChoreCompletion` (the ledger is never deleted from). Authorization and actor resolution mirror `complete` exactly - any authenticated caller, same optional `{ "personId": "..." }` body rule, `400` with no resolvable actor. Undoing an already-`Open` (or never-completed) assignment is an idempotent success, not an error. Returns `200` with the reopened assignment's `weekIso`, `choreId`, `assignedPersonId`, and `status` (always `Open`), or `404` RFC 7807 problem details when no assignment matches `(householdId, weekIso, choreId)`. |
 
 ### Fairness (contribution balance)
 
@@ -328,5 +336,5 @@ top. The grocery integration sits behind a generic **store-connector** abstracti
 can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
 these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
 is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has its
-generate/regenerate endpoint (C1-C3), its chore-completion endpoint (C4), and its read-only fairness
-view (C6, above) - the tap-to-claim UI board (T3/C5), groceries, and calendar have not been built yet.
+generate/regenerate endpoint (C1-C3), its chore-completion endpoint (C4), its tap-to-undo endpoint (C7),
+and its read-only fairness view (C6, above) - groceries and calendar have not been built yet.

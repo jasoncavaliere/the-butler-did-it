@@ -64,7 +64,7 @@ src/
               HubPairing.tsx      # organizer-only "pair this tablet" affordance (T5)
   components/ Screen.tsx     # shared layout primitives
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
-              ChoreBoard.tsx # today/this-week chore board with tap-to-complete, fills TodayPanel (Epic 40 C5)
+              ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
@@ -119,11 +119,15 @@ active participant (T3) the board *focuses*: it renders only that person's assig
 their claim colour), answering "what's mine right now"; with no active participant it falls back to
 the full read-only household glance for everyone (a tap cannot attribute a completion, so it does
 nothing). Switching or clearing the active participant re-focuses or restores the full board instantly
-with no refetch, since it is a pure derived-render filter over the already-loaded week. Tapping an open
-item completes it through the C4 endpoint
-(`POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete`) with an optimistic flip to
-`Done`, reconciling on the response and reverting on error; a `Done` item is dimmed, checked, and not
-tappable again, matching C4's idempotent double-complete.
+with no refetch, since it is a pure derived-render filter over the already-loaded week. Tapping an item
+toggles its completion, attributed to the active participant: an `Open` item completes through the C4
+endpoint (`POST .../assignments/{weekIso}/{choreId}/complete`) with an optimistic flip to `Done`; a
+`Done` item undoes that completion through the C7 endpoint
+(`POST .../assignments/{weekIso}/{choreId}/undo`) with an optimistic flip back to `Open`. Both
+directions reconcile to the response's `status` and revert to the item's prior state on error (or an
+unconfirmed/empty response), so a mis-tap in either direction is recoverable without the board lying
+about the server; a `Done` item is dimmed and checked (still tappable, to undo) rather than inert,
+matching C4/C7's idempotent complete/undo.
 
 **The fairness view** (`src/components/FairnessView.tsx`, Epic 40 C6) is journey 6.3's contribution
 balance - a read-only glance at the Section 10 fairness guardrail, rendered by `HubShell` below

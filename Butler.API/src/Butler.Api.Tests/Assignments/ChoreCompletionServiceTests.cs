@@ -196,6 +196,116 @@ public sealed class ChoreCompletionServiceTests
     }
 
     [Fact]
+    public async Task Undo_reverses_a_completion()
+    {
+        // Reverse-a-completion: a Done assignment flips back to Open and a single
+        // compensating -effort entry is appended (append-only reversal), so the
+        // person's net trailing load returns to its pre-completion value.
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Done));
+
+        var result = await harness.Service.UndoAsync(
+            Household, Week29, ChoreId, PersonId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(Week29, result!.WeekIso);
+        Assert.Equal(ChoreId, result.ChoreId);
+        Assert.Equal(AssignmentStatus.Open, result.Status);
+
+        // Exactly one compensating completion is appended, backing out the chore's
+        // effort (negated) for the actor in the assignment's week, under a distinct
+        // void row key that cannot collide with the original append.
+        await harness.Completions.Received(1).AddAsync(
+            Household,
+            Arg.Is<ChoreCompletionEntity>(c =>
+                c.ChoreId == ChoreId &&
+                c.PersonId == PersonId &&
+                c.Effort == -5 &&
+                c.CompletedUtc == MidWeek29 &&
+                c.WeekIso == Week29 &&
+                c.RowKey == $"{MidWeek29.UtcTicks}_{ChoreId}_void"),
+            Arg.Any<CancellationToken>());
+
+        // The assignment is flipped back to Open under the read ETag as If-Match.
+        await harness.Assignments.Received(1).UpdateAsync(
+            Household,
+            Arg.Is<AssignmentEntity>(a => a.RowKey == RowKey && a.Status == AssignmentStatus.Open),
+            "etag-v1",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Undo_is_idempotent_when_already_open()
+    {
+        // Undo-is-idempotent: undoing an assignment that is already Open (or was
+        // never completed) is a success no-op that appends nothing and never
+        // re-writes the assignment, so effort is never double-subtracted.
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Open));
+
+        var result = await harness.Service.UndoAsync(
+            Household, Week29, ChoreId, PersonId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(AssignmentStatus.Open, result!.Status);
+
+        await harness.Completions.DidNotReceive().AddAsync(
+            Household, Arg.Any<ChoreCompletionEntity>(), Arg.Any<CancellationToken>());
+        await harness.Assignments.DidNotReceive().UpdateAsync(
+            Household, Arg.Any<AssignmentEntity>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Undo_unknown_assignment_returns_null()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(null);
+
+        var result = await harness.Service.UndoAsync(
+            Household, Week29, ChoreId, PersonId, CancellationToken.None);
+
+        Assert.Null(result);
+        await harness.Completions.DidNotReceive().AddAsync(
+            Household, Arg.Any<ChoreCompletionEntity>(), Arg.Any<CancellationToken>());
+        await harness.Assignments.DidNotReceive().UpdateAsync(
+            Household, Arg.Any<AssignmentEntity>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Undo_credits_zero_effort_when_the_chore_is_missing()
+    {
+        // Defensive: a missing chore must not fail the undo - it backs out no effort.
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Done));
+        harness.Chores.GetAsync(Household, ChoreId, Arg.Any<CancellationToken>())
+            .Returns((ChoreEntity?)null);
+
+        var result = await harness.Service.UndoAsync(
+            Household, Week29, ChoreId, PersonId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        await harness.Completions.Received(1).AddAsync(
+            Household,
+            Arg.Is<ChoreCompletionEntity>(c => c.Effort == 0),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Undo_rejects_blank_arguments()
+    {
+        var harness = new Harness();
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => harness.Service.UndoAsync(string.Empty, Week29, ChoreId, PersonId, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => harness.Service.UndoAsync(Household, string.Empty, ChoreId, PersonId, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => harness.Service.UndoAsync(Household, Week29, string.Empty, PersonId, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => harness.Service.UndoAsync(Household, Week29, ChoreId, string.Empty, CancellationToken.None));
+    }
+
+    [Fact]
     public void Constructor_rejects_null_dependencies()
     {
         var assignments = Substitute.For<IAssignmentRepository>();
