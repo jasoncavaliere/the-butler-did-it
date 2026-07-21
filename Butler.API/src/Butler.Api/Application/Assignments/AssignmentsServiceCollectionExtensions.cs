@@ -33,6 +33,12 @@ public static class AssignmentsServiceCollectionExtensions
         // week's chores from data it fetched; the engine itself does no I/O.
         services.TryAddSingleton<IFairAssignmentEngine, FairAssignmentEngine>();
 
+        // C3: the fetch -> compute -> persist composition that runs the engine over
+        // the household's active chores and people and writes the week's
+        // assignments. Scoped (like the other application services) since it
+        // orchestrates per-request repository work.
+        services.TryAddScoped<IAssignmentGenerationService, AssignmentGenerationService>();
+
         // Injected clock so weekIso/due/completion times stay deterministically
         // testable; no assignment code path reads DateTime.Now (7.5).
         services.TryAddSingleton(TimeProvider.System);

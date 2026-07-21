@@ -68,6 +68,20 @@ public sealed class AssignmentsServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddAssignmentsFeature_registers_the_generation_service()
+    {
+        // The C3 service's own dependencies (household/chore/person repositories)
+        // are registered by their features, so assert the descriptor is present
+        // rather than resolving it from this feature in isolation.
+        var services = new ServiceCollection();
+        services.AddStorage(
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build());
+        services.AddAssignmentsFeature();
+
+        Assert.Contains(services, d => d.ServiceType == typeof(IAssignmentGenerationService));
+    }
+
+    [Fact]
     public void AddAssignmentsFeature_rejects_a_null_service_collection()
     {
         Assert.Throws<ArgumentNullException>(

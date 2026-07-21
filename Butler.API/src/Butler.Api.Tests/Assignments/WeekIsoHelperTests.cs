@@ -76,4 +76,62 @@ public sealed class WeekIsoHelperTests
 
         Assert.Equal("2019-W01", WeekIso.For(lateNightLocal));
     }
+
+    [Fact]
+    public void StartOfWeekUtc_returns_the_monday_midnight_of_the_week()
+    {
+        // 2026-W29 runs Monday 2026-07-13 .. Sunday 2026-07-19.
+        var monday = WeekIso.StartOfWeekUtc("2026-W29");
+
+        Assert.Equal(new DateTimeOffset(2026, 7, 13, 0, 0, 0, TimeSpan.Zero), monday);
+    }
+
+    [Fact]
+    public void StartOfWeekUtc_round_trips_with_For()
+    {
+        // The start-of-week instant must map back to the same week string.
+        Assert.Equal("2026-W29", WeekIso.For(WeekIso.StartOfWeekUtc("2026-W29")));
+        Assert.Equal("2020-W53", WeekIso.For(WeekIso.StartOfWeekUtc("2020-W53")));
+        Assert.Equal("2019-W01", WeekIso.For(WeekIso.StartOfWeekUtc("2019-W01")));
+    }
+
+    [Fact]
+    public void StartOfWeekUtc_resolves_week_01_across_the_year_boundary()
+    {
+        // ISO week 01 of 2019 begins Monday 2018-12-31.
+        Assert.Equal(
+            new DateTimeOffset(2018, 12, 31, 0, 0, 0, TimeSpan.Zero),
+            WeekIso.StartOfWeekUtc("2019-W01"));
+    }
+
+    [Theory]
+    [InlineData("2026-29")]        // missing the W separator
+    [InlineData("2026W29")]        // missing the dash
+    [InlineData("26-W29")]         // year is not four digits
+    [InlineData("2026-W9")]        // week is not two digits
+    [InlineData("2026-W299")]      // too long
+    [InlineData("abcd-W29")]       // non-numeric year
+    [InlineData("2026-Wzz")]       // non-numeric week
+    public void StartOfWeekUtc_rejects_a_malformed_string(string weekIso)
+    {
+        Assert.Throws<FormatException>(() => WeekIso.StartOfWeekUtc(weekIso));
+    }
+
+    [Theory]
+    [InlineData("2026-W00")]       // below the first week
+    [InlineData("2026-W54")]       // beyond the maximum ISO week (53) any year can have
+    [InlineData("2021-W53")]       // 2021 is a 52-week year, so W53 is invalid
+    public void StartOfWeekUtc_rejects_a_week_outside_the_years_range(string weekIso)
+    {
+        Assert.Throws<FormatException>(() => WeekIso.StartOfWeekUtc(weekIso));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void StartOfWeekUtc_rejects_a_blank_string(string? weekIso)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => WeekIso.StartOfWeekUtc(weekIso!));
+    }
 }

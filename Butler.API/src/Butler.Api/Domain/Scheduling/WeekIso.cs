@@ -36,4 +36,58 @@ public static class WeekIso
             CultureInfo.InvariantCulture,
             $"{year:D4}-W{week:D2}");
     }
+
+    /// <summary>
+    /// Parses a canonical <c>{year}-W{week}</c> string (as produced by
+    /// <see cref="For"/>) back into the UTC instant at the start of that ISO week
+    /// - Monday 00:00:00 UTC. This is the inverse anchor the assignment engine
+    /// uses to bucket completions into a trailing week window and to derive a
+    /// week's due date; like <see cref="For"/> it reads no ambient clock, so the
+    /// math stays reproducible.
+    /// </summary>
+    /// <param name="weekIso">A year-week string, for example <c>2026-W29</c>.</param>
+    /// <returns>The Monday of that ISO week at midnight UTC.</returns>
+    /// <exception cref="FormatException">
+    /// <paramref name="weekIso"/> is not a well-formed <c>{year}-W{week}</c>
+    /// string, or names a week outside <c>01</c>..the year's last ISO week.
+    /// </exception>
+    public static DateTimeOffset StartOfWeekUtc(string weekIso)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(weekIso);
+
+        // Shape is exactly {4-digit year}-W{2-digit week}; anything else is a
+        // client-supplied malformed value.
+        var separator = weekIso.IndexOf("-W", StringComparison.Ordinal);
+        if (separator != 4 || weekIso.Length != 8)
+        {
+            throw new FormatException(
+                $"'{weekIso}' is not a valid ISO year-week string (expected '{{year}}-W{{week}}', for example '2026-W29').");
+        }
+
+        if (!int.TryParse(
+                weekIso.AsSpan(0, 4),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var year) ||
+            !int.TryParse(
+                weekIso.AsSpan(6, 2),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var week))
+        {
+            throw new FormatException(
+                $"'{weekIso}' is not a valid ISO year-week string (expected '{{year}}-W{{week}}', for example '2026-W29').");
+        }
+
+        if (week < 1 || week > ISOWeek.GetWeeksInYear(year))
+        {
+            throw new FormatException(
+                $"'{weekIso}' names ISO week {week}, which is outside the valid range for {year}.");
+        }
+
+        // ISOWeek.ToDateTime yields a DateTime with Unspecified kind; the value is
+        // the calendar date of that ISO week's Monday, which we pin to UTC.
+        var monday = ISOWeek.ToDateTime(year, week, DayOfWeek.Monday);
+        return new DateTimeOffset(monday, TimeSpan.Zero);
+    }
 }
