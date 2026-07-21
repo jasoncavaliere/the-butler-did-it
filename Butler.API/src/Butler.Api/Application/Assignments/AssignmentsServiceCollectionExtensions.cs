@@ -39,6 +39,11 @@ public static class AssignmentsServiceCollectionExtensions
         // orchestrates per-request repository work.
         services.TryAddScoped<IAssignmentGenerationService, AssignmentGenerationService>();
 
+        // C4: the tap-to-complete composition - append a ChoreCompletion and flip
+        // the assignment to Done under optimistic concurrency. Scoped for the same
+        // per-request reason; it reads the Chores table (H3) for the credited effort.
+        services.TryAddScoped<IChoreCompletionService, ChoreCompletionService>();
+
         // Injected clock so weekIso/due/completion times stay deterministically
         // testable; no assignment code path reads DateTime.Now (7.5).
         services.TryAddSingleton(TimeProvider.System);
