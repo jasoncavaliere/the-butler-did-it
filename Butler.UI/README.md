@@ -65,6 +65,7 @@ src/
   components/ Screen.tsx     # shared layout primitives
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete, fills TodayPanel (Epic 40 C5)
+              FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -120,6 +121,18 @@ completes it through the C4 endpoint
 (`POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete`) with an optimistic flip to
 `Done`, reconciling on the response and reverting on error; a `Done` item is dimmed, checked, and not
 tappable again, matching C4's idempotent double-complete.
+
+**The fairness view** (`src/components/FairnessView.tsx`, Epic 40 C6) is journey 6.3's contribution
+balance - a read-only glance at the Section 10 fairness guardrail, rendered by `HubShell` below
+`TodayPanel` once a household is ready. On mount it reads the C6 aggregate
+(`GET /households/{householdId}/fairness`, optionally with a `windowWeeks` query param) through the
+typed API client and renders a labelled bar per person sized to their share of the household's
+completed effort, with the top contributor's row emphasised. There is no tap target and no write. Every
+load outcome is a calm, deliberate state: loading, an error message, a "nothing completed yet" empty
+state when the household total is zero, or the ready distribution - the wall never shows a crash or a
+blank region. A person's bar accents in their claim colour when supplied via the `people` prop
+(`{ personId, claimColor }[]`, sourced from the roster `HubShell` already holds); otherwise it falls
+back to the neutral brass accent.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
@@ -210,7 +223,8 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
 - The hub shell (`HubShell`) renders the header, tappable name tiles, and `TodayPanel` seam (T2),
   and tap-to-claim - claiming a person, the claim-colour glow, and the idle timeout back to neutral
   - is wired up (T3). `TodayPanel` is filled with the glanceable, tap-to-complete chore board
-  (`ChoreBoard`, Epic 40 C5).
+  (`ChoreBoard`, Epic 40 C5), and the read-only contribution balance (`FairnessView`, Epic 40 C6)
+  renders below it.
 - Organizer sign-in (`OrganizerBar`, `OrganizerContext`, `IAuthProvider`) is wired up (T4): the hub
   always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
   client attaches the organizer bearer automatically.

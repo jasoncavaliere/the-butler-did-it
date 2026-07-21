@@ -303,11 +303,30 @@ eligible people, and each person's trailing load into an assignment set per Engi
 | `POST /households/{householdId}/assignments/generate` | Generates or regenerates the household's assignments for a week. Accepts an optional JSON body `{ "weekIso": "2026-W29" }`; an empty body (or an omitted `weekIso`) computes the current week from the injected clock. **Regenerate is idempotent:** re-running it for a week that already has assignments replaces only `Open` rows - `Done` assignments and their `ChoreCompletions` are preserved untouched, and their effort is folded into the recomputed trailing loads so a completed chore is never reassigned. Returns `200` with an `AssignmentSetResponse` (`weekIso`, the placed `assignments` - `choreId`, `assignedPersonId`, `effort`, `status`, ordered by `choreId` - and any `unassigned` chores with their reason code, also ordered by `choreId`), or `404` RFC 7807 problem details for an unknown `householdId`. Requires the `OrganizerOrHubDevice` authorization policy - an `Organizer` JWT (or the dev bypass) or a paired hub device token may call it; a plain participant session cannot (`403`). |
 | `POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete` | Completes an assignment from a tap (C4, journey 6.2): appends a `ChoreCompletion` and sets the matching `Assignment.Status` to `Done` under optimistic concurrency. Completion is **not** a sensitive action (Decision D-3), so any authenticated caller may drive it - a tap-to-claim participant session (T1) or a paired hub device (T5) - with no `Organizer` policy required. Accepts an optional JSON body `{ "personId": "..." }`: a participant session attributes the completion to its own `personId` and may omit the body entirely; a hub device or organizer must supply the acting `personId` (the UI's active participant, T3) or the call is `400`. A second complete of an already-`Done` assignment is an idempotent success, not an error. Returns `200` with the completed assignment's `weekIso`, `choreId`, `assignedPersonId`, and `status`, or `404` RFC 7807 problem details when no assignment matches `(householdId, weekIso, choreId)`. |
 
+### Fairness (contribution balance)
+
+`Fairness` (`Application/Fairness/`, `Controllers/FairnessController`) is the Epic 40 C6 read model
+behind journey 6.3's fairness view and the Section 10 fairness guardrail (the top contributor's share
+of completed chores trending down over time). It is a pure aggregate over data C4 already writes and
+introduces no new table, repository, or write path: `IFairnessService.GetAsync(...)` scans only the
+household's `ChoreCompletions` partition (`PartitionKey = householdId`, 7.3 - no cross-household query),
+buckets each completion into a trailing ISO-week window anchored to the injected clock's current week
+(same `WeekIso` helper the assignment pipeline shares, 7.5), sums `Effort` per person, and joins display
+names from the People roster (H3) - falling back to the raw id for a person no longer on the roster,
+since the ledger is the source of truth. The share math is total-safe: a window with zero completions
+returns a well-formed zero result (every share `0`, `topContributorPersonId` `null`) rather than
+dividing by zero, and shares are ordered by effort descending (ties by `personId`) so the payload is
+deterministic. The feature registers via `AddFairnessFeature()` in `Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /households/{householdId}/fairness` | Reads the household's contribution balance over the trailing `windowWeeks` ISO weeks (query string, default `4`). Open to the hub device and participants, like the other glanceable reads (7.4) - no `Organizer` policy required. Returns `200` with a `FairnessResponse` (`windowStartWeekIso`, `windowEndWeekIso`, `windowWeeks`, `totalEffort`, `topContributorPersonId`, and `shares` - each person's `personId`, `displayName`, `totalEffort`, `share` (`0`..`1`), and `sharePercent` (`0`..`100`), ordered by effort descending). Returns `404` RFC 7807 problem details for an unknown `householdId`, or `400` for a `windowWeeks` less than `1`. |
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
 can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
 these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
-is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has both
-its generate/regenerate endpoint (C1-C3) and its chore-completion endpoint (C4, above) - the tap-to-claim
-UI board (T3/C5), groceries, and calendar have not been built yet.
+is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has its
+generate/regenerate endpoint (C1-C3), its chore-completion endpoint (C4), and its read-only fairness
+view (C6, above) - the tap-to-claim UI board (T3/C5), groceries, and calendar have not been built yet.
