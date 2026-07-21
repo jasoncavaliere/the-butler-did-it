@@ -182,3 +182,33 @@ export type CompleteChoreResponse = {
 export type CompleteChoreRequest = {
   personId: string;
 };
+
+/**
+ * One person's slice of the household contribution balance (C6), mirroring the
+ * API's `PersonShare` DTO: their completed effort over the window and that effort
+ * as both a fraction (`share`, `0`..`1`) and a percentage (`sharePercent`,
+ * `0`..`100`) of the household total. Both are `0` when the household total is `0`.
+ */
+export type PersonShare = {
+  personId: string;
+  displayName: string;
+  totalEffort: number;
+  share: number;
+  sharePercent: number;
+};
+
+/**
+ * The household's contribution balance over a trailing ISO-week window, returned
+ * by the C6 endpoint (`GET /households/{householdId}/fairness`). It is a
+ * read-only aggregate over the completions ledger - the Section 10 fairness
+ * guardrail - carrying the window it was computed over, the household total, the
+ * top contributor, and each person's share (ordered by effort descending).
+ */
+export type FairnessResponse = {
+  windowStartWeekIso: string;
+  windowEndWeekIso: string;
+  windowWeeks: number;
+  totalEffort: number;
+  topContributorPersonId: string | null;
+  shares: PersonShare[];
+};
