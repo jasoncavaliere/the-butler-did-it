@@ -1,0 +1,53 @@
+# .workspace/workspace.yaml - local test-workspace capabilities for this repo.
+# Written and maintained by the frontier-energy:local-workspace skill; safe to hand-edit.
+# Schema + field docs: skills/local-workspace/references/manifest-schema.md
+# RULE: placeholders only, never real secrets.
+schema: 1
+repo: the-butler-did-it
+description: "Local dev workspace for Butler - runs both sub-services together (API-first): the Butler.API .NET 10 Web API on :5108 and the Butler.UI Expo web hub on :8081. No root build exists, so every command targets an explicit sub-folder from the repo root. The API runs on the in-memory store fallback (no external storage), and is deliberately bound to :5108 to match the UI's hard-coded dev default."
+
+prerequisites:
+  - name: dotnet
+    check: dotnet --info
+    min: "10"          # Butler.API/global.json pins the .NET SDK to 10.x
+  - name: node
+    check: node --version
+    min: "22"          # .github/workflows/ui-ci.yml pins Node 22
+
+setup:
+  - dotnet restore Butler.API/Butler.API.sln
+  - npm --prefix Butler.UI ci
+
+run:
+  # Long-running; both are backgrounded by the provisioner, API started first.
+  # The `-- --urls` command-line arg binds the API to :5108 (the UI's hard-coded dev default,
+  # Butler.UI/src/api/config.ts:11). NOTE: an ASPNETCORE_URLS env var does NOT work here - the
+  # http launch profile's applicationUrl (:5099) overrides the env var under `dotnet run`, so the
+  # URL must be passed as a command-line arg, which has higher config precedence. The launch
+  # profile still supplies ASPNETCORE_ENVIRONMENT=Development.
+  - dotnet run --project Butler.API/src/Butler.Api -- --urls http://localhost:5108
+  - npm --prefix Butler.UI run web    # = expo start --web; Metro dev server on :8081
+
+ports:
+  - "5108: api"
+  - "8081: expo web / metro"
+
+health:
+  - kind: http
+    target: "http://localhost:5108/health"    # Program.cs maps GET /health -> {status:ok}
+    timeout_s: 60
+  - kind: tcp
+    target: "127.0.0.1:8081"                   # Expo/Metro web dev server
+    timeout_s: 120
+
+test:
+  - dotnet test Butler.API/Butler.API.sln
+  - npm --prefix Butler.UI run ci:verify   # CI-equivalent: lint + typecheck + coverage-gated jest (non-interactive, no watch)
+
+teardown:
+  # Bracket trick ([B]/[e]) so the pkill pattern does not self-match the shell running it.
+  - "pkill -f '[B]utler.Api' || true"
+  - "pkill -f '[e]xpo start' || true"
+
+isolation: in-place
+notes: "In-place uses the working checkout directly (tree was clean at authoring time) - commit or stash before bringing the workspace up so dev artifacts do not mix with your changes. The API is deliberately started on :5108 (not the 5099 in launchSettings.json) so the UI's hard-coded default in Butler.UI/src/api/config.ts:11 (DEFAULT_DEV_API_BASE_URL) matches with no code change. DRIFT NOTE (found during provisioning 2026-07-21): under `dotnet run` the http launch profile's applicationUrl=:5099 overrides an ASPNETCORE_URLS env var, so the port MUST be forced with the command-line arg `-- --urls http://localhost:5108` (higher config precedence); the earlier env-var form silently bound :5099. The launch profile still provides ASPNETCORE_ENVIRONMENT=Development. Backing store is the API's in-memory fallback (no Azurite / no external storage); the API auto-seeds when no storage is configured, so there is no service block and no data volume to tear down. Teardown is process-based (pkill) - it stops the API and the Expo/Metro dev server without touching data."
