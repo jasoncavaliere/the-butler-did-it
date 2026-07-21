@@ -10,6 +10,14 @@ public static class OrganizerAuthorization
     /// <summary>The authorization policy an organizer-only endpoint requires.</summary>
     public const string PolicyName = "Organizer";
 
+    /// <summary>
+    /// The authorization policy an endpoint requires when it may be triggered by
+    /// an organizer <b>or</b> a paired hub device, but never a plain participant
+    /// session (Engineering Contract 7.4). The weekly assignment generator (C3)
+    /// carries this: the hub tablet may regenerate a week, a participant may not.
+    /// </summary>
+    public const string OrganizerOrHubDevicePolicyName = "OrganizerOrHubDevice";
+
     /// <summary>The role claim value that marks a principal as an organizer.</summary>
     public const string OrganizerRole = "Organizer";
 

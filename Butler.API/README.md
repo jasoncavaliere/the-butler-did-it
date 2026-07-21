@@ -251,12 +251,14 @@ and the feature registers via `AddChoresFeature()` in `Program.cs`.
 | `PUT /households/{householdId}/chores/{choreId}` | Updates `Title`/`RoomId`/`Cadence`/`Effort`/`MinAge`/`Active` under the `If-Match` precondition. Returns `200` with the updated chore, `404` for an unknown chore, `400` for an unknown `RoomId` or non-positive `Effort`, `428` when `If-Match` is missing, or `412` when it is stale. |
 | `POST /households/{householdId}/chores/{choreId}/deactivate` | Sets `Active = false` and retains the row. Returns `200` with the updated chore, or `404` for an unknown chore. |
 
-### Assignments and chore completions (persistence + clock, no endpoints yet)
+### Assignments (weekly fair-assignment generation)
 
 `Assignments`/`ChoreCompletions` (`Domain/Scheduling/`, `Application/Assignments/`,
-`Infrastructure/Assignments/`, `Infrastructure/ChoreCompletions/`) is the C1 ticket: the persistence and
-time base the Epic 40 fair-assignment engine (C2) and its endpoints (C3, C4) build on. There is no
-controller or HTTP route yet - this ships the tables, repositories, and clock only.
+`Infrastructure/Assignments/`, `Infrastructure/ChoreCompletions/`, `Controllers/AssignmentsController`)
+is the Epic 40 chore-assignment pipeline. C1 shipped the tables, repositories, and clock; C2 added the
+pure, deterministic `FairAssignmentEngine` (`IFairAssignmentEngine`) that turns a week's active chores,
+eligible people, and each person's trailing load into an assignment set per Engineering Contract 7.6; C3
+(below) adds the endpoint that composes fetch -> compute -> persist around that engine.
 
 - `AssignmentEntity` (`Assignments` table) is one chore assigned to one person for one ISO week -
   `PartitionKey = householdId`, `RowKey = {weekIso}_{choreId}`, with `AssignedPersonId`, `WeekIso`,
@@ -273,9 +275,25 @@ controller or HTTP route yet - this ships the tables, repositories, and clock on
   (for example `2026-07-14` -> `2026-W29`) every assignment, completion, and future grocery-cart bucket
   shares. It always takes a caller-supplied instant - never `DateTime.Now`/`DateTime.UtcNow` - so a
   `TimeProvider` (registered here as `TimeProvider.System`) keeps the week math deterministic in tests,
-  including across the ISO week-numbering-year boundary.
+  including across the ISO week-numbering-year boundary. `WeekIso.StartOfWeekUtc(string)` is its
+  inverse: it parses a `{year}-W{week}` string back into that week's Monday 00:00:00 UTC, which the C3
+  generator uses to bucket completions into the trailing window and to derive a week's due date.
+- `IFairAssignmentEngine.Assign(...)` (C2) is a pure function - no storage, no clock, no randomness -
+  that applies 7.6's rules exactly: a child is eligible only for chores with `MinAge == null`; chores
+  are processed by descending `Effort` then ascending `choreId`; each chore goes to the eligible person
+  with the lowest current load (tie-break: fewest chores assigned this week, then lowest `personId`); a
+  chore with no eligible person comes back unassigned with a reason code rather than being dropped or
+  throwing.
+- `IAssignmentGenerationService.GenerateAsync(...)` (C3) is the only place that composes fetch ->
+  compute -> persist: it loads the household's active chores (H3) and people (H4), computes each
+  person's trailing-4-ISO-week completed `Effort` from `ChoreCompletions`, resolves `weekIso` from the
+  request or the injected clock, runs the C2 engine, and persists the result via the C1 repositories.
 - The feature registers via `AddAssignmentsFeature()` in `Program.cs`, which wires both tables, both
-  repositories, and the clock.
+  repositories, the clock, the engine, and the generation service.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/assignments/generate` | Generates or regenerates the household's assignments for a week. Accepts an optional JSON body `{ "weekIso": "2026-W29" }`; an empty body (or an omitted `weekIso`) computes the current week from the injected clock. **Regenerate is idempotent:** re-running it for a week that already has assignments replaces only `Open` rows - `Done` assignments and their `ChoreCompletions` are preserved untouched, and their effort is folded into the recomputed trailing loads so a completed chore is never reassigned. Returns `200` with an `AssignmentSetResponse` (`weekIso`, the placed `assignments` - `choreId`, `assignedPersonId`, `effort`, `status`, ordered by `choreId` - and any `unassigned` chores with their reason code, also ordered by `choreId`), or `404` RFC 7807 problem details for an unknown `householdId`. Requires the `OrganizerOrHubDevice` authorization policy - an `Organizer` JWT (or the dev bypass) or a paired hub device token may call it; a plain participant session cannot (`403`). |
 
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
@@ -283,5 +301,5 @@ top. The grocery integration sits behind a generic **store-connector** abstracti
 can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
 these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
 is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has its
-persistence and clock base (C1, above) but its assignment logic, completion endpoint, and the
-tap-to-claim UI (T3), groceries, and calendar have not been built yet.
+generate/regenerate endpoint (C1-C3, above), but the chore-completion endpoint (C4), the tap-to-claim
+UI board (T3/C5), groceries, and calendar have not been built yet.

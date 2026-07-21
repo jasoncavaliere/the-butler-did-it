@@ -127,6 +127,17 @@ public static class AuthenticationServiceCollectionExtensions
             {
                 policy.RequireAuthenticatedUser();
                 policy.RequireRole(OrganizerAuthorization.OrganizerRole);
+            })
+            // Organizer OR paired hub device (C3): RequireRole with two roles is
+            // OR semantics, so an organizer JWT (or the dev organizer) and a hub
+            // device token both satisfy it, while a participant session - which
+            // carries neither role - is authenticated-but-forbidden (403).
+            .AddPolicy(OrganizerAuthorization.OrganizerOrHubDevicePolicyName, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.RequireRole(
+                    OrganizerAuthorization.OrganizerRole,
+                    OrganizerAuthorization.HubDeviceRole);
             });
 
         return services;
