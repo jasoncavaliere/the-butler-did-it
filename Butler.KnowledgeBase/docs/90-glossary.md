@@ -4,10 +4,10 @@ title:         Glossary
 category:      Reference
 lifecycle:     Living
 owner:         agent-managed
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-21
 audience:      Anyone reading or writing Butler docs
-keywords:      [glossary, terms, definitions, vocabulary, hub, household model, tap-to-claim, store connector, assisted cart, novelty cliff, north star, BYO-tablet, participant, organizer]
-related:       [00-overview, 10-product-vision]
+keywords:      [glossary, terms, definitions, vocabulary, hub, household model, tap-to-claim, store connector, assisted cart, novelty cliff, north star, BYO-tablet, participant, organizer, engineering contract]
+related:       [00-overview, 10-product-vision, 20-architecture-overview]
 published-to:
 ---
 
@@ -65,7 +65,12 @@ Butler's single top-line metric: weekly active households (not users). It measur
 
 Bring your own tablet: the v1 hardware decision. Butler ships as a web app and installable PWA (progressive web app) that runs on any Android tablet or iPad a family already owns, rather than on Butler-made hardware. It is offline-tolerant so the last-known week stays readable with no network. See [Hardware and offline decision](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app).
 
+## Engineering Contract
+
+Section 7 of the master BRD: the binding set of build conventions - storage, API layering, auth, determinism, and the coverage gate - that every v1 ticket references instead of restating. It is the "anti-halt" section, written so an autonomous engineer never has to guess about scope or side-effects. See [Section 7 of the master BRD](../brd/00-brd-master.md#7-engineering-contract-the-anti-halt-section) and the [Architecture Overview](20-architecture-overview.md).
+
 ## Related
 
 - [Overview](00-overview.md) - what Butler is and how this knowledge base is organized.
 - [Product Vision](10-product-vision.md) - where these terms are argued in full.
+- [Architecture Overview](20-architecture-overview.md) - how v1 is built, the terms above put to work.
