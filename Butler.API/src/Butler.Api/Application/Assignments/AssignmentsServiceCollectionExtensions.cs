@@ -28,6 +28,11 @@ public static class AssignmentsServiceCollectionExtensions
         services.TryAddSingleton<IAssignmentRepository, TableAssignmentRepository>();
         services.TryAddSingleton<IChoreCompletionRepository, TableChoreCompletionRepository>();
 
+        // The v1 fair-assignment engine (C2, Contract 7.6): a pure, deterministic,
+        // stateless function, so a singleton is safe. C3 injects it to place a
+        // week's chores from data it fetched; the engine itself does no I/O.
+        services.TryAddSingleton<IFairAssignmentEngine, FairAssignmentEngine>();
+
         // Injected clock so weekIso/due/completion times stay deterministically
         // testable; no assignment code path reads DateTime.Now (7.5).
         services.TryAddSingleton(TimeProvider.System);
