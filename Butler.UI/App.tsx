@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AppConfigProvider } from './src/state/AppConfigContext';
 import { HouseholdProvider } from './src/state/HouseholdContext';
+import { HubDeviceProvider } from './src/state/HubDeviceContext';
 import { OrganizerProvider } from './src/state/OrganizerContext';
 
 /**
@@ -16,8 +17,10 @@ export default function App() {
     <AppConfigProvider>
       <OrganizerProvider>
         <HouseholdProvider>
-          <StatusBar style="light" />
-          <RootNavigator />
+          <HubDeviceProvider>
+            <StatusBar style="light" />
+            <RootNavigator />
+          </HubDeviceProvider>
         </HouseholdProvider>
       </OrganizerProvider>
     </AppConfigProvider>

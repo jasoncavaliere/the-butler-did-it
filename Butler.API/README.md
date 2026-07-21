@@ -110,6 +110,29 @@ every other request to the organizer scheme.
   D-3), and no money moves in v1 (Decision D-8), so a forged token buys nothing beyond identifying a
   `personId` that already has no organizer authority.
 
+## Hub device pairing
+
+Pairing (T5, Engineering Contract 7.4) makes the shared tablet itself a long-lived actor - the "The
+Hub" persona - rather than an anonymous caller. `POST /households/{householdId}/hub-devices/pair` is
+organizer-only (the whole `HubDevicesController` carries the `Organizer` policy, since pairing is a
+sensitive action): it writes a `HubDevices` row (`PartitionKey = householdId`, `RowKey = deviceId`)
+stamped with `DeviceName`, `PairedUtc`, and `LastSeenUtc` from the injected clock, then returns a
+long-lived, opaque device token scoped to exactly that `(householdId, deviceId)` pair.
+
+Present the returned token on later requests via the `X-Device-Token` header to authenticate as the
+paired device. Like a participant session, a device token can never satisfy the `Organizer` policy -
+the default forwarding scheme routes a request carrying `X-Device-Token` to the device scheme (so it
+authenticates as that device, but is `403 Forbidden` at any organizer-only endpoint), ahead of the
+participant-session and organizer fallbacks. A successful authenticate refreshes the device's
+`LastSeenUtc` from the clock seam; a token whose device row no longer exists (unpaired) authenticates
+nobody. The token is intentionally opaque and unsigned, mirroring the participant session - its blast
+radius is reads and completion writes for the single household it is scoped to, and no money moves in
+v1 (Decision D-8).
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/hub-devices/pair` | Organizer-only. Pairs the current tablet, writing a `HubDevices` row with a server-generated `deviceId`. Returns `200` with `{ householdId, deviceId, deviceName, pairedUtc, token }`; `403` for a participant session or anonymous caller. |
+
 ## Deploy (Azure)
 
 Infra is Bicep. Names and tags are fully parameterized so the template carries no naming policy of its
