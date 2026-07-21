@@ -70,10 +70,22 @@ public sealed class UndoChoreEndpointTests : IClassFixture<ButlerApiFactory>
         return (week, first.GetProperty("choreId").GetString()!, first.GetProperty("assignedPersonId").GetString()!);
     }
 
+    // Seeds a chore-doing member (participant). The seeded organizer administers the
+    // household but is never assigned chores (organizer-exclusion, #67), so a household
+    // needs a participant for a week to place any work on.
+    private static async Task CreateParticipantAsync(HttpClient client, string householdId, string displayName)
+    {
+        using var response = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/people", UriKind.Relative),
+            new { displayName, role = "Participant", isChild = false, claimColor = (string?)null });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
     private static async Task<(string HouseholdId, string Week, string ChoreId, string PersonId)> SeedWeekAsync(
         HttpClient client, int effort = 3)
     {
         var householdId = await CreateHouseholdAsync(client);
+        await CreateParticipantAsync(client, householdId, "Jamie");
         var roomId = await CreateRoomAsync(client, householdId);
         await CreateChoreAsync(client, householdId, roomId, "Dishes", effort);
         var (week, choreId, personId) = await GenerateWeekAsync(client, householdId);
