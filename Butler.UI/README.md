@@ -63,7 +63,8 @@ src/
               OrganizerBar.tsx    # hub control strip: sign in/out + gated sensitive affordances (T4)
               HubPairing.tsx      # organizer-only "pair this tablet" affordance (T5)
   components/ Screen.tsx     # shared layout primitives
-              TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3), Epic 40 C5 seam
+              TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
+              ChoreBoard.tsx # today/this-week chore board with tap-to-complete, fills TodayPanel (Epic 40 C5)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -101,10 +102,24 @@ different tile (or the active tile again) re-claims and moves the glow; a failed
 current state untouched. With no interaction for `IDLE_TIMEOUT_MS` (45s, exported from
 `HubShell.tsx` and overridable via the `idleTimeoutMs` prop for tests) the active participant clears
 back to the neutral glance automatically - the shared tablet never stays "claimed" by someone who
-walked away. The shell fetches no chores itself - `TodayPanel` (`src/components/TodayPanel.tsx`) is
-a documented seam: a bounded container that renders whatever children it is given (or a calm "being
-prepared" empty state) and, given an `activeParticipant`, accents itself in that person's colour, so
-Epic 40 C5 can fill it with the chore board without restructuring the hub layout.
+walked away. The shell itself fetches no chores; `TodayPanel` (`src/components/TodayPanel.tsx`) stays
+a bounded, dumb container - it renders whatever children it is given (or a calm "being prepared" empty
+state) and, given an `activeParticipant`, accents itself in that person's colour - and `HubShell` fills
+it with `ChoreBoard` (Epic 40 C5) once a household is ready.
+
+**The chore board** (`src/components/ChoreBoard.tsx`, Epic 40 C5) is the visible payoff of the wedge
+(journey 6.2): it fills `TodayPanel` with the current week's assignments and lets a tap mark one done.
+On mount it calls the C3 generate/regenerate endpoint (`POST /households/{householdId}/assignments/generate`
+with an empty body - a deterministic, `Done`-preserving regenerate, so re-reading it to render is safe)
+and joins each assignment against the open Chores read (H2) by `choreId` to get its title and cadence
+(the C3 projection carries no title). Items are grouped into two buckets - daily-cadence chores under
+"Today", weekly-cadence under "This week" - and within each bucket by person, in roster order; the
+active participant's items (T3) glow in their claim colour, and with no active participant the board
+renders read-only (a tap cannot attribute a completion, so it does nothing). Tapping an open item
+completes it through the C4 endpoint
+(`POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete`) with an optimistic flip to
+`Done`, reconciling on the response and reverting on error; a `Done` item is dimmed, checked, and not
+tappable again, matching C4's idempotent double-complete.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
@@ -194,8 +209,8 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
   monorepo-level guide is the root [`CLAUDE.md`](../CLAUDE.md).
 - The hub shell (`HubShell`) renders the header, tappable name tiles, and `TodayPanel` seam (T2),
   and tap-to-claim - claiming a person, the claim-colour glow, and the idle timeout back to neutral
-  - is wired up (T3). The glanceable chore board that fills `TodayPanel` is not built yet - that
-  lands in Epic 40 C5.
+  - is wired up (T3). `TodayPanel` is filled with the glanceable, tap-to-complete chore board
+  (`ChoreBoard`, Epic 40 C5).
 - Organizer sign-in (`OrganizerBar`, `OrganizerContext`, `IAuthProvider`) is wired up (T4): the hub
   always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
   client attaches the organizer bearer automatically.

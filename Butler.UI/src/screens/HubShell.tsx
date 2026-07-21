@@ -11,6 +11,7 @@ import type {
 import { useApiClient } from '../api/useApiClient';
 import { HubPairing } from '../auth/HubPairing';
 import { OrganizerBar } from '../auth/OrganizerBar';
+import { ChoreBoard } from '../components/ChoreBoard';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
 import { useHousehold } from '../state/HouseholdContext';
@@ -178,7 +179,15 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
           ))}
       </View>
 
-      <TodayPanel activeParticipant={activeParticipant} />
+      <TodayPanel activeParticipant={activeParticipant}>
+        {view.phase === 'ready' && householdId !== null ? (
+          <ChoreBoard
+            householdId={householdId}
+            people={view.people}
+            activePersonId={activeParticipant?.personId ?? null}
+          />
+        ) : null}
+      </TodayPanel>
     </View>
   );
 }

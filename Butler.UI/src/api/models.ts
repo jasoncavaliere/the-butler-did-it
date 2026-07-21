@@ -130,3 +130,55 @@ export type CreateChoreRequest = {
   effort: number;
   minAge: number | null;
 };
+
+/**
+ * One placed chore in an {@link AssignmentSetResponse} (C3): who it went to, its
+ * effort, and whether it is still `Open` or was already completed (`Done`). The
+ * chore's display title and cadence are not on this projection - the board joins
+ * it against the Chores read ({@link ChoreResponse}) to render a human item.
+ */
+export type AssignmentView = {
+  choreId: string;
+  assignedPersonId: string;
+  effort: number;
+  status: string;
+};
+
+/** One chore the C2 engine could not place, surfaced with its reason code. */
+export type UnassignedView = {
+  choreId: string;
+  effort: number;
+  reason: string;
+};
+
+/**
+ * The result of generating (or idempotently regenerating) one household week's
+ * chore assignments, returned by the C3 endpoint
+ * (`POST /households/{householdId}/assignments/generate`). It is the source the
+ * hub chore board (C5) reads; a regenerate is deterministic and preserves `Done`,
+ * so re-reading it to render the board is safe.
+ */
+export type AssignmentSetResponse = {
+  weekIso: string;
+  assignments: AssignmentView[];
+  unassigned: UnassignedView[];
+};
+
+/**
+ * The state of an assignment after a successful tap-to-complete, returned by the
+ * C4 endpoint
+ * (`POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete`).
+ * `Status` is always `Done` on success; a double-complete is an idempotent
+ * success (never an error).
+ */
+export type CompleteChoreResponse = {
+  weekIso: string;
+  choreId: string;
+  assignedPersonId: string;
+  status: string;
+};
+
+/** Body for the C4 complete endpoint: the acting person (the UI's active participant). */
+export type CompleteChoreRequest = {
+  personId: string;
+};
