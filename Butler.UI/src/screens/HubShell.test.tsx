@@ -29,14 +29,29 @@ const unreachable: ApiResult<unknown> = {
   error: { kind: 'network', status: 0, title: 'The API is unreachable.' },
 };
 
+// The chore board (C5) the today panel now renders reads the active chores and
+// the C3 assignment set; these keep those reads calm and empty so the shell
+// tests below stay focused on the shell itself.
+const okChores: ApiResult<unknown> = { ok: true, status: 200, data: [], etag: null };
+const okAssignments: ApiResult<unknown> = {
+  ok: true,
+  status: 200,
+  data: { weekIso: '2026-W29', assignments: [], unassigned: [] },
+  etag: null,
+};
+
 /** A client that answers the household read and the people (roster) read by path. */
 function clientWith(responses: Responses): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
-    get: jest.fn(async (path: string): Promise<ApiResult<unknown>> =>
-      path.endsWith('/people') ? responses.people : responses.household,
-    ) as unknown as ApiClient['get'],
-    update: jest.fn() as unknown as ApiClient['update'],
+    get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      if (path.includes('/chores')) {
+        return okChores;
+      }
+      return path.endsWith('/people') ? responses.people : responses.household;
+    }) as unknown as ApiClient['get'],
+    // The only write the shell tests exercise is the board's C3 generate.
+    update: jest.fn(async (): Promise<ApiResult<unknown>> => okAssignments) as unknown as ApiClient['update'],
   };
 }
 
@@ -67,12 +82,20 @@ const roster = [
 function interactiveClient(claimResult?: ApiResult<unknown>): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
-    get: jest.fn(async (path: string): Promise<ApiResult<unknown>> =>
-      path.endsWith('/people')
+    get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      if (path.includes('/chores')) {
+        return okChores;
+      }
+      return path.endsWith('/people')
         ? { ok: true, status: 200, data: roster, etag: null }
-        : okHousehold('Home'),
-    ) as unknown as ApiClient['get'],
+        : okHousehold('Home');
+    }) as unknown as ApiClient['get'],
     update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      // The board's C3 generate always succeeds with an empty set; claimResult
+      // (when supplied) only forces the claim to fail.
+      if (path.endsWith('/generate')) {
+        return okAssignments;
+      }
       if (claimResult) {
         return claimResult;
       }
@@ -138,7 +161,7 @@ describe('HubShell', () => {
     expect(screen.getByText('Sam')).toBeOnTheScreen();
   });
 
-  it('renders the empty today panel placeholder', async () => {
+  it('fills the today panel with the chore board (C5), calm and empty when nothing is assigned', async () => {
     useApiClientMock.mockReturnValue(
       clientWith({
         household: okHousehold('Home'),
@@ -148,8 +171,11 @@ describe('HubShell', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('today-panel')).toBeOnTheScreen());
-    expect(screen.getByTestId('today-panel-empty')).toBeOnTheScreen();
+    // The panel is now filled by the board seam, so the T2 placeholder is gone;
+    // with no assignments the board shows its own calm empty state.
+    await waitFor(() => expect(screen.getByTestId('chore-board-empty')).toBeOnTheScreen());
+    expect(screen.getByTestId('today-panel')).toBeOnTheScreen();
+    expect(screen.queryByTestId('today-panel-empty')).toBeNull();
   });
 
   it('shows a calm "no people" state when the roster is empty', async () => {
@@ -365,7 +391,12 @@ describe('HubShell', () => {
 
       await pressTile('p1');
 
-      expect(client.update).toHaveBeenCalledTimes(1);
+      // Exactly one claim went out (the board's C3 generate also uses update, so
+      // filter to the claim call rather than counting every write).
+      const claimCalls = (client.update as jest.Mock).mock.calls.filter(
+        ([path]) => typeof path === 'string' && path.endsWith('/claim'),
+      );
+      expect(claimCalls).toHaveLength(1);
       // No participant became active; the glance stays neutral and no PIN/password
       // field is ever rendered.
       expect(screen.getByText('Today')).toBeOnTheScreen();

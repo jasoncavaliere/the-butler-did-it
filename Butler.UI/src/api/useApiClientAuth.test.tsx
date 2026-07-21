@@ -3,6 +3,7 @@ import { Pressable, Text } from 'react-native';
 
 import { useApiClient } from './useApiClient';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
+import { HubDeviceProvider } from '../state/HubDeviceContext';
 import { OrganizerProvider, useOrganizer } from '../state/OrganizerContext';
 
 const SESSION: OrganizerSession = {
@@ -81,5 +82,39 @@ describe('useApiClient token threading (T4)', () => {
     await press('out');
     await press('call');
     expect(lastAuthHeader()).toBeUndefined();
+  });
+
+  it('falls back to the paired hub-device token when no organizer is signed in (T5)', async () => {
+    await render(
+      <OrganizerProvider authProvider={provider}>
+        <HubDeviceProvider initialDeviceToken="device-xyz">
+          <Probe />
+        </HubDeviceProvider>
+      </OrganizerProvider>,
+    );
+
+    // No organizer signed in - the always-on tablet's normal state - so the
+    // hub-device token authenticates the request instead of going out anonymous.
+    await press('call');
+    expect(lastAuthHeader()).toBe('Bearer device-xyz');
+  });
+
+  it('prefers the organizer token over the device token when both are present', async () => {
+    await render(
+      <OrganizerProvider authProvider={provider}>
+        <HubDeviceProvider initialDeviceToken="device-xyz">
+          <Probe />
+        </HubDeviceProvider>
+      </OrganizerProvider>,
+    );
+
+    await press('in');
+    await press('call');
+    expect(lastAuthHeader()).toBe('Bearer bearer-abc');
+
+    // Signing out drops back to the device token rather than to anonymous.
+    await press('out');
+    await press('call');
+    expect(lastAuthHeader()).toBe('Bearer device-xyz');
   });
 });
