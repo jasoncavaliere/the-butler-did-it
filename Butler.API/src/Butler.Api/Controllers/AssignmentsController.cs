@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Butler.Api.Application.Assignments;
 using Butler.Api.Application.Auth;
 using MediatR;
@@ -60,7 +61,89 @@ public sealed class AssignmentsController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>
+    /// Completes an assignment from a tap (C4, journey 6.2). It appends a
+    /// <c>ChoreCompletion</c> and flips the assignment to <c>Done</c> under
+    /// optimistic concurrency. Completion is not a sensitive action (Decision D-3),
+    /// so any authenticated caller - a tap-to-claim participant (T1) or a paired hub
+    /// device (T5) - may drive it; no organizer authority is required. A second
+    /// complete of an already-<c>Done</c> assignment is an idempotent success. An
+    /// unknown assignment is a <c>404</c>.
+    /// </summary>
+    /// <remarks>
+    /// The actor the completion is attributed to is the participant session's own
+    /// <c>personId</c> when the caller holds one; otherwise (a shared hub tablet or
+    /// an organizer) it is the <c>personId</c> the caller supplies in the body - the
+    /// UI's active participant (T3). A completion with no resolvable actor is a
+    /// <c>400</c>.
+    /// </remarks>
+    [HttpPost("{weekIso}/{choreId}/complete")]
+    [Authorize]
+    [ProducesResponseType(typeof(CompleteChoreResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<CompleteChoreResponse>> Complete(
+        string householdId,
+        string weekIso,
+        string choreId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CompleteChoreRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var personId = ResolveActorPersonId(request);
+        if (string.IsNullOrWhiteSpace(personId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "A person is required to complete a chore.",
+                detail: "Supply the acting personId in the request body, or present a participant session.",
+                type: $"https://httpstatuses.io/{StatusCodes.Status400BadRequest}");
+        }
+
+        var result = await _sender.Send(
+            new CompleteChoreCommand(householdId, weekIso, choreId, personId),
+            cancellationToken);
+
+        if (result is null)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Assignment not found.",
+                detail: $"No assignment for chore '{choreId}' in week '{weekIso}' exists in household '{householdId}'.",
+                type: $"https://httpstatuses.io/{StatusCodes.Status404NotFound}");
+        }
+
+        return Ok(result);
+    }
+
+    // The completion's actor: a participant session identifies itself, so its own
+    // personId (the NameIdentifier claim) is authoritative. A hub device or an
+    // organizer is not a person, so the actor arrives in the body - the active
+    // participant the UI selected on the shared tablet (T3).
+    private string? ResolveActorPersonId(CompleteChoreRequest? request)
+    {
+        if (User.IsInRole(OrganizerAuthorization.ParticipantRole))
+        {
+            return User.FindFirstValue(ClaimTypes.NameIdentifier);
+        }
+
+        return request?.PersonId;
+    }
 }
+
+/// <summary>
+/// Request body for
+/// <c>POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete</c>.
+/// Optional in its entirety - a participant session carries its own actor, so it
+/// may complete with an empty body.
+/// </summary>
+/// <param name="PersonId">
+/// The acting person's id (the UI's active participant), used when the caller is a
+/// hub device or organizer rather than a participant session. Ignored when a
+/// participant session is present.
+/// </param>
+public sealed record CompleteChoreRequest(string? PersonId);
 
 /// <summary>
 /// Request body for <c>POST /households/{householdId}/assignments/generate</c>.

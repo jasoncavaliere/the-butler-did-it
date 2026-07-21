@@ -262,7 +262,7 @@ eligible people, and each person's trailing load into an assignment set per Engi
 
 - `AssignmentEntity` (`Assignments` table) is one chore assigned to one person for one ISO week -
   `PartitionKey = householdId`, `RowKey = {weekIso}_{choreId}`, with `AssignedPersonId`, `WeekIso`,
-  `DueDateUtc`, and a `Status` of `Open` or `Done` (`AssignmentStatus`). C4 will flip `Status` to `Done`
+  `DueDateUtc`, and a `Status` of `Open` or `Done` (`AssignmentStatus`). C4 flips `Status` to `Done`
   under the same `If-Match` optimistic-concurrency rules used above (missing -> `428`, stale -> `412`).
 - `ChoreCompletionEntity` (`ChoreCompletions` table) is an **append-only** ledger entry (BRD R-2: never
   updated or deleted) recording that a person completed a chore - `PartitionKey = householdId`,
@@ -289,17 +289,25 @@ eligible people, and each person's trailing load into an assignment set per Engi
   person's trailing-4-ISO-week completed `Effort` from `ChoreCompletions`, resolves `weekIso` from the
   request or the injected clock, runs the C2 engine, and persists the result via the C1 repositories.
 - The feature registers via `AddAssignmentsFeature()` in `Program.cs`, which wires both tables, both
-  repositories, the clock, the engine, and the generation service.
+  repositories, the clock, the engine, the generation service, and (C4) `IChoreCompletionService`.
+- `IChoreCompletionService.CompleteAsync(...)` (C4) is the only place that composes the tap-to-complete
+  write: it appends an append-only `ChoreCompletion` crediting the acting `personId` with the chore's
+  `Effort` at the injected clock's instant, bucketed into the assignment's ISO week, then flips the
+  matching `Assignment.Status` to `Done` using the row's read `ETag` as the `If-Match` precondition
+  (BRD R-2, last-writer-wins per `(householdId, weekIso, choreId)`). Completing an assignment already
+  `Done` is a success no-op - no second completion is appended, so trailing-load fairness never
+  double-counts and the ledger is never mutated.
 
 | Endpoint | Behavior |
 | --- | --- |
 | `POST /households/{householdId}/assignments/generate` | Generates or regenerates the household's assignments for a week. Accepts an optional JSON body `{ "weekIso": "2026-W29" }`; an empty body (or an omitted `weekIso`) computes the current week from the injected clock. **Regenerate is idempotent:** re-running it for a week that already has assignments replaces only `Open` rows - `Done` assignments and their `ChoreCompletions` are preserved untouched, and their effort is folded into the recomputed trailing loads so a completed chore is never reassigned. Returns `200` with an `AssignmentSetResponse` (`weekIso`, the placed `assignments` - `choreId`, `assignedPersonId`, `effort`, `status`, ordered by `choreId` - and any `unassigned` chores with their reason code, also ordered by `choreId`), or `404` RFC 7807 problem details for an unknown `householdId`. Requires the `OrganizerOrHubDevice` authorization policy - an `Organizer` JWT (or the dev bypass) or a paired hub device token may call it; a plain participant session cannot (`403`). |
+| `POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete` | Completes an assignment from a tap (C4, journey 6.2): appends a `ChoreCompletion` and sets the matching `Assignment.Status` to `Done` under optimistic concurrency. Completion is **not** a sensitive action (Decision D-3), so any authenticated caller may drive it - a tap-to-claim participant session (T1) or a paired hub device (T5) - with no `Organizer` policy required. Accepts an optional JSON body `{ "personId": "..." }`: a participant session attributes the completion to its own `personId` and may omit the body entirely; a hub device or organizer must supply the acting `personId` (the UI's active participant, T3) or the call is `400`. A second complete of an already-`Done` assignment is an idempotent success, not an error. Returns `200` with the completed assignment's `weekIso`, `choreId`, `assignedPersonId`, and `status`, or `404` RFC 7807 problem details when no assignment matches `(householdId, weekIso, choreId)`. |
 
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
 can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
 these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
-is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has its
-generate/regenerate endpoint (C1-C3, above), but the chore-completion endpoint (C4), the tap-to-claim
+is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has both
+its generate/regenerate endpoint (C1-C3) and its chore-completion endpoint (C4, above) - the tap-to-claim
 UI board (T3/C5), groceries, and calendar have not been built yet.
