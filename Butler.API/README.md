@@ -251,10 +251,37 @@ and the feature registers via `AddChoresFeature()` in `Program.cs`.
 | `PUT /households/{householdId}/chores/{choreId}` | Updates `Title`/`RoomId`/`Cadence`/`Effort`/`MinAge`/`Active` under the `If-Match` precondition. Returns `200` with the updated chore, `404` for an unknown chore, `400` for an unknown `RoomId` or non-positive `Effort`, `428` when `If-Match` is missing, or `412` when it is stale. |
 | `POST /households/{householdId}/chores/{choreId}/deactivate` | Sets `Active = false` and retains the row. Returns `200` with the updated chore, or `404` for an unknown chore. |
 
+### Assignments and chore completions (persistence + clock, no endpoints yet)
+
+`Assignments`/`ChoreCompletions` (`Domain/Scheduling/`, `Application/Assignments/`,
+`Infrastructure/Assignments/`, `Infrastructure/ChoreCompletions/`) is the C1 ticket: the persistence and
+time base the Epic 40 fair-assignment engine (C2) and its endpoints (C3, C4) build on. There is no
+controller or HTTP route yet - this ships the tables, repositories, and clock only.
+
+- `AssignmentEntity` (`Assignments` table) is one chore assigned to one person for one ISO week -
+  `PartitionKey = householdId`, `RowKey = {weekIso}_{choreId}`, with `AssignedPersonId`, `WeekIso`,
+  `DueDateUtc`, and a `Status` of `Open` or `Done` (`AssignmentStatus`). C4 will flip `Status` to `Done`
+  under the same `If-Match` optimistic-concurrency rules used above (missing -> `428`, stale -> `412`).
+- `ChoreCompletionEntity` (`ChoreCompletions` table) is an **append-only** ledger entry (BRD R-2: never
+  updated or deleted) recording that a person completed a chore - `PartitionKey = householdId`,
+  `RowKey = {completedUtcTicks}_{choreId}`, with `ChoreId`, `PersonId`, `CompletedUtc`, `Effort`, and
+  `WeekIso` for the fairness math to read.
+- Both are exposed behind repository interfaces (`IAssignmentRepository`, `IChoreCompletionRepository`)
+  with Table-backed implementations (`TableAssignmentRepository`, `TableChoreCompletionRepository`) on
+  the shared F3 storage seam above; every read/write is scoped to `PartitionKey = householdId`.
+- `WeekIso.For(DateTimeOffset)` (`Domain/Scheduling/`) is the deterministic ISO-8601 year-week helper
+  (for example `2026-07-14` -> `2026-W29`) every assignment, completion, and future grocery-cart bucket
+  shares. It always takes a caller-supplied instant - never `DateTime.Now`/`DateTime.UtcNow` - so a
+  `TimeProvider` (registered here as `TimeProvider.System`) keeps the week math deterministic in tests,
+  including across the ISO week-numbering-year boundary.
+- The feature registers via `AddAssignmentsFeature()` in `Program.cs`, which wires both tables, both
+  repositories, and the clock.
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
 can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
 these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
-is the first piece of the participant identity model; the Epic 40 fair-assignment engine, the tap-to-claim
-UI (T3), groceries, and calendar have not been built yet.
+is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has its
+persistence and clock base (C1, above) but its assignment logic, completion endpoint, and the
+tap-to-claim UI (T3), groceries, and calendar have not been built yet.
