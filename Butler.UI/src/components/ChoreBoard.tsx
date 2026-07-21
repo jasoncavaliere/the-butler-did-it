@@ -28,9 +28,15 @@ import { colors } from './Screen';
  *
  * The items are grouped into the panel's two day buckets - daily-cadence chores
  * under "Today", weekly-cadence under "This week" - and within each bucket by
- * person, in roster order. The active participant's items (T3) glow in their
- * claim colour; with no active participant the board is read-only (a tap cannot
- * attribute a completion, so it does nothing). A tap on an open item completes it
+ * person, in roster order. When a participant is active (T3), the board *focuses*
+ * on them - it renders only that person's assignments, answering "what's mine
+ * right now" (their items still glow in their claim colour). With no active
+ * participant the board falls back to the full read-only household glance for
+ * everyone (a tap cannot attribute a completion, so it does nothing). Switching
+ * the active participant re-focuses on the newly selected person, and the T3
+ * idle-timeout clearing the selection restores the full-household view - all
+ * without any refetch, since it is a pure derived-render change over the loaded
+ * week. A tap on an open item completes it
  * through C4 with an optimistic flip to `Done`, reconciling on the response and
  * reverting on error. A `Done` item is dimmed, checked, and not tappable again,
  * so a completed chore is never re-submitted (matching C4 idempotency).
@@ -178,7 +184,18 @@ export function ChoreBoard({
     );
   }
 
-  if (items.length === 0) {
+  // Focus vs. glance: with an active participant the board narrows to just that
+  // person's assignments ("what's mine right now"); with none it shows the whole
+  // household read-only. This filters only what is rendered - the loaded `items`
+  // (and the completion logic keyed on `choreId`) are untouched, so switching or
+  // clearing the active participant re-focuses / restores instantly with no
+  // refetch.
+  const visibleItems =
+    activePersonId === null
+      ? items
+      : items.filter((item) => item.assignedPersonId === activePersonId);
+
+  if (visibleItems.length === 0) {
     return (
       <Text style={styles.status} testID="chore-board-empty">
         Nothing on the board this week.
@@ -194,7 +211,7 @@ export function ChoreBoard({
   return (
     <View style={styles.board} testID="chore-board">
       {DAY_BUCKETS.map((bucket) => {
-        const dayItems = items.filter((item) => isDaily(item.cadence) === bucket.daily);
+        const dayItems = visibleItems.filter((item) => isDaily(item.cadence) === bucket.daily);
         if (dayItems.length === 0) {
           return null;
         }

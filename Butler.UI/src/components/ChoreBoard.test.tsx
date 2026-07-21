@@ -131,15 +131,57 @@ describe('ChoreBoard', () => {
     expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(true);
   });
 
-  it('glow-for-active-participant: the active person\'s items are highlighted, others are not', async () => {
+  it('focus-on-select: only the active person\'s items render, and they glow', async () => {
     await renderBoard(boardClient(), { activePersonId: 'p1' });
 
     await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
 
-    // Alex is active: their open item glows (selected); Sam's items do not.
+    // Alex is active: the board focuses on them. Their items render and glow...
     expect(screen.getByTestId('chore-item-c1').props.accessibilityState.selected).toBe(true);
-    expect(screen.getByTestId('chore-item-c3').props.accessibilityState.selected).toBe(false);
-    expect(screen.getByTestId('chore-item-c2').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.selected).toBe(true);
+    // ...and Sam's items (c3 Today, c2 This week) are filtered out entirely, not
+    // merely un-highlighted.
+    expect(screen.queryByTestId('chore-item-c3')).toBeNull();
+    expect(screen.queryByTestId('chore-item-c2')).toBeNull();
+    expect(screen.queryByTestId('chore-board-person-today-p2')).toBeNull();
+  });
+
+  it('full-board-when-none: every person\'s items render when no participant is active', async () => {
+    await renderBoard(boardClient(), { activePersonId: null });
+
+    await waitFor(() => expect(screen.getByTestId('chore-board')).toBeOnTheScreen());
+
+    // The full household glance: both Alex's and Sam's items are present.
+    expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen(); // Alex / Today
+    expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen(); // Sam / Today
+    expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen(); // Sam / This week
+    expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen(); // Alex / This week
+    expect(screen.getByTestId('chore-board-person-today-p1')).toBeOnTheScreen();
+    expect(screen.getByTestId('chore-board-person-today-p2')).toBeOnTheScreen();
+  });
+
+  it('switch-refocuses: changing the active person changes which items show', async () => {
+    useApiClientMock.mockReturnValue(boardClient());
+    const view = await render(
+      <ChoreBoard householdId="hh-1" people={roster} activePersonId="p1" />,
+    );
+
+    // Focused on Alex: their items show, Sam's do not.
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(screen.queryByTestId('chore-item-c3')).toBeNull();
+
+    // Tapping a different tile re-focuses on Sam (no refetch): now Sam's items
+    // show and Alex's are gone.
+    await view.rerender(<ChoreBoard householdId="hh-1" people={roster} activePersonId="p2" />);
+    await waitFor(() => expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen();
+    expect(screen.queryByTestId('chore-item-c1')).toBeNull();
+    expect(screen.queryByTestId('chore-item-c4')).toBeNull();
+
+    // Clearing the selection (idle-reset -> null) restores the full household.
+    await view.rerender(<ChoreBoard householdId="hh-1" people={roster} activePersonId={null} />);
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen();
   });
 
   it('renders read-only with nothing highlighted when there is no active participant', async () => {
