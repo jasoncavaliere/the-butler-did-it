@@ -52,6 +52,14 @@ public sealed class AssignmentsServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddAssignmentsFeature_registers_the_fair_assignment_engine()
+    {
+        using var provider = BuildProvider();
+
+        Assert.IsType<FairAssignmentEngine>(provider.GetRequiredService<IFairAssignmentEngine>());
+    }
+
+    [Fact]
     public void AddAssignmentsFeature_registers_the_injected_clock()
     {
         using var provider = BuildProvider();
