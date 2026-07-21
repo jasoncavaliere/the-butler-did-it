@@ -78,6 +78,14 @@ public sealed class FairnessAggregationTests
         Role = "Participant",
     };
 
+    private static PersonEntity Organizer(string personId, string displayName) => new()
+    {
+        PartitionKey = Household,
+        RowKey = personId,
+        DisplayName = displayName,
+        Role = "Organizer",
+    };
+
     [Fact]
     public async Task Computes_per_person_effort_and_shares_that_sum_to_one_hundred_percent()
     {
@@ -192,6 +200,50 @@ public sealed class FairnessAggregationTests
         Assert.Equal(4, ghost.TotalEffort);
         // Ghost (4) out-contributed Alex (2), so ghost is the top contributor.
         Assert.Equal("ghost", result.TopContributorPersonId);
+    }
+
+    [Fact]
+    public async Task Organizers_never_appear_in_the_balance_even_with_a_zero_share()
+    {
+        var harness = new Harness();
+        // A seeded organizer (like the dev organizer) plus one chore-doing member.
+        harness.SetPeople(
+            Organizer("org-1", "Development Organizer"),
+            Person("p1", "Alex"));
+        harness.SetCompletions(Completion("p1", 5, Week29));
+
+        var result = await harness.Service.GetAsync(Household, 4, CancellationToken.None);
+
+        Assert.NotNull(result);
+        // The organizer is never a row on the board - not even a zero-effort one.
+        Assert.DoesNotContain(result!.Shares, s => s.PersonId == "org-1");
+        Assert.DoesNotContain(result.Shares, s => s.DisplayName == "Development Organizer");
+        Assert.Equal("p1", Assert.Single(result.Shares).PersonId);
+        Assert.Equal(5, result.TotalEffort);
+        Assert.Equal("p1", result.TopContributorPersonId);
+    }
+
+    [Fact]
+    public async Task An_organizers_ledger_effort_is_excluded_from_the_household_total()
+    {
+        var harness = new Harness();
+        harness.SetPeople(
+            Organizer("org-1", "Development Organizer"),
+            Person("p1", "Alex"));
+        // Even if the ledger somehow attributes a completion to an organizer, it is
+        // not part of the shared load and must not inflate the total or shares.
+        harness.SetCompletions(
+            Completion("p1", 4, Week29),
+            Completion("org-1", 6, Week29));
+
+        var result = await harness.Service.GetAsync(Household, 4, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(4, result!.TotalEffort);
+        Assert.DoesNotContain(result.Shares, s => s.PersonId == "org-1");
+        var alex = Assert.Single(result.Shares);
+        Assert.Equal("p1", alex.PersonId);
+        Assert.Equal(1.0d, alex.Share, 9);
     }
 
     [Fact]

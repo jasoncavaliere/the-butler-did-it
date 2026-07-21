@@ -27,6 +27,28 @@ import { useHousehold } from '../state/HouseholdContext';
 export const IDLE_TIMEOUT_MS = 45_000;
 
 /**
+ * The organizer role string (mirrors the API's
+ * `OrganizerAuthorization.OrganizerRole`). Organizers/admins administer the
+ * household; they are not chore-doing members, so they are never a claimable tile.
+ */
+export const ORGANIZER_ROLE = 'Organizer';
+
+/**
+ * Whether a roster entry is a chore-doing member (and so a claimable tile) rather
+ * than an organizer/admin identity. The API roster read is already filtered to
+ * members (`GetRosterQuery` omits organizer-role people, including the synthetic
+ * "Development Organizer" dev identity), and those entries carry no `role`. This
+ * predicate is the hub's independent second guard: if an organizer-role entry ever
+ * reaches the client, it is excluded here so an admin never renders as a name tile.
+ */
+export function isClaimableMember(person: RosterEntryResponse): boolean {
+  return (
+    person.role === undefined ||
+    person.role.toLowerCase() !== ORGANIZER_ROLE.toLowerCase()
+  );
+}
+
+/**
  * The always-on hub: the shared-device shell the whole product renders inside
  * (BRD 6.2, ADR-0005 three-zone band). It reads the active household from
  * {@link useHousehold} and, through the F7 typed client, loads the household
@@ -133,6 +155,11 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
   const view: LoadState =
     householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
   const householdName = view.phase === 'ready' ? view.householdName : 'Butler';
+  // The claimable roster is chore-doing members only: an organizer/admin identity
+  // (including the synthetic "Development Organizer") is never a tile, never fed to
+  // the board, and never counted in the fairness balance. This mirrors the API's
+  // already-filtered roster read and holds the line even if one ever slips through.
+  const members: RosterEntryResponse[] = view.phase === 'ready' ? view.people.filter(isClaimableMember) : [];
 
   return (
     <View style={styles.hub} testID="hub-shell">
@@ -162,12 +189,12 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
         )}
 
         {view.phase === 'ready' &&
-          (view.people.length === 0 ? (
+          (members.length === 0 ? (
             <Text style={styles.status} testID="hub-no-people">
               No one has been added to this household yet.
             </Text>
           ) : (
-            view.people.map((person) => (
+            members.map((person) => (
               <NameTile
                 key={person.personId}
                 person={person}
@@ -184,7 +211,7 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
         {view.phase === 'ready' && householdId !== null ? (
           <ChoreBoard
             householdId={householdId}
-            people={view.people}
+            people={members}
             activePersonId={activeParticipant?.personId ?? null}
           />
         ) : null}
@@ -192,7 +219,7 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
 
       {view.phase === 'ready' && householdId !== null ? (
         <View style={styles.balance} testID="hub-balance">
-          <FairnessView householdId={householdId} people={view.people} />
+          <FairnessView householdId={householdId} people={members} />
         </View>
       ) : null}
     </View>

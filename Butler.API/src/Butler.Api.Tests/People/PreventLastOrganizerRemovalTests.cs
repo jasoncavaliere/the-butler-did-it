@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Butler.Api.Infrastructure.People;
+using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Butler.Api.Tests.People;
 
@@ -26,9 +29,8 @@ public sealed class PreventLastOrganizerRemovalTests : IClassFixture<ButlerApiFa
 
         // Creating the household seeds exactly one organizer row (H1).
         var householdId = await CreateHouseholdAsync(client);
-        var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
-        var organizer = await SingleOrganizerAsync(client, peopleUri);
+        var organizer = await SingleOrganizerAsync(client, householdId);
         var organizerId = organizer.GetProperty("personId").GetString();
         var etag = organizer.GetProperty("eTag").GetString();
         var organizerUri = new Uri($"/households/{householdId}/people/{organizerId}", UriKind.Relative);
@@ -64,7 +66,7 @@ public sealed class PreventLastOrganizerRemovalTests : IClassFixture<ButlerApiFa
         var householdId = await CreateHouseholdAsync(client);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
-        var firstOrganizer = await SingleOrganizerAsync(client, peopleUri);
+        var firstOrganizer = await SingleOrganizerAsync(client, householdId);
         var firstId = firstOrganizer.GetProperty("personId").GetString();
         var firstEtag = firstOrganizer.GetProperty("eTag").GetString();
         var firstUri = new Uri($"/households/{householdId}/people/{firstId}", UriKind.Relative);
@@ -104,19 +106,19 @@ public sealed class PreventLastOrganizerRemovalTests : IClassFixture<ButlerApiFa
         return doc.RootElement.GetProperty("householdId").GetString()!;
     }
 
-    private static async Task<JsonElement> SingleOrganizerAsync(HttpClient client, Uri peopleUri)
+    private async Task<JsonElement> SingleOrganizerAsync(HttpClient client, string householdId)
     {
-        // The roster read (T1) is the trimmed claimable projection - no role or
-        // ETag. A freshly seeded household holds exactly one person (its organizer),
-        // so take that entry's id and read the single-person detail for the CRUD
-        // fields (role, ETag) the guard tests need.
-        using var listResponse = await client.GetAsync(peopleUri);
-        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
-        using var listDoc = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
-        var entry = Assert.Single(listDoc.RootElement.EnumerateArray().ToList());
-        var personId = entry.GetProperty("personId").GetString();
+        // Organizers are administrators, not chore-doing members, so they never
+        // appear on the claimable roster (T1) the HTTP list read now returns.
+        // Discover the freshly seeded organizer's id straight from the People table,
+        // then read the single-person detail for the CRUD fields (role, ETag) the
+        // guard tests need.
+        var people = _factory.Services.GetRequiredService<IEntityRepository<PersonEntity>>();
+        var roster = await people.ListAsync(householdId);
+        var organizerRow = Assert.Single(roster);
+        var personId = organizerRow.RowKey;
 
-        var personUri = new Uri($"{peopleUri.OriginalString}/{personId}", UriKind.Relative);
+        var personUri = new Uri($"/households/{householdId}/people/{personId}", UriKind.Relative);
         using var detailResponse = await client.GetAsync(personUri);
         Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
         using var detailDoc = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync());

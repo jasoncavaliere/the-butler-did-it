@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Butler.Api.Application.Auth;
 using Butler.Api.Domain.Scheduling;
 using Butler.Api.Infrastructure.ChoreCompletions;
 using Butler.Api.Infrastructure.Households;
@@ -67,6 +68,21 @@ public sealed class FairnessService : IFairnessService
 
         var window = TrailingWindow(windowWeeks);
 
+        // Read the roster first so organizers can be excluded from every aggregate.
+        // Organizers administer the household; they are not chore-doing members and
+        // are never counted in the fairness balance (this also excludes the seeded
+        // dev organizer, whose row carries the organizer role - it must never appear
+        // as a household member on the board). This mirrors the T1 roster read.
+        var people = await _people.ListAsync(householdId, cancellationToken).ConfigureAwait(false);
+        var organizerIds = new HashSet<string>(
+            people
+                .Where(person => string.Equals(
+                    person.Role,
+                    OrganizerAuthorization.OrganizerRole,
+                    StringComparison.Ordinal))
+                .Select(person => person.RowKey),
+            StringComparer.Ordinal);
+
         // The aggregate reads only this household's completions partition - the
         // Section 10 fairness guardrail computed without any cross-household query.
         var completions = await _completions.ListAsync(householdId, cancellationToken).ConfigureAwait(false);
@@ -75,6 +91,13 @@ public sealed class FairnessService : IFairnessService
         foreach (var completion in completions)
         {
             if (!window.Weeks.Contains(completion.WeekIso))
+            {
+                continue;
+            }
+
+            // An organizer's completion (if the ledger ever carries one) is not part
+            // of the household's shared load, so it never contributes to the total.
+            if (organizerIds.Contains(completion.PersonId))
             {
                 continue;
             }
@@ -88,18 +111,23 @@ public sealed class FairnessService : IFairnessService
         // Display names come from the roster; a completion attributed to a person
         // who has since left the roster still counts (the ledger is the source of
         // truth) and falls back to showing its id.
-        var people = await _people.ListAsync(householdId, cancellationToken).ConfigureAwait(false);
         var displayNames = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var person in people)
         {
             displayNames[person.RowKey] = person.DisplayName;
         }
 
-        // Report every current roster member (so a zero-contributor still shows on
-        // the balance view) plus any ledger person no longer on the roster.
+        // Report every current chore-doing roster member (so a zero-contributor
+        // still shows on the balance view) plus any ledger person no longer on the
+        // roster - but never an organizer.
         var personIds = new HashSet<string>(effortByPerson.Keys, StringComparer.Ordinal);
         foreach (var person in people)
         {
+            if (organizerIds.Contains(person.RowKey))
+            {
+                continue;
+            }
+
             personIds.Add(person.RowKey);
         }
 

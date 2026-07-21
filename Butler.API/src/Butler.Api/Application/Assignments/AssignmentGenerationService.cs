@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Butler.Api.Application.Auth;
 using Butler.Api.Application.Concurrency;
 using Butler.Api.Domain.Scheduling;
 using Butler.Api.Infrastructure.Assignments;
@@ -78,7 +79,17 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
             .Where(chore => chore.Active)
             .ToList();
 
-        var people = await _people.ListAsync(householdId, cancellationToken).ConfigureAwait(false);
+        // Only chore-doing members are assignment candidates: organizers administer
+        // the household but do not do chores, so they are excluded before the C2
+        // engine ever sees them (this also excludes the seeded dev organizer, whose
+        // row carries the organizer role) - an organizer is never assigned a chore
+        // and never counts in the fair-assignment distribution.
+        var people = (await _people.ListAsync(householdId, cancellationToken).ConfigureAwait(false))
+            .Where(person => !string.Equals(
+                person.Role,
+                OrganizerAuthorization.OrganizerRole,
+                StringComparison.Ordinal))
+            .ToList();
 
         // The week's existing assignments drive the idempotent regenerate rule:
         // Done chores are preserved and never re-assigned; Open rows are replaced.

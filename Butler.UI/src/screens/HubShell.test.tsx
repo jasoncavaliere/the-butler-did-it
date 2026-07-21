@@ -161,6 +161,43 @@ describe('HubShell', () => {
     expect(screen.getByText('Sam')).toBeOnTheScreen();
   });
 
+  it('never renders an organizer/dev identity as a claimable member', async () => {
+    // Defence in depth: even if an organizer-role identity reaches the client -
+    // the synthetic "Development Organizer" dev identity carries the organizer
+    // role - the hub must not render it as a claimable name tile. Admins
+    // administer; members do the chores. The roster here deliberately carries both
+    // a member (Alex) and the dev organizer so the guard is genuinely exercised:
+    // the member renders, the organizer does not.
+    useApiClientMock.mockReturnValue(
+      clientWith({
+        household: okHousehold('Home'),
+        people: {
+          ok: true,
+          status: 200,
+          data: [
+            { personId: 'p1', displayName: 'Alex', claimColor: '#B0206F', isChild: false, role: 'Participant' },
+            {
+              personId: 'dev-organizer',
+              displayName: 'Development Organizer',
+              claimColor: null,
+              isChild: false,
+              role: 'Organizer',
+            },
+          ],
+          etag: null,
+        },
+      }),
+    );
+
+    await renderHub();
+
+    // The chore-doing member is a tile; the dev organizer is nowhere on the wall.
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+    expect(screen.getByText('Alex')).toBeOnTheScreen();
+    expect(screen.queryByText('Development Organizer')).toBeNull();
+    expect(screen.queryByTestId('name-tile-dev-organizer')).toBeNull();
+  });
+
   it('fills the today panel with the chore board (C5), calm and empty when nothing is assigned', async () => {
     useApiClientMock.mockReturnValue(
       clientWith({
