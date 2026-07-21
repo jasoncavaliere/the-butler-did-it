@@ -49,11 +49,23 @@ public sealed class GenerateAssignmentsEndpointTests : IClassFixture<ButlerApiFa
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
+    // Seeds a chore-doing member (participant). The seeded organizer administers the
+    // household but is never assigned chores, so a household needs a participant for
+    // the engine to place work on.
+    private static async Task CreateParticipantAsync(HttpClient client, string householdId, string displayName)
+    {
+        using var response = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/people", UriKind.Relative),
+            new { displayName, role = "Participant", isChild = false, claimColor = (string?)null });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
     [Fact]
     public async Task Organizer_generates_assignments_for_the_households_active_chores()
     {
         using var client = _factory.CreateClient();
         var householdId = await CreateHouseholdAsync(client);
+        await CreateParticipantAsync(client, householdId, "Jamie");
         var roomId = await CreateRoomAsync(client, householdId);
         await CreateChoreAsync(client, householdId, roomId, "Dishes", effort: 3);
         await CreateChoreAsync(client, householdId, roomId, "Trash", effort: 2);
@@ -69,7 +81,8 @@ public sealed class GenerateAssignmentsEndpointTests : IClassFixture<ButlerApiFa
         var root = doc.RootElement;
         Assert.Equal("2026-W29", root.GetProperty("weekIso").GetString());
 
-        // Both active chores are assigned (to the seeded organizer, the only person).
+        // Both active chores are assigned (to the seeded participant, the only
+        // chore-doing member - the organizer administers but never does chores).
         var assignments = root.GetProperty("assignments");
         Assert.Equal(2, assignments.GetArrayLength());
         Assert.All(
@@ -102,6 +115,7 @@ public sealed class GenerateAssignmentsEndpointTests : IClassFixture<ButlerApiFa
     {
         using var client = _factory.CreateClient();
         var householdId = await CreateHouseholdAsync(client);
+        await CreateParticipantAsync(client, householdId, "Jamie");
         var roomId = await CreateRoomAsync(client, householdId);
         await CreateChoreAsync(client, householdId, roomId, "Dishes", effort: 3);
 

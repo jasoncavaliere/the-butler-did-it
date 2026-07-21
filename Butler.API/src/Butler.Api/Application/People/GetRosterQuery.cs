@@ -1,3 +1,4 @@
+using Butler.Api.Application.Auth;
 using MediatR;
 
 namespace Butler.Api.Application.People;
@@ -28,8 +29,15 @@ public sealed class GetRosterQueryHandler : IRequestHandler<GetRosterQuery, IRea
     {
         var people = await _people.ListAsync(request.HouseholdId, cancellationToken).ConfigureAwait(false);
 
-        // Project to the trimmed roster shape: no role, ETag, or organizer binding.
+        // Organizers administer the household; they are not chore-doing members, so
+        // they are never claimable tiles (this also excludes the seeded dev
+        // organizer, whose row carries the organizer role). Project the remaining
+        // members to the trimmed roster shape: no role, ETag, or organizer binding.
         return people
+            .Where(person => !string.Equals(
+                person.Role,
+                OrganizerAuthorization.OrganizerRole,
+                StringComparison.Ordinal))
             .Select(person => new RosterEntryResponse(
                 person.PersonId,
                 person.DisplayName,

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Butler.Api.Application.Assignments;
+using Butler.Api.Application.Auth;
 using Butler.Api.Application.Concurrency;
 using Butler.Api.Domain.Scheduling;
 using Butler.Api.Infrastructure.Assignments;
@@ -103,6 +104,15 @@ public sealed class AssignmentGenerationServiceTests
         IsChild = isChild,
     };
 
+    private static PersonEntity Organizer(string id) => new()
+    {
+        PartitionKey = Household,
+        RowKey = id,
+        DisplayName = id,
+        Role = OrganizerAuthorization.OrganizerRole,
+        IsChild = false,
+    };
+
     private static ChoreCompletionEntity Completion(string choreId, string personId, int effort, string weekIso) => new()
     {
         PartitionKey = Household,
@@ -168,6 +178,34 @@ public sealed class AssignmentGenerationServiceTests
         var byChore = response!.Assignments.ToDictionary(a => a.ChoreId, a => a.AssignedPersonId);
         Assert.Equal("p1", byChore["chore-a"]);
         Assert.Equal("p2", byChore["chore-b"]);
+    }
+
+    [Fact]
+    public async Task Generate_excludes_organizers_from_assignment_and_the_distribution()
+    {
+        var harness = new Harness();
+        harness.SetChores(Chore("chore-a", effort: 5));
+
+        // The organizer's id sorts before the participant's, so if organizers were
+        // candidates the engine's lowest-id tie-break would hand them the chore.
+        // The filter must keep the organizer out entirely: the chore goes to p1 and
+        // the organizer is never placed.
+        harness.SetPeople(Organizer("aaa-organizer"), Person("p1"));
+
+        var response = await harness.Service.GenerateAsync(Household, weekIso: null, CancellationToken.None);
+
+        Assert.NotNull(response);
+        var placement = Assert.Single(response!.Assignments);
+        Assert.Equal("chore-a", placement.ChoreId);
+        Assert.Equal("p1", placement.AssignedPersonId);
+
+        // No row is ever persisted against the organizer, and nothing is left
+        // unassigned - the participant absorbs the whole week.
+        Assert.Empty(response.Unassigned);
+        await harness.Assignments.DidNotReceive().AddAsync(
+            Household,
+            Arg.Is<AssignmentEntity>(e => e.AssignedPersonId == "aaa-organizer"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

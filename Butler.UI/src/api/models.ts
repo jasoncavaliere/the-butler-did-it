@@ -53,14 +53,23 @@ export type PersonResponse = {
  * One claimable person on the tap-to-claim roster, as returned by the open
  * (unauthenticated) people-list read `GET /households/{householdId}/people`.
  * This is the trimmed projection the hub renders as a name tile: only what a
- * tile needs, never organizer-only data, the role, or the concurrency ETag
- * (the single-person read returns the full {@link PersonResponse}).
+ * tile needs, never organizer-only data or the concurrency ETag (the
+ * single-person read returns the full {@link PersonResponse}).
+ *
+ * `role` is optional and defensive: the API roster projection (`GetRosterQuery`)
+ * already excludes organizer-role people (admins administer, members do the
+ * chores), so a production response carries only chore-doing members and omits
+ * this field. The hub keeps an independent second guard keyed on it so that if an
+ * organizer identity - including the synthetic "Development Organizer" dev
+ * identity - ever reaches the client, it is still never rendered as a claimable
+ * tile. See {@link isClaimableMember}.
  */
 export type RosterEntryResponse = {
   personId: string;
   displayName: string;
   claimColor: string | null;
   isChild: boolean;
+  role?: string;
 };
 
 /**

@@ -52,9 +52,21 @@ public sealed class FairnessEndpointTests : IClassFixture<ButlerApiFactory>
 
     // Generates the current week (empty body) and completes its one chore, so the
     // completion lands in the week the default fairness window is anchored to.
+    // Seeds a chore-doing member (participant). The seeded organizer administers the
+    // household but is never assigned chores, so a household needs a participant for
+    // a completion to be attributed to.
+    private static async Task CreateParticipantAsync(HttpClient client, string householdId, string displayName)
+    {
+        using var response = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/people", UriKind.Relative),
+            new { displayName, role = "Participant", isChild = false, claimColor = (string?)null });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
     private static async Task<(string PersonId, int Effort)> SeedCompletionAsync(
         HttpClient client, string householdId, int effort)
     {
+        await CreateParticipantAsync(client, householdId, "Jamie");
         var roomId = await CreateRoomAsync(client, householdId);
         await CreateChoreAsync(client, householdId, roomId, "Dishes", effort);
 
