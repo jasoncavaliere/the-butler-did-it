@@ -4,7 +4,7 @@ title:         Overview - What Butler Is and How This Knowledge Base Works
 category:      Start Here
 lifecycle:     Living
 owner:         agent-managed
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-21
 audience:      Anyone new to Butler - humans and future agents
 keywords:      [overview, start here, butler, knowledge base, wiki, navigation, categories, build in public, hub and spoke]
 related:       [10-product-vision, 90-glossary]
@@ -27,7 +27,7 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 
 ## How this knowledge base is organized
 
-The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [README](../README.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. Right now the graph is small - three articles - and it will grow along the reserved ranges below.
+The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [README](../README.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - four articles, with the first Architecture spoke now in place - and it keeps growing along the reserved ranges below.
 
 **The five categories (fixed):**
 

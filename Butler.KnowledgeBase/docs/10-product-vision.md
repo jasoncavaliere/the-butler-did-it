@@ -4,10 +4,10 @@ title:         Product Vision
 category:      Product & Strategy
 lifecycle:     Living
 owner:         agent-managed
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-21
 audience:      Product, leadership, engineers, investors, and partners
 keywords:      [vision, strategy, household, chores, fair assignment, grocery, store connector, hub, tap-to-claim, north star, beachhead, moat, business model, HEB, BYO-tablet, retention]
-related:       [00-overview, 90-glossary]
+related:       [00-overview, 20-architecture-overview, 90-glossary]
 published-to:
 ---
 
@@ -183,4 +183,5 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 ## Related
 
 - [Overview](00-overview.md) - what Butler is and how this knowledge base is organized.
+- [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.
