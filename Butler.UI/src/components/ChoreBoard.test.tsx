@@ -48,13 +48,15 @@ type ClientOpts = {
   generate?: ApiResult<unknown>;
   choresResult?: ApiResult<unknown>;
   complete?: (choreId: string) => ApiResult<unknown>;
+  undo?: (choreId: string) => ApiResult<unknown>;
 };
 
 /**
- * A client that answers the three calls the board makes: the C3 generate (an
- * update), the open chores read (a get), and the C4 complete (an update). Each is
- * overridable so a test can force an empty set, a failure, or a specific
- * completion result.
+ * A client that answers the calls the board makes: the C3 generate (an update),
+ * the open chores read (a get), the C4 complete (an update), and its undo (an
+ * update). Each write is overridable so a test can force an empty set, a failure,
+ * or a specific completion / reversal result. By default a complete confirms
+ * `Done` and an undo confirms `Open`.
  */
 function boardClient(opts: ClientOpts = {}): ApiClient {
   return {
@@ -71,6 +73,15 @@ function boardClient(opts: ClientOpts = {}): ApiClient {
           opts.generate ??
           ok({ weekIso: WEEK, assignments: opts.assignments ?? assignments, unassigned: [] })
         );
+      }
+      // An undo: `.../assignments/{week}/{choreId}/undo` (checked first so the
+      // complete matcher below cannot swallow it).
+      const undoChoreId = /assignments\/[^/]+\/([^/]+)\/undo$/.exec(path)?.[1];
+      if (undoChoreId !== undefined) {
+        if (opts.undo) {
+          return opts.undo(undoChoreId);
+        }
+        return ok({ weekIso: WEEK, choreId: undoChoreId, assignedPersonId: '', status: 'Open' });
       }
       // A complete: `.../assignments/{week}/{choreId}/complete`.
       const choreId = /assignments\/[^/]+\/([^/]+)\/complete$/.exec(path)?.[1] ?? '';
@@ -319,7 +330,7 @@ describe('ChoreBoard', () => {
     );
   });
 
-  it('does not re-submit an already-completed item (C4 idempotency)', async () => {
+  it('does not re-submit an already-completed item (a second tap undoes, never re-completes)', async () => {
     const client = boardClient();
     await renderBoard(client, { activePersonId: 'p1' });
 
@@ -333,18 +344,95 @@ describe('ChoreBoard', () => {
       expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓'),
     );
 
-    const before = (client.update as jest.Mock).mock.calls.filter(([p]) =>
+    const completesBefore = (client.update as jest.Mock).mock.calls.filter(([p]) =>
       String(p).endsWith('/c1/complete'),
     ).length;
 
-    // Tapping the now-done item again is a no-op: no second complete goes out.
+    // Tapping the now-done item again reverses it (undo) rather than firing a
+    // second complete - a completed chore is never re-submitted.
     await act(async () => {
       fireEvent.press(screen.getByTestId('chore-item-c1'));
     });
-    const after = (client.update as jest.Mock).mock.calls.filter(([p]) =>
+    const completesAfter = (client.update as jest.Mock).mock.calls.filter(([p]) =>
       String(p).endsWith('/c1/complete'),
     ).length;
-    expect(after).toBe(before);
+    expect(completesAfter).toBe(completesBefore);
+    expect(client.update).toHaveBeenCalledWith(
+      '/households/hh-1/assignments/2026-W29/c1/undo',
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
+  });
+
+  it('tap-completed-item-undoes: tapping a Done item calls the undo endpoint and it returns to open', async () => {
+    // c4 is a pre-existing Done item assigned to the active participant (Alex/p1),
+    // so it is visible under the focused board and starts checked.
+    const client = boardClient();
+    await renderBoard(client, { activePersonId: 'p1' });
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('✓');
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c4'));
+    });
+
+    // The undo endpoint was called for this week + chore, attributed to the active
+    // participant - never the complete endpoint.
+    expect(client.update).toHaveBeenCalledWith(
+      '/households/hh-1/assignments/2026-W29/c4/undo',
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
+    expect(client.update).not.toHaveBeenCalledWith(
+      '/households/hh-1/assignments/2026-W29/c4/complete',
+      expect.anything(),
+      expect.anything(),
+    );
+
+    // The item returns to the open visual state.
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('○'),
+    );
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(false);
+  });
+
+  it('applies the undone state optimistically and reverts it to Done when the write fails', async () => {
+    let resolveUndo: (value: ApiResult<unknown>) => void = () => {};
+    const pending = new Promise<ApiResult<unknown>>((resolve) => {
+      resolveUndo = resolve;
+    });
+    const client: ApiClient = {
+      ...boardClient(),
+      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+        if (path.endsWith('/generate')) {
+          return ok({ weekIso: WEEK, assignments, unassigned: [] });
+        }
+        return pending;
+      }) as unknown as ApiClient['update'],
+    };
+    await renderBoard(client, { activePersonId: 'p1' });
+
+    // c4 starts Done (✓) for the active participant.
+    await waitFor(() => expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(true);
+
+    // The optimistic flip shows Open immediately, before the write resolves.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c4'));
+    });
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(false);
+
+    // The undo write fails; the item reverts to Done rather than lying about the
+    // reversal.
+    await act(async () => {
+      resolveUndo(unreachable);
+      await pending;
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('✓'),
+    );
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(true);
   });
 
   it('shows the loading state until the reads resolve', async () => {

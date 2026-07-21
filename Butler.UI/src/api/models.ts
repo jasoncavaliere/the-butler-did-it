@@ -184,6 +184,21 @@ export type CompleteChoreRequest = {
 };
 
 /**
+ * The state of an assignment after a successful tap-to-undo, returned by the undo
+ * endpoint
+ * (`POST /households/{householdId}/assignments/{weekIso}/{choreId}/undo`).
+ * `status` is always `Open` on success - the reversal returned the assignment to
+ * the open state; undoing an already-open assignment is an idempotent success
+ * (never an error). Shape mirrors {@link CompleteChoreResponse}.
+ */
+export type UndoChoreResponse = {
+  weekIso: string;
+  choreId: string;
+  assignedPersonId: string;
+  status: string;
+};
+
+/**
  * One person's slice of the household contribution balance (C6), mirroring the
  * API's `PersonShare` DTO: their completed effort over the window and that effort
  * as both a fraction (`share`, `0`..`1`) and a percentage (`sharePercent`,
