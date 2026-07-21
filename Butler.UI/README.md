@@ -114,10 +114,13 @@ On mount it calls the C3 generate/regenerate endpoint (`POST /households/{househ
 with an empty body - a deterministic, `Done`-preserving regenerate, so re-reading it to render is safe)
 and joins each assignment against the open Chores read (H2) by `choreId` to get its title and cadence
 (the C3 projection carries no title). Items are grouped into two buckets - daily-cadence chores under
-"Today", weekly-cadence under "This week" - and within each bucket by person, in roster order; the
-active participant's items (T3) glow in their claim colour, and with no active participant the board
-renders read-only (a tap cannot attribute a completion, so it does nothing). Tapping an open item
-completes it through the C4 endpoint
+"Today", weekly-cadence under "This week" - and within each bucket by person, in roster order. With an
+active participant (T3) the board *focuses*: it renders only that person's assignments (glowing in
+their claim colour), answering "what's mine right now"; with no active participant it falls back to
+the full read-only household glance for everyone (a tap cannot attribute a completion, so it does
+nothing). Switching or clearing the active participant re-focuses or restores the full board instantly
+with no refetch, since it is a pure derived-render filter over the already-loaded week. Tapping an open
+item completes it through the C4 endpoint
 (`POST /households/{householdId}/assignments/{weekIso}/{choreId}/complete`) with an optimistic flip to
 `Done`, reconciling on the response and reverting on error; a `Done` item is dimmed, checked, and not
 tappable again, matching C4's idempotent double-complete.
