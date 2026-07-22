@@ -1,0 +1,130 @@
+[
+  {
+    "productId": "heb-0001",
+    "displayName": "H-E-B Whole Milk",
+    "size": "1",
+    "unit": "gal",
+    "indicativePrice": "$3.29",
+    "synonyms": ["milk", "whole milk", "dairy"]
+  },
+  {
+    "productId": "heb-0002",
+    "displayName": "H-E-B 2% Reduced Fat Milk",
+    "size": "1",
+    "unit": "gal",
+    "indicativePrice": "$3.19",
+    "synonyms": ["milk", "2 percent milk", "dairy"]
+  },
+  {
+    "productId": "heb-0003",
+    "displayName": "H-E-B Grade A Large Eggs",
+    "size": "12",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "synonyms": ["eggs", "dozen eggs", "large eggs"]
+  },
+  {
+    "productId": "heb-0004",
+    "displayName": "H-E-B Whole Wheat Bread",
+    "size": "20",
+    "unit": "oz",
+    "indicativePrice": "$2.79",
+    "synonyms": ["bread", "wheat bread", "loaf"]
+  },
+  {
+    "productId": "heb-0005",
+    "displayName": "Fresh Bananas",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$0.58",
+    "synonyms": ["banana", "bananas", "fruit"]
+  },
+  {
+    "productId": "heb-0006",
+    "displayName": "Fresh Hass Avocados",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.99",
+    "synonyms": ["avocado", "avocados", "fruit"]
+  },
+  {
+    "productId": "heb-0007",
+    "displayName": "H-E-B Boneless Skinless Chicken Breast",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$3.99",
+    "synonyms": ["chicken", "chicken breast", "poultry"]
+  },
+  {
+    "productId": "heb-0008",
+    "displayName": "H-E-B Ground Beef 80/20",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$4.49",
+    "synonyms": ["beef", "ground beef", "hamburger meat"]
+  },
+  {
+    "productId": "heb-0009",
+    "displayName": "H-E-B Mild Cheddar Cheese Block",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "synonyms": ["cheese", "cheddar", "dairy"]
+  },
+  {
+    "productId": "heb-0010",
+    "displayName": "H-E-B Creamy Peanut Butter",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$2.69",
+    "synonyms": ["peanut butter", "pb"]
+  },
+  {
+    "productId": "heb-0011",
+    "displayName": "H-E-B Spaghetti Pasta",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$1.19",
+    "synonyms": ["pasta", "spaghetti", "noodles"]
+  },
+  {
+    "productId": "heb-0012",
+    "displayName": "H-E-B Marinara Pasta Sauce",
+    "size": "24",
+    "unit": "oz",
+    "indicativePrice": "$1.99",
+    "synonyms": ["sauce", "pasta sauce", "marinara"]
+  },
+  {
+    "productId": "heb-0013",
+    "displayName": "H-E-B Long Grain White Rice",
+    "size": "2",
+    "unit": "lb",
+    "indicativePrice": "$1.89",
+    "synonyms": ["rice", "white rice"]
+  },
+  {
+    "productId": "heb-0014",
+    "displayName": "H-E-B Black Beans",
+    "size": "15",
+    "unit": "oz",
+    "indicativePrice": "$0.89",
+    "synonyms": ["beans", "black beans"]
+  },
+  {
+    "productId": "heb-0015",
+    "displayName": "Fresh Roma Tomatoes",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.29",
+    "synonyms": ["tomato", "tomatoes", "vegetable"]
+  },
+  {
+    "productId": "heb-0016",
+    "displayName": "H-E-B No Pulp Orange Juice",
+    "size": "52",
+    "unit": "fl oz",
+    "indicativePrice": "$3.49",
+    "synonyms": ["orange juice", "oj", "juice"]
+  }
+]

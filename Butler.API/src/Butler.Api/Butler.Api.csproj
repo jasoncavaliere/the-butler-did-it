@@ -15,6 +15,18 @@
     <InternalsVisibleTo Include="Butler.Api.Tests" />
   </ItemGroup>
 
+  <!--
+    The v1 store-connector fixture catalog (G1) is embedded in the assembly so the
+    SimulatedHebConnector loads it fully offline - no file-system or network
+    dependency. LogicalName is set explicitly so the manifest resource name is
+    stable regardless of how MSBuild would otherwise transform the path.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="SeedData/grocery/heb-catalog.json">
+      <LogicalName>Butler.Api.SeedData.grocery.heb-catalog.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
