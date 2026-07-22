@@ -88,3 +88,13 @@ and `README.md` is the map. Every write is a graph edit (update the index, the r
 `last-reviewed:`). Use the `knowledge-base` skill (writer + auditor subagents) for any non-trivial
 change; do not hand-edit articles in a way that leaves orphans or one-directional edges. Plain ASCII
 only - no em dashes, curly quotes, or ellipsis (the usability scorer hard-fails them).
+
+## Test workspace
+
+This repo has a local test-workspace capability managed by the `frontier-energy:local-workspace`
+skill. The manifest (source of truth) is `.workspace/workspace.yaml` and its human companion is
+`.workspace/workspace.md`. It brings up **both** sub-services together, API-first: the Butler.API
+.NET 10 Web API on **:5108** (bound there to match the UI's hard-coded dev default) and the
+Butler.UI Expo web hub on **:8081**, using the API's **in-memory store fallback** (no external
+storage). Isolation is **in-place** (uses the working checkout - commit or stash first). Bring it
+up, check status, or tear it down with **`/local-workspace`**.
