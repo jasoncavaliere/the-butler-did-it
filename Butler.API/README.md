@@ -330,11 +330,28 @@ deterministic. The feature registers via `AddFairnessFeature()` in `Program.cs`.
 | --- | --- |
 | `GET /households/{householdId}/fairness` | Reads the household's contribution balance over the trailing `windowWeeks` ISO weeks (query string, default `4`). Open to the hub device and participants, like the other glanceable reads (7.4) - no `Organizer` policy required. Returns `200` with a `FairnessResponse` (`windowStartWeekIso`, `windowEndWeekIso`, `windowWeeks`, `totalEffort`, `topContributorPersonId`, and `shares` - each person's `personId`, `displayName`, `totalEffort`, `share` (`0`..`1`), and `sharePercent` (`0`..`100`), ordered by effort descending). Returns `404` RFC 7807 problem details for an unknown `householdId`, or `400` for a `windowWeeks` less than `1`. |
 
+### Grocery (store-connector seam)
+
+`Grocery` (`Application/Grocery/`) is the start of Epic 50's assisted-cart flow: the **store-connector
+seam** (BRD decision D-4, Engineering Contract 7.2) every grocery consumer will talk to, so a connector
+can be swapped without touching callers. `IStoreConnector` defines `SearchProductsAsync(query)`
+(case-insensitive substring match against a product's display name and catalog synonyms, deterministic
+ordering by display name then product id, empty list for no match/blank query - never an exception) and
+`GetProductAsync(productId)` (the matching product or `null`). Both return `StoreProduct` - `ProductId`,
+`DisplayName`, `Size`/`Unit`, an `IndicativePrice` (display text only, **never a charge**), and a
+`SourceConnector` identifying which connector produced the result. `SimulatedHebConnector` is the v1 (and
+only) implementation: it searches a checked-in fixture catalog (`SeedData/grocery/heb-catalog.json`,
+embedded in the assembly) fully offline, with no file-system or network dependency at runtime, and
+stamps every result `SourceConnector = "simulated-heb"`. The feature registers via
+`AddStoreConnectorFeature()` in `Program.cs`, binding `IStoreConnector` to a singleton
+`SimulatedHebConnector`. There is no controller yet - the seam has no HTTP surface until the cart (G2),
+capture (G3), and confirm (G4) tickets build on it.
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
-top. The grocery integration sits behind a generic **store-connector** abstraction (HEB first) so stores
-can be added without re-architecting. `Households`, `Rooms`, `People`, and `Chores` are the first of
-these feature modules, and tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above)
-is the first piece of the participant identity model; the Epic 40 fair-assignment engine now has its
-generate/regenerate endpoint (C1-C3), its chore-completion endpoint (C4), its tap-to-undo endpoint (C7),
-and its read-only fairness view (C6, above) - groceries and calendar have not been built yet.
+top. `Households`, `Rooms`, `People`, and `Chores` are the first of these feature modules, and
+tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above) is the first piece of the
+participant identity model; the Epic 40 fair-assignment engine now has its generate/regenerate endpoint
+(C1-C3), its chore-completion endpoint (C4), its tap-to-undo endpoint (C7), and its read-only fairness
+view (C6, above); Epic 50 groceries has its store-connector seam (G1, above) but no cart, capture, or
+confirm endpoints yet, and calendar has not been built yet.
