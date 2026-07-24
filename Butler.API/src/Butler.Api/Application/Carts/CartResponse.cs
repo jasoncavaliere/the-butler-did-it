@@ -4,8 +4,8 @@ namespace Butler.Api.Application.Carts;
 /// A week's grocery cart as returned to callers: the cart row and its items in
 /// one response shape, so the hub renders "the cart" from a single read. The
 /// <see cref="ETag"/> is the cart's current optimistic-concurrency version, which
-/// a later mutation (the G4 confirm) supplies as <c>If-Match</c> (Engineering
-/// Contract 7.3).
+/// the G4 confirm supplies back as <c>If-Match</c> (Engineering Contract 7.3) -
+/// which is why the review read and the confirm are two halves of one gesture.
 /// </summary>
 /// <param name="WeekIso">The ISO-8601 year-week the cart belongs to (for example <c>2026-W29</c>).</param>
 /// <param name="Status">Lifecycle state: <c>Building</c> or <c>Confirmed</c>.</param>
