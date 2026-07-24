@@ -62,6 +62,17 @@ public sealed class CartsServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddCartsFeature_registers_the_confirm_service()
+    {
+        // Like the cart service, the G4 confirm service depends on repositories
+        // other features own (People), so assert the descriptor is present rather
+        // than resolving it from this feature in isolation.
+        Assert.Contains(
+            BuildServices(),
+            descriptor => descriptor.ServiceType == typeof(ICartConfirmationService));
+    }
+
+    [Fact]
     public void AddCartsFeature_rejects_a_null_service_collection()
     {
         Assert.Throws<ArgumentNullException>(

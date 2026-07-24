@@ -8,10 +8,10 @@ namespace Butler.Api.Application.Carts;
 /// <summary>
 /// Composition entry point for the Carts feature (Engineering Contract 7.2).
 /// Registers the <c>Carts</c> and <c>CartItems</c> tables on the shared F3
-/// storage seam, their repositories, the cart service, and the injected clock;
-/// <c>Program.cs</c> wires it with a single <see cref="AddCartsFeature"/> call.
-/// This is the persistence base the capture flow (G3) writes into and the confirm
-/// flow (G4) transitions.
+/// storage seam, their repositories, the cart service, the G4 confirm service, and
+/// the injected clock; <c>Program.cs</c> wires it with a single
+/// <see cref="AddCartsFeature"/> call. This is the persistence base the capture
+/// flow (G3) writes into and the confirm flow (G4) transitions.
 /// </summary>
 public static class CartsServiceCollectionExtensions
 {
@@ -30,6 +30,11 @@ public static class CartsServiceCollectionExtensions
         // The get-or-create + compose read model. Scoped like the other
         // application services; it orchestrates per-request repository work.
         services.TryAddScoped<ICartService, CartService>();
+
+        // The G4 confirm transition. It reads through ICartService and writes the
+        // cart row, and resolves the confirming organizer's person from the People
+        // table the Households/People features own (Engineering Contract 7.4).
+        services.TryAddScoped<ICartConfirmationService, CartConfirmationService>();
 
         // Injected clock so the current weekIso stays deterministically testable;
         // no cart code path reads DateTime.Now (7.5).

@@ -367,10 +367,27 @@ any week's cart exactly as it stands, creating nothing. Both compose the cart wi
 Conflict` - a confirmed cart is never handed back as the building cart, though it stays readable through
 the by-week `GET`. The feature registers via `AddCartsFeature()` in `Program.cs`.
 
+`ICartConfirmationService` is G4 - **the human on the final tap** (journey 6.4). `ConfirmAsync` reads the
+week's cart through `ICartService`, then flips the single row to `Confirmed` with `ConfirmedByPersonId`
+(the organizer's `People` row, resolved from the caller's `OrganizerObjectId` per 7.4) and `ConfirmedUtc`
+(from the injected clock) under the cart's `If-Match` precondition (7.3). Step order carries the
+behaviour: an already-`Confirmed` cart returns **before** any write, which is what makes a replayed
+confirm an idempotent no-op success - who/when and even the version stamp stand - rather than a `412`,
+while a confirm racing a cart that grew a line still fails the precondition and must re-read.
+
+Confirming **records intent only**: per BRD decision D-8 no real order is placed and no money moves, so
+the confirm path holds no store connector, no HTTP client, and no payment seam - its only side effect is
+the cart row's own status. That absence is the safety boundary that keeps tap-to-claim safe (risk R-1),
+so it is asserted twice rather than left as a convention: `ConfirmCartTests` substitutes `IStoreConnector`
+and proves it receives no calls during a confirm, and `ConfirmCartNoExternalCallGuardTests` scans the
+shipped IL of every cart type for any call into the connector namespace or `System.Net.*` (with a
+non-compliant canary proving the scan is red on a real violation).
+
 | Endpoint | Behavior |
 | --- | --- |
-| `GET /households/{householdId}/carts/current` | Returns the household's current `Building` cart with its items, creating the week's cart on first use (get-or-create); calling it twice returns the same cart. The week defaults to the injected clock's current week or takes an optional `weekIso` query string. Returns `200` with a `CartResponse`, `404` RFC 7807 problem details for an unknown `householdId`, `400` for a malformed `weekIso`, or `409` when that week's cart is already `Confirmed`. Open to the hub and participants - no `Organizer` policy required (the sensitive action is confirm, arriving with G4). |
+| `GET /households/{householdId}/carts/current` | Returns the household's current `Building` cart with its items, creating the week's cart on first use (get-or-create); calling it twice returns the same cart. The week defaults to the injected clock's current week or takes an optional `weekIso` query string. Returns `200` with a `CartResponse`, `404` RFC 7807 problem details for an unknown `householdId`, `400` for a malformed `weekIso`, or `409` when that week's cart is already `Confirmed`. Open to the hub and participants - no `Organizer` policy required: this is the review a human does before the final tap, and confirm is the sensitive action. |
 | `GET /households/{householdId}/carts/{weekIso}` | Reads one week's cart with its items exactly as it stands - this route creates nothing. Returns `200` with a `CartResponse`, or `404` RFC 7807 problem details with distinct titles for an unknown `householdId` versus a week with no cart yet. |
+| `POST /households/{householdId}/carts/{weekIso}/confirm` | Confirms the reviewed cart (G4): `Status` becomes `Confirmed` with the confirming organizer's person and the injected clock's time, returned as `200` with the full `CartResponse`. Carries `[Authorize(Policy = "Organizer")]` - a participant session or paired hub device is `403`, an unauthenticated caller `401`. Idempotent: confirming an already-`Confirmed` cart is a no-op success that leaves `ConfirmedByPersonId`/`ConfirmedUtc` untouched. Send the reviewed cart's `ETag` as `If-Match` (`428` when missing, `412` when stale). An unknown `householdId` and a week with no cart are distinct `404` RFC 7807 documents; a malformed `weekIso` is `400`. **No order is placed and no money moves** (D-8). |
 
 ### Capture (utterance -> cart item)
 
@@ -410,5 +427,7 @@ top. `Households`, `Rooms`, `People`, and `Chores` are the first of these featur
 tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above) is the first piece of the
 participant identity model; the Epic 40 fair-assignment engine now has its generate/regenerate endpoint
 (C1-C3), its chore-completion endpoint (C4), its tap-to-undo endpoint (C7), and its read-only fairness
-view (C6, above); Epic 50 groceries has its store-connector seam (G1), its weekly cart (G2), and its
-capture seam (G3, above), with confirm still to come, and calendar has not been built yet.
+view (C6, above); Epic 50 groceries has its store-connector seam (G1), its weekly cart (G2), its capture
+seam (G3), and its organizer-gated confirm (G4, above) - so the API side of "add oat milk -> review ->
+confirm" is complete end to end against the simulated connector, with the hub screen for it (G5) still to
+come - and calendar has not been built yet.
