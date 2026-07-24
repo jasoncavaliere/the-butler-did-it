@@ -344,8 +344,8 @@ only) implementation: it searches a checked-in fixture catalog (`SeedData/grocer
 embedded in the assembly) fully offline, with no file-system or network dependency at runtime, and
 stamps every result `SourceConnector = "simulated-heb"`. The feature registers via
 `AddStoreConnectorFeature()` in `Program.cs`, binding `IStoreConnector` to a singleton
-`SimulatedHebConnector`. Its HTTP surface starts with the cart (G2, below); capture (G3) and confirm
-(G4) build on top of it.
+`SimulatedHebConnector`. Its HTTP surface starts with the cart (G2, below) and the capture seam (G3,
+below); confirm (G4) builds on top of them.
 
 ### Carts (weekly grocery cart)
 
@@ -372,11 +372,43 @@ the by-week `GET`. The feature registers via `AddCartsFeature()` in `Program.cs`
 | `GET /households/{householdId}/carts/current` | Returns the household's current `Building` cart with its items, creating the week's cart on first use (get-or-create); calling it twice returns the same cart. The week defaults to the injected clock's current week or takes an optional `weekIso` query string. Returns `200` with a `CartResponse`, `404` RFC 7807 problem details for an unknown `householdId`, `400` for a malformed `weekIso`, or `409` when that week's cart is already `Confirmed`. Open to the hub and participants - no `Organizer` policy required (the sensitive action is confirm, arriving with G4). |
 | `GET /households/{householdId}/carts/{weekIso}` | Reads one week's cart with its items exactly as it stands - this route creates nothing. Returns `200` with a `CartResponse`, or `404` RFC 7807 problem details with distinct titles for an unknown `householdId` versus a week with no cart yet. |
 
+### Capture (utterance -> cart item)
+
+`Capture` (`Application/Capture/`, `Controllers/CaptureController`) is Epic 50's G3: the seam that turns
+"add oat milk" - typed at the hub or spoken - into a cart line. `ICaptureSource` is that seam. Its two v1
+implementations are deliberately **thin normalizers over one shared handler**, not two code paths:
+`HubTextCaptureSource` (`hub-text`) trims typed input, `SimulatedVoiceCaptureSource`
+(`simulated-voice`) strips a leading wake word (`"Butler, add eggs."`) from a simulated transcript, and
+both then call the same `ICaptureHandler`. **Live Alexa capture is out of scope** (BRD Section 9
+fast-follow) - it is a third source behind this seam, not a change to the behaviour below it.
+
+`CaptureHandler` is that shared behaviour and owns no storage of its own. `UtteranceNormalizer` extracts
+the product term with one documented pass - trim sentence punctuation per word (so `H-E-B` and `2%`
+survive), drop leading fillers (`please`, `add`, `a`, `an`, `some`), drop a trailing `to the cart` /
+`to the list` - and no NLP; a quantity is never read out of the sentence. The term then resolves through
+`IStoreConnector.SearchProductsAsync` (G1) and the resolved product is added to the household's
+`Building` cart from `ICartService.GetOrCreateBuildingCartAsync` (G2), with `Quantity` defaulting to `1`,
+`AddedByPersonId` from the active participant/hub session, and `SourceConnector` carried straight off the
+G1 result. Adding a line also advances the **cart row's** version stamp under the `ETag` the
+get-or-create read returned (7.3), so a G4 confirm holding an older version is a `412` and must re-read
+rather than confirm a cart that grew underneath it.
+
+Resolution is deliberately cautious: an exact display-name hit wins, a single match is the top match,
+and several equally plausible matches resolve to **suggestions** instead of a silent guess. Every
+non-added outcome is a structured value (`CaptureResult` / `CaptureOutcome`), so bad input is an RFC 7807
+document and never an unhandled exception. The feature registers via `AddCaptureFeature()` in
+`Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/capture/text` | Captures text typed at the hub (`{ "utterance": "add oat milk", "personId": "...", "weekIso": "...", "quantity": 2 }`; every member optional) and adds the resolved product to the household's current building cart. Returns `200` with a `CaptureResponse` (capture source, resolved term, week, and the created line). Ambiguous input is `400` RFC 7807 carrying `suggestions` (the candidate products) plus `resolvedTerm`; an unrecognised product is `404`; an utterance with no product term is `400`; an unknown `householdId` is `404`; a week already `Confirmed` is `409`. Requires only authentication, not the `Organizer` policy - anyone at the hub may add (D-3); the acting person comes from a participant session when one is presented, otherwise from `personId` in the body (a missing actor is `400`). |
+| `POST /households/{householdId}/capture/voice` | The same operation for a simulated voice transcript (`"Hey Butler, add eggs."`), through the same shared handler with the wake word stripped first. Identical request body, responses, and authorization. |
+
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
 top. `Households`, `Rooms`, `People`, and `Chores` are the first of these feature modules, and
 tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above) is the first piece of the
 participant identity model; the Epic 40 fair-assignment engine now has its generate/regenerate endpoint
 (C1-C3), its chore-completion endpoint (C4), its tap-to-undo endpoint (C7), and its read-only fairness
-view (C6, above); Epic 50 groceries has its store-connector seam (G1) and its weekly cart (G2, above),
-with capture and confirm still to come, and calendar has not been built yet.
+view (C6, above); Epic 50 groceries has its store-connector seam (G1), its weekly cart (G2), and its
+capture seam (G3, above), with confirm still to come, and calendar has not been built yet.

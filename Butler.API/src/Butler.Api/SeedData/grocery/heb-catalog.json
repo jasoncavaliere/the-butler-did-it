@@ -126,5 +126,13 @@
     "unit": "fl oz",
     "indicativePrice": "$3.49",
     "synonyms": ["orange juice", "oj", "juice"]
+  },
+  {
+    "productId": "heb-0017",
+    "displayName": "H-E-B Oat Milk",
+    "size": "52",
+    "unit": "fl oz",
+    "indicativePrice": "$3.79",
+    "synonyms": ["oat milk", "oatmilk", "oat beverage"]
   }
 ]

@@ -1,4 +1,5 @@
 using Butler.Api.Application.Assignments;
+using Butler.Api.Application.Capture;
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Chores;
 using Butler.Api.Application.Fairness;
@@ -52,6 +53,7 @@ builder.Services.AddAssignmentsFeature();
 builder.Services.AddFairnessFeature();
 builder.Services.AddStoreConnectorFeature();
 builder.Services.AddCartsFeature();
+builder.Services.AddCaptureFeature();
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();
