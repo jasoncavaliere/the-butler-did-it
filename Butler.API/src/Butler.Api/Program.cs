@@ -1,4 +1,5 @@
 using Butler.Api.Application.Assignments;
+using Butler.Api.Application.Carts;
 using Butler.Api.Application.Chores;
 using Butler.Api.Application.Fairness;
 using Butler.Api.Application.Grocery;
@@ -50,6 +51,7 @@ builder.Services.AddHubDevicesFeature();
 builder.Services.AddAssignmentsFeature();
 builder.Services.AddFairnessFeature();
 builder.Services.AddStoreConnectorFeature();
+builder.Services.AddCartsFeature();
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();

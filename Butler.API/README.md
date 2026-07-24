@@ -344,8 +344,33 @@ only) implementation: it searches a checked-in fixture catalog (`SeedData/grocer
 embedded in the assembly) fully offline, with no file-system or network dependency at runtime, and
 stamps every result `SourceConnector = "simulated-heb"`. The feature registers via
 `AddStoreConnectorFeature()` in `Program.cs`, binding `IStoreConnector` to a singleton
-`SimulatedHebConnector`. There is no controller yet - the seam has no HTTP surface until the cart (G2),
-capture (G3), and confirm (G4) tickets build on it.
+`SimulatedHebConnector`. Its HTTP surface starts with the cart (G2, below); capture (G3) and confirm
+(G4) build on top of it.
+
+### Carts (weekly grocery cart)
+
+`Carts` (`Domain`/`Infrastructure`/`Application` under `Carts/`, `Controllers/CartsController`) is Epic
+50's G2: the weekly grocery cart every capture (G3) and confirm (G4) write into. A household has exactly
+one cart per ISO week - `CartEntity` (`Carts` table, `PartitionKey = householdId`, `RowKey = {weekIso}`)
+carries `Status` (`Building`/`Confirmed`, `CartStatus`), `ConfirmedByPersonId`, and `ConfirmedUtc` behind
+`ICartRepository`; `CartItemEntity` (`CartItems` table, `RowKey = {cartWeekIso}_{itemId}`) is one line
+item - `ProductId`, `DisplayName`, `Quantity`, `AddedByPersonId`, `SourceConnector` (from the G1
+connector) - behind `ICartItemRepository`. Both share the F3 storage seam, so every read/write stays
+inside the household's partition (7.3).
+
+`ICartService` is the read/compose surface: `GetOrCreateBuildingCartAsync` get-or-creates the current
+week's `Building` cart (the week comes from a supplied `weekIso` or the injected `TimeProvider`, never
+`DateTime.Now`, 7.5) and never mints a second row for a week that already has one; `GetCartAsync` reads
+any week's cart exactly as it stands, creating nothing. Both compose the cart with its items into one
+`CartResponse` in a single read. Asking for the building cart on a week whose cart is already
+`Confirmed` throws `CartAlreadyConfirmedException`, mapped by `Mediation/ApiExceptionHandler` to `409
+Conflict` - a confirmed cart is never handed back as the building cart, though it stays readable through
+the by-week `GET`. The feature registers via `AddCartsFeature()` in `Program.cs`.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /households/{householdId}/carts/current` | Returns the household's current `Building` cart with its items, creating the week's cart on first use (get-or-create); calling it twice returns the same cart. The week defaults to the injected clock's current week or takes an optional `weekIso` query string. Returns `200` with a `CartResponse`, `404` RFC 7807 problem details for an unknown `householdId`, `400` for a malformed `weekIso`, or `409` when that week's cart is already `Confirmed`. Open to the hub and participants - no `Organizer` policy required (the sensitive action is confirm, arriving with G4). |
+| `GET /households/{householdId}/carts/{weekIso}` | Reads one week's cart with its items exactly as it stands - this route creates nothing. Returns `200` with a `CartResponse`, or `404` RFC 7807 problem details with distinct titles for an unknown `householdId` versus a week with no cart yet. |
 
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as
 the shared spine (rooms, people, chores), with each capability (chores, groceries, ...) composing on
@@ -353,5 +378,5 @@ top. `Households`, `Rooms`, `People`, and `Chores` are the first of these featur
 tap-to-claim (Epic 30, T1 - see "Participant sessions (tap-to-claim)" above) is the first piece of the
 participant identity model; the Epic 40 fair-assignment engine now has its generate/regenerate endpoint
 (C1-C3), its chore-completion endpoint (C4), its tap-to-undo endpoint (C7), and its read-only fairness
-view (C6, above); Epic 50 groceries has its store-connector seam (G1, above) but no cart, capture, or
-confirm endpoints yet, and calendar has not been built yet.
+view (C6, above); Epic 50 groceries has its store-connector seam (G1) and its weekly cart (G2, above),
+with capture and confirm still to come, and calendar has not been built yet.
