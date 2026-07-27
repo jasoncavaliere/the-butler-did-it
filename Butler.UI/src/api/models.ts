@@ -236,3 +236,81 @@ export type FairnessResponse = {
   topContributorPersonId: string | null;
   shares: PersonShare[];
 };
+
+/**
+ * One line item in a week's grocery cart (G2), mirroring the API's `CartItemView`
+ * DTO. {@link productId} and {@link sourceConnector} come from the G1 store
+ * connector, so the origin of the line survives a connector swap.
+ */
+export type CartItemView = {
+  itemId: string;
+  productId: string;
+  displayName: string;
+  quantity: number;
+  addedByPersonId: string;
+  sourceConnector: string;
+};
+
+/**
+ * A week's grocery cart with its items in one shape (G2), mirroring the API's
+ * `CartResponse` DTO. A household has exactly one cart per ISO week;
+ * {@link status} is `Building` or `Confirmed`.
+ *
+ * Note the property name: the API record's `ETag` member serializes through
+ * ASP.NET's camelCase policy as `eTag` (not `etag`), and it is the
+ * optimistic-concurrency stamp the G4 confirm must send back as `If-Match`
+ * (Engineering Contract 7.3) - which is why the review read and the confirm are
+ * two halves of one gesture.
+ */
+export type CartResponse = {
+  weekIso: string;
+  status: string;
+  confirmedByPersonId: string | null;
+  confirmedUtc: string | null;
+  eTag: string;
+  items: CartItemView[];
+};
+
+/**
+ * A candidate product from the G1 store connector, mirroring the API's
+ * `StoreProduct` DTO. It reaches the UI as the `suggestions` extension on the
+ * ambiguous-capture problem details, so a shopper picks rather than Butler
+ * guessing. {@link indicativePrice} is display-only and non-transactional.
+ */
+export type StoreProductView = {
+  productId: string;
+  displayName: string;
+  size: string;
+  unit: string;
+  indicativePrice: string;
+  sourceConnector: string;
+};
+
+/**
+ * Body for the G3 hub-text capture route
+ * (`POST /households/{householdId}/capture/text`).
+ *
+ * `personId` is the acting person - the hub's active tap-to-claim participant -
+ * used because the shared tablet authenticates as a device or organizer rather
+ * than as a person. `weekIso` targets a specific week, or `null` for the current
+ * one; `quantity` defaults to one when `null` (quantities are never parsed out of
+ * the utterance itself).
+ */
+export type CaptureTextRequest = {
+  utterance: string;
+  personId: string;
+  weekIso: string | null;
+  quantity: number | null;
+};
+
+/**
+ * A successful capture (G3), mirroring the API's `CaptureResponse` DTO: the line
+ * that was added, plus what the utterance actually resolved to, so the hub can
+ * echo "Added Oat Milk" and show which source heard it.
+ */
+export type CaptureResponse = {
+  captureSource: string;
+  resolvedTerm: string;
+  weekIso: string;
+  item: CartItemView;
+};

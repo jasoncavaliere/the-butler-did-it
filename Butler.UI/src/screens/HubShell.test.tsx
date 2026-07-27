@@ -40,6 +40,22 @@ const okAssignments: ApiResult<unknown> = {
   etag: null,
 };
 
+// The grocery region (G5) reads the week's building cart on mount; an empty cart
+// keeps that read calm too.
+const okCart: ApiResult<unknown> = {
+  ok: true,
+  status: 200,
+  data: {
+    weekIso: '2026-W29',
+    status: 'Building',
+    confirmedByPersonId: null,
+    confirmedUtc: null,
+    eTag: 'W/"cart-1"',
+    items: [],
+  },
+  etag: null,
+};
+
 /** A client that answers the household read and the people (roster) read by path. */
 function clientWith(responses: Responses): ApiClient {
   return {
@@ -47,6 +63,9 @@ function clientWith(responses: Responses): ApiClient {
     get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
       if (path.includes('/chores')) {
         return okChores;
+      }
+      if (path.includes('/carts/')) {
+        return okCart;
       }
       return path.endsWith('/people') ? responses.people : responses.household;
     }) as unknown as ApiClient['get'],
@@ -85,6 +104,9 @@ function interactiveClient(claimResult?: ApiResult<unknown>): ApiClient {
     get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
       if (path.includes('/chores')) {
         return okChores;
+      }
+      if (path.includes('/carts/')) {
+        return okCart;
       }
       return path.endsWith('/people')
         ? { ok: true, status: 200, data: roster, etag: null }
@@ -215,6 +237,25 @@ describe('HubShell', () => {
     expect(screen.queryByTestId('today-panel-empty')).toBeNull();
   });
 
+  it('mounts the grocery cart (G5) as its own bounded region, below the today panel', async () => {
+    useApiClientMock.mockReturnValue(
+      clientWith({
+        household: okHousehold('Home'),
+        people: { ok: true, status: 200, data: [], etag: null },
+      }),
+    );
+
+    await renderHub();
+
+    // The region is present and has settled on its own cart read - the shell only
+    // mounts it, it fetches its own data.
+    await waitFor(() => expect(screen.getByTestId('hub-groceries')).toBeOnTheScreen());
+    expect(screen.getByTestId('grocery-cart')).toBeOnTheScreen();
+    await waitFor(() => expect(screen.getByTestId('grocery-cart-list')).toBeOnTheScreen());
+    // The fairness balance still renders alongside it.
+    expect(screen.getByTestId('hub-balance')).toBeOnTheScreen();
+  });
+
   it('shows a calm "no people" state when the roster is empty', async () => {
     useApiClientMock.mockReturnValue(
       clientWith({
@@ -287,9 +328,11 @@ describe('HubShell', () => {
     let call = 0;
     useApiClientMock.mockReturnValue({
       baseUrl: 'http://api.test:1',
-      // Hand each of the two parallel reads one leg of the same pending pair.
-      get: jest.fn(() =>
-        pending.then((pair) => pair[call++]),
+      // Hand each of the two parallel reads one leg of the same pending pair;
+      // the grocery region's cart read (which only fires once the shell is ready)
+      // is answered separately so it cannot consume a leg.
+      get: jest.fn((path: string) =>
+        path.includes('/carts/') ? Promise.resolve(okCart) : pending.then((pair) => pair[call++]),
       ) as unknown as ApiClient['get'],
       update: jest.fn() as unknown as ApiClient['update'],
     });
@@ -314,7 +357,9 @@ describe('HubShell', () => {
     let call = 0;
     useApiClientMock.mockReturnValue({
       baseUrl: 'http://api.test:1',
-      get: jest.fn(() => pending.then((pair) => pair[call++])) as unknown as ApiClient['get'],
+      get: jest.fn((path: string) =>
+        path.includes('/carts/') ? Promise.resolve(okCart) : pending.then((pair) => pair[call++]),
+      ) as unknown as ApiClient['get'],
       update: jest.fn() as unknown as ApiClient['update'],
     });
 
