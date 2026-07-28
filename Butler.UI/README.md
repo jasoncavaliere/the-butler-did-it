@@ -66,6 +66,7 @@ src/
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
+              GroceryCart.tsx # hub grocery region: add by typing, review the cart, organizer-only confirm (Epic 50 G5)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -140,6 +141,38 @@ state when the household total is zero, or the ready distribution - the wall nev
 blank region. A person's bar accents in their claim colour when supplied via the `people` prop
 (`{ personId, claimColor }[]`, sourced from the roster `HubShell` already holds); otherwise it falls
 back to the neutral brass accent.
+
+**The grocery cart** (`src/components/GroceryCart.tsx`, Epic 50 G5) is journey 6.4's whole
+"add oat milk -> review -> confirm" gesture, rendered by `HubShell` as its own bounded region between
+`TodayPanel` and the fairness balance. It owns no data and composes three API surfaces through the
+typed client:
+
+- **Review (G2).** On mount it reads `GET /households/{householdId}/carts/current`, which hands back
+  the week's single `Building` cart with its items and its `eTag`. Each line renders its `DisplayName`
+  and `Quantity`. A week whose cart is already confirmed answers `409`, which the region treats as a
+  calm confirmed state rather than an error.
+- **Add (G3).** Typing a term and submitting (the Add button and the keyboard's return are the same
+  gesture) POSTs to `/capture/text` with `{ utterance, personId, weekIso, quantity: 1 }`, then re-reads
+  the cart so the rendered list and the `eTag` are always the server's truth - adding the same product
+  twice increments its quantity server-side. Adding is deliberately open to anyone on the roster: no
+  password, no organizer (decision D-3). The line is attributed to the hub's active tap-to-claim
+  participant, so with nobody claimed the region says "Tap your name first" instead of spending a round
+  trip on a `400`. An ambiguous term renders the problem's `suggestions` candidates with a next step;
+  a no-match renders the problem's own message. Neither is ever a silent failure.
+- **Confirm (G4).** The `Confirm order` action renders **only** for a signed-in organizer (T4) -
+  absent, not disabled, matching the `OrganizerBar` convention - and POSTs to
+  `/carts/{weekIso}/confirm` with the cart's `eTag` as `If-Match` (Contract 7.3), so a line added since
+  the review comes back `412` with a re-read-and-try-again message rather than a silent no-op. On
+  success the region reads as `Confirmed` and offers neither adding nor confirming again. As
+  everywhere else in the hub, hiding the control is convenience: the API independently enforces `403`
+  for a participant or the paired hub device.
+
+**Demo path (fully offline of any real store).** The backing connector is the simulated G1
+`SimulatedHebConnector` and its fixture catalog, so the end-to-end path needs no store account and no
+network beyond the local API: tap a name to claim it -> type `oat milk` -> the cart shows
+`H-E-B Oat Milk` x1 -> an organizer signs in through `OrganizerBar` -> `Confirm order` -> the cart
+reads `Confirmed`. **No real order is placed and no money moves** (BRD decision D-8); the confirm
+records intent only.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
@@ -230,8 +263,8 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
 - The hub shell (`HubShell`) renders the header, tappable name tiles, and `TodayPanel` seam (T2),
   and tap-to-claim - claiming a person, the claim-colour glow, and the idle timeout back to neutral
   - is wired up (T3). `TodayPanel` is filled with the glanceable, tap-to-complete chore board
-  (`ChoreBoard`, Epic 40 C5), and the read-only contribution balance (`FairnessView`, Epic 40 C6)
-  renders below it.
+  (`ChoreBoard`, Epic 40 C5), and the grocery cart (`GroceryCart`, Epic 50 G5) plus the read-only
+  contribution balance (`FairnessView`, Epic 40 C6) render below it.
 - Organizer sign-in (`OrganizerBar`, `OrganizerContext`, `IAuthProvider`) is wired up (T4): the hub
   always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
   client attaches the organizer bearer automatically.

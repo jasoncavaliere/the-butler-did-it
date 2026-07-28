@@ -13,6 +13,7 @@ import { HubPairing } from '../auth/HubPairing';
 import { OrganizerBar } from '../auth/OrganizerBar';
 import { ChoreBoard } from '../components/ChoreBoard';
 import { FairnessView } from '../components/FairnessView';
+import { GroceryCart } from '../components/GroceryCart';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
 import { useHousehold } from '../state/HouseholdContext';
@@ -218,7 +219,16 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
       </TodayPanel>
 
       {view.phase === 'ready' && householdId !== null ? (
-        <View style={styles.balance} testID="hub-balance">
+        <View style={styles.panel} testID="hub-groceries">
+          <GroceryCart
+            householdId={householdId}
+            activePersonId={activeParticipant?.personId ?? null}
+          />
+        </View>
+      ) : null}
+
+      {view.phase === 'ready' && householdId !== null ? (
+        <View style={styles.panel} testID="hub-balance">
           <FairnessView householdId={householdId} people={members} />
         </View>
       ) : null}
@@ -273,7 +283,9 @@ function NameTile({
 
 const styles = StyleSheet.create({
   hub: { flex: 1, backgroundColor: colors.page, padding: 32, gap: 24 },
-  balance: {
+  // Shared card shell for the bounded regions below the today panel (groceries,
+  // the fairness balance).
+  panel: {
     backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
