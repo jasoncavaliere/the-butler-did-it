@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 
-import { ChoreBoard, describeFailure } from './ChoreBoard';
+import { ChoreBoard, applyQueuedWrites, describeFailure, type BoardItem } from './ChoreBoard';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type {
   AssignmentView,
@@ -9,6 +9,13 @@ import type {
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { readGlance, writeGlance, type GlanceStorage } from '../offline/glanceCache';
+import { currentWeekIso } from '../offline/weekIso';
+import {
+  MAX_WRITE_ATTEMPTS,
+  assignmentDedupeKey,
+  readWriteQueue,
+  saveWriteQueue,
+} from '../offline/writeQueue';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
@@ -41,6 +48,16 @@ const ok = <T,>(data: T): ApiResult<T> => ({ ok: true, status: 200, data, etag: 
 const unreachable: ApiResult<never> = {
   ok: false,
   error: { kind: 'network', status: 0, title: 'The API is unreachable.' },
+};
+
+/**
+ * A reachable service answering with a real error. The board treats this as a
+ * refusal rather than an outage: it reverts an optimistic flip and never queues,
+ * which is what separates it from {@link unreachable} (Epic 60 O3).
+ */
+const refused: ApiResult<never> = {
+  ok: false,
+  error: { kind: 'http', status: 409, title: 'That chore is already claimed.' },
 };
 
 type ClientOpts = {
@@ -239,7 +256,7 @@ describe('ChoreBoard', () => {
     expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(true);
   });
 
-  it('applies the completed state optimistically and reverts it when the write fails', async () => {
+  it('applies the completed state optimistically and reverts it when the service refuses it', async () => {
     let resolveComplete: (value: ApiResult<unknown>) => void = () => {};
     const pending = new Promise<ApiResult<unknown>>((resolve) => {
       resolveComplete = resolve;
@@ -263,9 +280,11 @@ describe('ChoreBoard', () => {
     });
     expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(true);
 
-    // The write fails; the item reverts to open rather than lying about success.
+    // The service answers with a real error - a refusal, not an outage - so the
+    // item reverts to open rather than lying about success. (An *unreachable*
+    // API is the other case entirely: that one queues, see the O3 block below.)
     await act(async () => {
-      resolveComplete(unreachable);
+      resolveComplete(refused);
       await pending;
     });
     await waitFor(() =>
@@ -398,7 +417,7 @@ describe('ChoreBoard', () => {
     expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(false);
   });
 
-  it('applies the undone state optimistically and reverts it to Done when the write fails', async () => {
+  it('applies the undone state optimistically and reverts it to Done when the service refuses it', async () => {
     let resolveUndo: (value: ApiResult<unknown>) => void = () => {};
     const pending = new Promise<ApiResult<unknown>>((resolve) => {
       resolveUndo = resolve;
@@ -424,10 +443,10 @@ describe('ChoreBoard', () => {
     });
     expect(screen.getByTestId('chore-item-c4').props.accessibilityState.checked).toBe(false);
 
-    // The undo write fails; the item reverts to Done rather than lying about the
-    // reversal.
+    // The service refuses the undo; the item reverts to Done rather than lying
+    // about the reversal.
     await act(async () => {
-      resolveUndo(unreachable);
+      resolveUndo(refused);
       await pending;
     });
     await waitFor(() =>
@@ -745,11 +764,12 @@ describe('ChoreBoard offline cache', () => {
 });
 
 /**
- * Epic 60 O2, the write half of the read cache: a board served from cache is a
- * display, not a control - and it comes back to life on a reconnect rather than
- * waiting for someone to reload a wall tablet.
+ * Epic 60 O2/O3, the write half of the read cache: a cached board whose week has
+ * rolled over is a display, not a control (queuing that write would land it in
+ * last week) - and it comes back to life on a reconnect rather than waiting for
+ * someone to reload a wall tablet.
  */
-describe('ChoreBoard cached board is read-only until the network returns', () => {
+describe('ChoreBoard cached board across a week boundary', () => {
   let reconnectCleanups: (() => void)[] = [];
 
   function installStorage(): void {
@@ -815,9 +835,11 @@ describe('ChoreBoard cached board is read-only until the network returns', () =>
     }
   });
 
-  // Deliberately a *different* week from the live `WEEK`: this is the outage that
-  // spanned a week boundary, which is what makes a tap on a cached row dangerous.
-  const STALE_WEEK = '2026-W28';
+  // A week that is *permanently* in the past, so the guard under test is judged
+  // against the real calendar without the suite itself becoming clock-dependent.
+  // This is the outage that spanned a week boundary, which is what makes a tap on
+  // a cached row dangerous: the API resolves a completion by the week it is given.
+  const STALE_WEEK = '2019-W01';
 
   const staleBoard = {
     weekIso: STALE_WEEK,
@@ -992,6 +1014,390 @@ describe('ChoreBoard cached board is read-only until the network returns', () =>
     // A healthy board subscribes to nothing, so a stray reconnect cannot start a
     // refetch storm on the wall.
     expect((client.update as jest.Mock).mock.calls.length).toBe(readsBefore);
+  });
+});
+
+/**
+ * Epic 60 O3: BRD 6.5 step 2 - "Maya taps a chore done; the write queues locally
+ * and syncs when the network returns." The tap has to succeed with no network,
+ * survive the reload that may follow it, and land on the API in order once the
+ * hub is back.
+ */
+describe('ChoreBoard offline write queue', () => {
+  let restore: (() => void)[] = [];
+
+  function installStorage(): void {
+    const map = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (key: string) => map.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          map.set(key, value);
+        },
+      } satisfies GlanceStorage,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  /** See the sibling block: stands in for the browser's `online` event. */
+  function installReconnect(): () => void {
+    const listeners = new Set<() => void>();
+    const original = {
+      add: (globalThis as { addEventListener?: unknown }).addEventListener,
+      remove: (globalThis as { removeEventListener?: unknown }).removeEventListener,
+    };
+    const define = (name: string, value: unknown) =>
+      Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+
+    define('addEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.add(listener);
+      }
+    });
+    define('removeEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.delete(listener);
+      }
+    });
+    restore.push(() => {
+      define('addEventListener', original.add);
+      define('removeEventListener', original.remove);
+    });
+
+    return () => {
+      for (const listener of Array.from(listeners)) {
+        listener();
+      }
+    };
+  }
+
+  beforeEach(() => {
+    restore = [];
+    installStorage();
+  });
+
+  afterEach(() => {
+    for (const cleanup of restore) {
+      cleanup();
+    }
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  // The cached week the hub is actually in - the case an offline tap is allowed
+  // to write into, as opposed to the rolled-over week the sibling block covers.
+  const thisWeek = currentWeekIso();
+
+  const cachedThisWeek = {
+    weekIso: thisWeek,
+    items: [
+      { choreId: 'c1', title: 'Dishes', cadence: 'Daily', assignedPersonId: 'p1', status: 'Open' as const },
+      { choreId: 'c4', title: 'Laundry', cadence: 'Weekly', assignedPersonId: 'p1', status: 'Done' as const },
+    ],
+  };
+
+  const completePath = (week: string, choreId: string) =>
+    `/households/hh-1/assignments/${week}/${choreId}/complete`;
+
+  /** A client for which nothing at all is reachable - the tablet is offline. */
+  function offlineClient(): ApiClient {
+    return {
+      baseUrl: 'http://api.test:1',
+      get: jest.fn(async () => unreachable) as unknown as ApiClient['get'],
+      update: jest.fn(async () => unreachable) as unknown as ApiClient['update'],
+    };
+  }
+
+  it('offline-tap-queues: a tap on the last-known board is durable and shows done at once', async () => {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+
+    await renderBoard(offlineClient(), { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    // The cached board is a control again, not a display, while its week is ours.
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    // The flip is immediate - the family sees done, with no network involved...
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(true);
+    // ...and the write is in storage, so a reload or relaunch still has it.
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
+    expect(readWriteQueue('hh-1')[0]).toMatchObject({
+      kind: 'chore-complete',
+      method: 'POST',
+      path: completePath(thisWeek, 'c1'),
+      body: { personId: 'p1' },
+      status: 'pending',
+    });
+  });
+
+  it('offline-tap-queues: an undo on the last-known board queues the same way', async () => {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+
+    await renderBoard(offlineClient(), { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c4'));
+    });
+
+    expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('○');
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
+    expect(readWriteQueue('hh-1')[0]).toMatchObject({
+      kind: 'chore-undo',
+      path: `/households/hh-1/assignments/${thisWeek}/c4/undo`,
+    });
+  });
+
+  it('de-duplicates a double tap into one queued write', async () => {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+
+    await renderBoard(offlineClient(), { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    // Two taps on one chore leave one write - the undo, which is what the second
+    // tap meant. The server's own idempotency is the backstop, not the mechanism.
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
+    expect(readWriteQueue('hh-1')[0].kind).toBe('chore-undo');
+  });
+
+  it('a live tap that finds the network gone is queued, not reverted', async () => {
+    // The board loaded fine and the network dropped before the tap landed. That is
+    // the same situation arriving a moment later, so it queues - reverting would
+    // tell the family their tap was lost when it is sitting in a durable queue.
+    const client = boardClient({ complete: () => unreachable });
+
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
+    expect(readWriteQueue('hh-1')[0].path).toBe(completePath(WEEK, 'c1'));
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+  });
+
+  it('a live tap the service refuses reverts and is never queued', async () => {
+    // A real error answer is the service saying no, not an outage. Queuing it
+    // would replay a write the server has already rejected, forever.
+    const client = boardClient({ complete: () => refused });
+
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○'));
+    expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
+  it('a tap on a rolled-over cached week is refused outright, not queued', async () => {
+    // The one case the board still will not write: the API resolves a completion
+    // by the week it is handed, so queuing this would mark *last* week done.
+    writeGlance(
+      'hh-1',
+      {
+        board: {
+          weekIso: '2019-W01',
+          items: [
+            { choreId: 'c1', title: 'Dishes', cadence: 'Daily', assignedPersonId: 'p1', status: 'Open' },
+          ],
+        },
+      },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+
+    await renderBoard(offlineClient(), { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+  });
+
+  it('replay-on-reconnect: the network returning drains the queued tap in order', async () => {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+    const emitOnline = installReconnect();
+    const state = { offline: true };
+    const live = boardClient();
+    const client: ApiClient = {
+      baseUrl: live.baseUrl,
+      get: jest.fn(async (path: string) =>
+        state.offline ? unreachable : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
+      update: jest.fn(async (path: string, body: unknown, options?: UpdateOptions) =>
+        state.offline ? unreachable : live.update<unknown>(path, body, options),
+      ) as unknown as ApiClient['update'],
+    };
+
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    // Two offline taps, on two chores, in that order.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c4'));
+    });
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(2));
+
+    // Nobody touches the tablet; the `online` event alone drives the sync. Every
+    // attempt made while offline was refused by the network, so only the calls
+    // from here on are the replay under test.
+    const beforeReconnect = (client.update as jest.Mock).mock.calls.length;
+    state.offline = false;
+    await act(async () => {
+      emitOnline();
+    });
+
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    const replayed = (client.update as jest.Mock).mock.calls
+      .slice(beforeReconnect)
+      .map(([path]) => String(path))
+      .filter((path) => path.endsWith('/complete') || path.endsWith('/undo'));
+
+    // Each write reaches the API exactly once, in the order the taps happened.
+    expect(replayed).toEqual([
+      completePath(thisWeek, 'c1'),
+      `/households/hh-1/assignments/${thisWeek}/c4/undo`,
+    ]);
+  });
+
+  it('a queued tap survives the refetch that races its sync', async () => {
+    // The reconnect refetch and the drain run together; the API has not seen the
+    // queued write yet, so redrawing the server's answer raw would flicker the
+    // row back to Open and make the tap look lost.
+    saveWriteQueue('hh-1', [
+      {
+        kind: 'chore-complete',
+        dedupeKey: assignmentDedupeKey(WEEK, 'c1'),
+        method: 'POST',
+        path: completePath(WEEK, 'c1'),
+        body: { personId: 'p1' },
+        enqueuedAtMs: 1,
+        attempts: 0,
+        status: 'pending',
+      },
+    ]);
+    // The load succeeds (c1 comes back Open) but the replay cannot get through.
+    const client = boardClient({ complete: () => unreachable });
+
+    await renderBoard(client, { activePersonId: 'p1' });
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+  });
+
+  it('a write flagged after its retries are spent stays queued and stays shown', async () => {
+    // O3's terminal-failure case: never silently dropped, never silently undone -
+    // it waits, flagged, for the surface O4 puts on it.
+    saveWriteQueue('hh-1', [
+      {
+        kind: 'chore-complete',
+        dedupeKey: assignmentDedupeKey(WEEK, 'c1'),
+        method: 'POST',
+        path: completePath(WEEK, 'c1'),
+        body: { personId: 'p1' },
+        enqueuedAtMs: 1,
+        attempts: MAX_WRITE_ATTEMPTS,
+        status: 'failed',
+        lastError: 'Conflict',
+      },
+    ]);
+
+    await renderBoard(boardClient(), { activePersonId: 'p1' });
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(readWriteQueue('hh-1')).toHaveLength(1);
+  });
+
+  it('overlays a queued write onto the last-known board too, not just a live one', async () => {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+    saveWriteQueue('hh-1', [
+      {
+        kind: 'chore-undo',
+        dedupeKey: assignmentDedupeKey(thisWeek, 'c4'),
+        method: 'POST',
+        path: `/households/hh-1/assignments/${thisWeek}/c4/undo`,
+        body: { personId: 'p1' },
+        enqueuedAtMs: 1,
+        attempts: 0,
+        status: 'pending',
+      },
+    ]);
+
+    await renderBoard(offlineClient(), { activePersonId: 'p1' });
+
+    // The cached record still says c4 is Done; the queued undo is the newer truth.
+    await waitFor(() => expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('○');
+  });
+});
+
+describe('applyQueuedWrites', () => {
+  const items: BoardItem[] = [
+    { choreId: 'c1', title: 'Dishes', cadence: 'Daily', assignedPersonId: 'p1', status: 'Open' },
+    { choreId: 'c2', title: 'Vacuum', cadence: 'Weekly', assignedPersonId: 'p2', status: 'Done' },
+  ];
+
+  const queued = (choreId: string, kind: 'chore-complete' | 'chore-undo', week = WEEK) => ({
+    kind,
+    dedupeKey: assignmentDedupeKey(week, choreId),
+    method: 'POST' as const,
+    path: `/households/hh-1/assignments/${week}/${choreId}/${kind === 'chore-complete' ? 'complete' : 'undo'}`,
+    body: { personId: 'p1' },
+    enqueuedAtMs: 1,
+    attempts: 0,
+    status: 'pending' as const,
+  });
+
+  it('returns the loaded week untouched when nothing is queued', () => {
+    expect(applyQueuedWrites(items, WEEK, [])).toBe(items);
+  });
+
+  it('shows a queued completion as done and a queued undo as open', () => {
+    const overlaid = applyQueuedWrites(items, WEEK, [
+      queued('c1', 'chore-complete'),
+      queued('c2', 'chore-undo'),
+    ]);
+
+    expect(overlaid.map((item) => item.status)).toEqual(['Done', 'Open']);
+  });
+
+  it('ignores a write queued against a different week', () => {
+    // The cached row and the queued write have to agree on the week, or the
+    // overlay would show last week's tap on this week's board.
+    expect(applyQueuedWrites(items, WEEK, [queued('c1', 'chore-complete', '2019-W01')])).toEqual(
+      items,
+    );
+  });
+
+  it('ignores a queued write for a chore that is not on the board', () => {
+    expect(applyQueuedWrites(items, WEEK, [queued('c9', 'chore-complete')])).toEqual(items);
   });
 });
 

@@ -9,8 +9,9 @@
  * tiles and real chores instead of an error.
  *
  * Three properties keep it honest:
- * - it is a *read* cache. Nothing here touches the write path; an offline tap
- *   still fails and reverts exactly as it does today (queuing writes is O3).
+ * - it is a *read* cache. Nothing here touches the write path; an offline tap is
+ *   the write queue's business ({@link ../offline/writeQueue}, O3), which
+ *   persists separately through the same storage seam.
  * - it never looks live. Every record carries a `cachedAtIso` freshness stamp
  *   that the caller surfaces as a visible "showing last-known" indication.
  * - it never crosses households. The record is keyed by `householdId` *and*
@@ -24,6 +25,7 @@
  */
 
 import type { RosterEntryResponse } from '../api/models';
+import { defaultLocalStorage, isRecord, type LocalStorageLike } from './storage';
 
 /** One rendered board row, cached exactly as the board draws it. */
 export type CachedBoardItem = {
@@ -59,11 +61,12 @@ export type GlanceSnapshot = {
   cachedAtIso: string;
 };
 
-/** The subset of the Web Storage API this cache uses (no DOM lib dependency). */
-export type GlanceStorage = {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-};
+/**
+ * The subset of the Web Storage API this cache uses. It is the shared
+ * {@link LocalStorageLike} seam - the O3 write queue persists through the same
+ * one - kept under this name so O2's callers and tests keep their vocabulary.
+ */
+export type GlanceStorage = LocalStorageLike;
 
 /** What a single write may replace; the untouched half is carried forward. */
 export type GlancePatch = {
@@ -84,28 +87,12 @@ export function glanceCacheKey(householdId: string): string {
 }
 
 /**
- * The ambient browser storage, feature-detected the same way the service-worker
- * registration detects `navigator.serviceWorker`: on native (and in Jest) there
- * is simply none, so the cache no-ops without a `Platform.OS` branch.
+ * The ambient browser storage, feature-detected (and guarded against a blocked
+ * store) in {@link ../offline/storage}: on native, and in a browser with storage
+ * denied, there is simply none, so the cache no-ops without a `Platform.OS`
+ * branch. Re-exported under this name because it *is* O2's storage default.
  */
-export function defaultGlanceStorage(): GlanceStorage | undefined {
-  // The property *access* itself throws (`SecurityError`) in a browser with
-  // storage blocked - privacy mode, a locked-down kiosk profile - so even
-  // looking for storage has to be guarded, not just using it.
-  try {
-    const storage = (globalThis as { localStorage?: GlanceStorage }).localStorage;
-    return typeof storage?.getItem === 'function' && typeof storage.setItem === 'function'
-      ? storage
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** A plain (non-null, non-array) object, the shape every cached half must be. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+export { defaultLocalStorage as defaultGlanceStorage };
 
 /**
  * Validate the household half. Every field the name tiles actually read is
@@ -193,7 +180,7 @@ function parseSnapshot(value: unknown): GlanceSnapshot | null {
  */
 export function readGlance(
   householdId: string,
-  storage: GlanceStorage | undefined = defaultGlanceStorage(),
+  storage: GlanceStorage | undefined = defaultLocalStorage(),
 ): GlanceSnapshot | null {
   if (!storage) {
     return null;
@@ -237,7 +224,7 @@ export function readGlance(
 export function writeGlance(
   householdId: string,
   patch: GlancePatch,
-  storage: GlanceStorage | undefined = defaultGlanceStorage(),
+  storage: GlanceStorage | undefined = defaultLocalStorage(),
   nowIso: string = new Date().toISOString(),
 ): GlanceSnapshot | null {
   if (!storage) {
