@@ -19,7 +19,9 @@
  *
  * **What it guarantees.**
  * - *Durable.* One record per household in Web Storage, so a page reload or an
- *   app relaunch of the wall tablet finds the queue exactly as it left it.
+ *   app relaunch of the wall tablet finds the queue exactly as it left it. Where
+ *   there is no Web Storage the queue drops to session memory, not to nothing -
+ *   see the degrade note at the end.
  * - *Ordered.* Entries replay strictly head-first, and the drain stops at the
  *   first write it could not confirm rather than reordering around it.
  * - *Never silently dropped.* A write leaves the queue only when the API
@@ -34,15 +36,19 @@
  * and inherits the identical durable-queue + replay contract without a line
  * changing here.
  *
- * Like the O2 cache, every storage failure mode degrades instead of throwing: no
- * storage (native, or a browser with it blocked), a missing entry, an
- * unparseable or wrong-shaped one, or a quota error on write all reduce to "no
- * queue" rather than crashing the tap that produced it.
+ * Every storage failure mode degrades instead of throwing - a missing entry, an
+ * unparseable or wrong-shaped one, a store that throws on read. But unlike the O2
+ * cache, "no storage at all" (native, or a browser with it blocked) and "storage
+ * refused the write" (quota, private mode) do **not** degrade to "no queue": that
+ * would discard the tap that produced the write, which is the single outcome this
+ * module exists to prevent. They degrade one step less far, to
+ * {@link sessionFallbackStorage} - the queue is still complete, still ordered, and
+ * still replays for the rest of this session; it just does not survive a relaunch.
  */
 
 import type { ApiError, ApiResult } from '../api/client';
 import { describeApiError } from '../api/errors';
-import { defaultLocalStorage, isRecord, type LocalStorageLike } from './storage';
+import { isRecord, sessionFallbackStorage, type LocalStorageLike } from './storage';
 
 /** HTTP methods a queued write may replay with (reads are never queued). */
 export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -189,8 +195,10 @@ function parseWrite(value: unknown): QueuedWrite | null {
 
 /**
  * Read a household's queue, in enqueue order. Anything untrustworthy reads as an
- * empty queue: no storage, no entry, an unreadable or unparseable one, or a
- * document that is not an array.
+ * empty queue: no entry, an unreadable or unparseable one, or a document that is
+ * not an array. "No Web Storage" is *not* one of those - the default seam answers
+ * that case from session memory, so a write queued on a device without it is read
+ * straight back rather than vanishing.
  *
  * Individual malformed entries are dropped rather than failing the whole read -
  * one corrupt row must not take the rest of the queue's real writes with it. A
@@ -201,12 +209,8 @@ function parseWrite(value: unknown): QueuedWrite | null {
  */
 export function readWriteQueue(
   householdId: string,
-  storage: LocalStorageLike | undefined = defaultLocalStorage(),
+  storage: LocalStorageLike = sessionFallbackStorage(),
 ): QueuedWrite[] {
-  if (!storage) {
-    return [];
-  }
-
   let raw: string | null;
   try {
     raw = storage.getItem(writeQueueKey(householdId));
@@ -241,29 +245,31 @@ export function readWriteQueue(
 }
 
 /**
- * Persist a household's queue, returning whether it actually landed.
+ * Persist a household's queue, returning whether it landed *durably* - that is,
+ * whether it will still be there after a reload.
  *
- * A failure here (quota, private mode, a disabled store) is swallowed the way
- * the O2 cache swallows its own, but it means something stronger and the caller
- * is told: the queue is still correct in memory and will still replay this
- * session, it simply is not durable across a reload. Throwing instead would take
- * out the tap that produced the write, which is the one outcome the queue exists
- * to prevent.
+ * `false` never means the write was lost. Through the default seam a store that
+ * is absent or that refuses the write (quota, private mode, a locked-down kiosk
+ * profile) falls back to session memory, so the queue is still correct, still
+ * ordered, and will still replay this session - it simply is not durable across a
+ * relaunch, and the caller is told so rather than being left to assume. Throwing
+ * instead would take out the tap that produced the write, which is the one
+ * outcome the queue exists to prevent.
  */
 export function saveWriteQueue(
   householdId: string,
   queue: QueuedWrite[],
-  storage: LocalStorageLike | undefined = defaultLocalStorage(),
+  storage: LocalStorageLike = sessionFallbackStorage(),
 ): boolean {
-  if (!storage) {
-    return false;
-  }
+  const key = writeQueueKey(householdId);
   try {
-    storage.setItem(writeQueueKey(householdId), JSON.stringify(queue));
-    return true;
+    storage.setItem(key, JSON.stringify(queue));
   } catch {
     return false;
   }
+  // A plain Web Storage object has no opinion to offer: it either stored the
+  // value or threw above.
+  return storage.isDurable?.(key) ?? true;
 }
 
 /**
@@ -279,11 +285,18 @@ export function saveWriteQueue(
  *   actually meant, instead of two writes racing to be the last writer;
  * - keeping the original position means collapsing a redundant write cannot
  *   reorder it past writes that were queued after it.
+ *
+ * The returned queue is the queue the drain will read back, in every case. That
+ * is the reason {@link saveWriteQueue}'s durability answer is not propagated to
+ * the tap: through the default seam a store that is missing or refuses the write
+ * falls back to session memory, so "not durable" still means queued and still
+ * means replayed - never dropped. A caller that hands in its own storage and
+ * wants the distinction should call {@link saveWriteQueue} itself.
  */
 export function enqueueWrite(
   householdId: string,
   request: WriteRequest,
-  storage: LocalStorageLike | undefined = defaultLocalStorage(),
+  storage: LocalStorageLike = sessionFallbackStorage(),
   nowMs: number = Date.now(),
 ): QueuedWrite[] {
   const queued: QueuedWrite = {
@@ -355,7 +368,7 @@ export type SendWrite = (write: QueuedWrite) => Promise<ApiResult<unknown>>;
 export async function drainWriteQueue(
   householdId: string,
   send: SendWrite,
-  storage: LocalStorageLike | undefined = defaultLocalStorage(),
+  storage: LocalStorageLike = sessionFallbackStorage(),
 ): Promise<DrainOutcome> {
   let queue = readWriteQueue(householdId, storage);
   let confirmed = 0;

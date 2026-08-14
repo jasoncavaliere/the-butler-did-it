@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
-import type { LocalStorageLike } from './storage';
+import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
 import { useWriteQueue } from './useWriteQueue';
 import {
   MAX_WRITE_ATTEMPTS,
@@ -108,6 +108,9 @@ let cleanups: (() => void)[] = [];
 beforeEach(() => {
   cleanups = [];
   installStorage();
+  // Session memory is a process-wide singleton on purpose (that is what makes it
+  // last a session), so it has to be cleared between tests.
+  resetSessionFallbackStorage();
 });
 
 afterEach(() => {
@@ -119,6 +122,7 @@ afterEach(() => {
     configurable: true,
     writable: true,
   });
+  resetSessionFallbackStorage();
   jest.useRealTimers();
 });
 
@@ -425,12 +429,74 @@ describe('useWriteQueue', () => {
 
     const { result } = await renderHook(() => useWriteQueue('hh-1', client));
 
-    // The tap does not throw, and nothing is persisted for it to replay later.
+    // Session-only, not lost: the tap does not throw, the write is still queued,
+    // and it is still sent. Only durability across a relaunch is given up. A
+    // dropped write here would be the worst version of the bug - the board has
+    // already flipped the row to done, so the family would be told a tap
+    // succeeded that the API never saw, and O4 would have nothing to surface.
     await act(async () => {
       result.current.enqueue(completion('c1'));
     });
-    await waitFor(() => expect(client.update).not.toHaveBeenCalled());
-    expect(result.current.entries).toEqual([]);
+
+    await waitFor(() =>
+      expect(client.update).toHaveBeenCalledWith(
+        completion('c1').path,
+        { personId: 'p1' },
+        { method: 'POST' },
+      ),
+    );
+    await waitFor(() => expect(result.current.entries).toEqual([]));
+  });
+
+  it('keeps an unsent write queued and pending with no storage at all', async () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const client = queueClient(() => unreachable);
+
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    await act(async () => {
+      result.current.enqueue(completion('c1'));
+    });
+
+    // The write the API could not take stays in the queue and stays countable,
+    // which is what O4 renders and what the reconnect drain replays.
+    await waitFor(() => expect(result.current.pending).toBe(1));
+    expect(result.current.failed).toBe(0);
+    expect(result.current.entries[0].dedupeKey).toBe(assignmentDedupeKey(WEEK, 'c1'));
+  });
+
+  it('keeps a write queued when storage is present but refuses it (quota, private mode)', async () => {
+    const refusing: LocalStorageLike = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    };
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: refusing,
+      configurable: true,
+      writable: true,
+    });
+    const client = queueClient(() => unreachable);
+
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    await act(async () => {
+      result.current.enqueue(completion('c1'));
+    });
+
+    // A store that will not take the write is the same hazard as no store at
+    // all, and degrades the same way rather than discarding the tap.
+    await waitFor(() => expect(result.current.pending).toBe(1));
+    expect(client.update).toHaveBeenCalledWith(
+      completion('c1').path,
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
   });
 
   it('leaves nothing behind for another household under its own key', async () => {

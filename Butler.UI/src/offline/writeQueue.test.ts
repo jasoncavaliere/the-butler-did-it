@@ -1,5 +1,5 @@
 import type { ApiResult } from '../api/client';
-import type { LocalStorageLike } from './storage';
+import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
 import {
   MAX_WRITE_ATTEMPTS,
   OFFLINE_RETRY_MS,
@@ -93,10 +93,14 @@ function recordingSend(answers: (ApiResult<unknown> | undefined)[] = []) {
 beforeEach(() => {
   // Native (and Jest) have no Web Storage; tests that want one install it.
   setGlobalStorage(undefined);
+  // The session fallback is a process-wide singleton on purpose, so a test that
+  // exercises the degraded path would otherwise seed the next one.
+  resetSessionFallbackStorage();
 });
 
 afterEach(() => {
   setGlobalStorage(undefined);
+  resetSessionFallbackStorage();
 });
 
 describe('writeQueueKey', () => {
@@ -248,14 +252,47 @@ describe('enqueueWrite / readWriteQueue', () => {
     expect(readWriteQueue('hh-1', storage)).toEqual([]);
   });
 
-  it('no-ops with no storage at all (native, or a browser that blocks it)', () => {
-    // The queue degrades to "this session only" rather than throwing inside the
-    // tap that produced the write.
+  it('keeps the queue in session memory with no storage at all (native, or a browser that blocks it)', () => {
+    // The degraded path is *not* "no queue". A tap taken on a device with no Web
+    // Storage is still queued, still readable back, and so still replayed - it
+    // simply does not survive a relaunch. Dropping it here would discard a write
+    // the family saw succeed, which is the outcome the queue exists to prevent.
     expect(readWriteQueue('hh-1')).toEqual([]);
-    expect(saveWriteQueue('hh-1', [])).toBe(false);
-    expect(enqueueWrite('hh-1', completion('c1'), undefined, 1)).toEqual([
+
+    enqueueWrite('hh-1', completion('c1'), undefined, 1);
+
+    expect(readWriteQueue('hh-1')).toEqual([
       { ...completion('c1'), enqueuedAtMs: 1, attempts: 0, status: 'pending' },
     ]);
+    // ...and the caller is told it is session-only rather than durable.
+    expect(saveWriteQueue('hh-1', readWriteQueue('hh-1'))).toBe(false);
+  });
+
+  it('keeps the queue in session memory when storage refuses the write (quota, private mode)', () => {
+    // The store is present and readable, so it is not "no storage" - it just will
+    // not take the write. Persisting the stale record it already holds would be
+    // worse than useless, so this key reads from memory from here on.
+    setGlobalStorage({
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    });
+
+    enqueueWrite('hh-1', completion('c1'), undefined, 1);
+
+    expect(readWriteQueue('hh-1')).toEqual([
+      { ...completion('c1'), enqueuedAtMs: 1, attempts: 0, status: 'pending' },
+    ]);
+    expect(saveWriteQueue('hh-1', readWriteQueue('hh-1'))).toBe(false);
+  });
+
+  it('reports the queue as durable once storage does take the write', () => {
+    setGlobalStorage(fakeStorage());
+
+    expect(saveWriteQueue('hh-1', [{ ...completion('c1'), enqueuedAtMs: 1, attempts: 0, status: 'pending' }])).toBe(
+      true,
+    );
   });
 
   it('uses the ambient browser storage when one is present', () => {
