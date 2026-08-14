@@ -13,6 +13,9 @@ import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useReconnectSignal } from '../offline/useReconnect';
+import { useWriteQueue } from '../offline/useWriteQueue';
+import { isCurrentWeek } from '../offline/weekIso';
+import { assignmentDedupeKey, readWriteQueue, type QueuedWrite } from '../offline/writeQueue';
 import { colors } from './Screen';
 
 /**
@@ -42,7 +45,8 @@ import { colors } from './Screen';
  * without any refetch, since it is a pure derived-render change over the loaded
  * week. A tap on an open item completes it through C4 with an optimistic flip to
  * `Done`; a tap on a `Done` item undoes that completion with an optimistic flip
- * back to `Open`. Both reconcile to the response status and revert on error, so a
+ * back to `Open`. Both reconcile to the response status, and both revert when the
+ * service *refuses* the write (an outage queues it instead - see below), so a
  * mis-tap in either direction is recoverable without leaving the board lying about
  * the server.
  *
@@ -54,23 +58,38 @@ import { colors } from './Screen';
  * HTTP/problem/parse error is a real answer from a reachable service and still
  * shows as an error.
  *
- * A board served from cache is **read-only**, and it comes back to life by
- * itself:
- * - read-only, because a cached row carries the *cached* `weekIso` and the API
- *   resolves a completion by `(householdId, weekIso, choreId)` with no
- *   current-week check. Left tappable, a tap taken after an outage that spanned a
- *   week boundary would post a completion into the stale week and *succeed* -
- *   marking last week done while this week's chore stays open. O2 is a read
- *   cache; queuing an offline tap is O3's job, so until then the honest
- *   behaviour is that the last-known board is a display, not a control.
+ * A board served from cache is still a control (Epic 60 O3), and it comes back
+ * to life by itself:
+ * - **tappable while its week still is this week.** A cached row carries the
+ *   *cached* `weekIso`, and the API resolves a completion by
+ *   `(householdId, weekIso, choreId)` with no current-week check - so a tap taken
+ *   after an outage that spanned a week boundary would land a completion in the
+ *   stale week and *succeed*, marking last week done while this week's chore
+ *   stays open. That is the one case the board still refuses
+ *   ({@link isCurrentWeek}); within the current week an offline tap is queued
+ *   ({@link useWriteQueue}) and shown as done immediately.
  * - self-reviving, because the hub lives on a wall and nobody reloads it. While
  *   degraded the board listens for a reconnect ({@link useReconnectSignal}) and
  *   refetches when the network returns, which is what turns the cached board back
- *   into a live, tappable one and re-stamps the cache.
+ *   into a live one and drains whatever the outage queued.
+ *
+ * Offline writes (Epic 60 O3) are the same tap, taken twice over:
+ * - a tap on a cached board has no live network to try, so it goes straight to
+ *   the durable queue;
+ * - a tap on a *live* board still goes to the API first, and only an
+ *   `unreachable` answer queues it. An HTTP/problem/parse failure is the service
+ *   actually refusing the write, so that one still reverts.
+ * - either way the optimistic flip **stays**. A queued write is not a failed
+ *   one, and reverting it would tell the family their tap was lost when it was
+ *   not; a write that ultimately cannot sync is surfaced instead (O4).
+ * - and because a redraw would otherwise show the server's pre-sync truth, every
+ *   load overlays the queue's pending writes over what it just fetched
+ *   ({@link applyQueuedWrites}) - so the reconnect refetch, which races the
+ *   drain, can never make a queued tap flicker back to `Open`.
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
-type BoardItem = {
+export type BoardItem = {
   choreId: string;
   title: string;
   cadence: string;
@@ -107,6 +126,36 @@ export function describeFailure(result: ApiResult<unknown> | undefined): LoadFai
   return { message: 'The board is unavailable.', offline: false };
 }
 
+/**
+ * Overlay the queue's not-yet-synced writes (O3) over a freshly loaded week.
+ *
+ * A queued completion has been shown as done since the tap, but the server has
+ * not seen it yet - so the very next load (the reconnect refetch, which races
+ * the drain, or a plain reload) would otherwise redraw the row as `Open` and make
+ * the tap look lost. The queue holds one entry per `(week, chore)` target, so the
+ * lookup is exact and the direction is read straight off the entry's kind.
+ *
+ * Entries flagged `failed` are overlaid too: they are still queued, still the
+ * user's stated intent, and surfacing them is O4's job - silently redrawing them
+ * as undone here would be exactly the "silently dropped" outcome the AC forbids.
+ */
+export function applyQueuedWrites(
+  items: BoardItem[],
+  weekIso: string,
+  queue: QueuedWrite[],
+): BoardItem[] {
+  if (queue.length === 0) {
+    return items;
+  }
+  return items.map((item) => {
+    const queued = queue.find((entry) => entry.dedupeKey === assignmentDedupeKey(weekIso, item.choreId));
+    if (queued === undefined) {
+      return item;
+    }
+    return { ...item, status: queued.kind === 'chore-complete' ? 'Done' : 'Open' };
+  });
+}
+
 export function ChoreBoard({
   householdId,
   people,
@@ -125,6 +174,9 @@ export function ChoreBoard({
   onLastKnown?: (cachedAtIso: string | null) => void;
 }) {
   const client = useApiClient();
+  // The durable offline write queue (O3). It hydrates from storage on mount, so
+  // taps taken before a reload of the wall tablet are already here and replaying.
+  const { enqueue } = useWriteQueue(householdId, client);
   const [phase, setPhase] = useState<Phase>('loading');
   const [message, setMessage] = useState('');
   const [weekIso, setWeekIso] = useState('');
@@ -177,7 +229,11 @@ export function ChoreBoard({
         const cached = failure.offline ? readGlance(householdId) : null;
         if (cached !== null && cached.board !== null) {
           setWeekIso(cached.board.weekIso);
-          setItems(cached.board.items);
+          // The cache is re-read from storage on every load, so a queued tap that
+          // happened after the record was last written is still shown as done.
+          setItems(
+            applyQueuedWrites(cached.board.items, cached.board.weekIso, readWriteQueue(householdId)),
+          );
           setFromCache(true);
           setPhase('ready');
           reportRef.current?.(cached.cachedAtIso);
@@ -213,9 +269,15 @@ export function ChoreBoard({
       const week = set?.weekIso ?? '';
 
       setWeekIso(week);
-      setItems(built);
-      // Live data: the board is tappable again and no longer last-known, which is
-      // how a reconnect turns a read-only cached board back into a control.
+      // Anything still queued (O3) is layered over the server's answer, because
+      // this load races the drain: the API has not seen those writes yet, and
+      // redrawing them as undone would make a tap that *is* still on its way look
+      // lost. The queue is read from storage rather than from the hook's state so
+      // this effect does not re-run every time the queue changes.
+      setItems(applyQueuedWrites(built, week, readWriteQueue(householdId)));
+      // Live data: the week on screen is the server's again and no longer
+      // last-known, which is how a reconnect retires the cached week (and with it
+      // the rolled-over-week guard that could have made the board read-only).
       setFromCache(false);
       setPhase('ready');
       // Refresh the cache (and its freshness stamp) on every successful load, so
@@ -232,23 +294,42 @@ export function ChoreBoard({
     // someone to reload a tablet nobody touches.
   }, [client, householdId, reconnectSignal]);
 
+  // A cached board whose week has rolled over is the one thing an offline tap
+  // must never touch: its rows carry the *cached* week, and C4 resolves a
+  // completion by `(householdId, weekIso, choreId)` with no current-week check,
+  // so replaying that write would mark last week done and succeed. Live data is
+  // never stale in this sense - the server just named the week - so the guard is
+  // only ever applied to a board served from cache. This is the *render*-time
+  // answer, which decides whether a row reads as a control; `toggle` asks the
+  // same question again at the moment of the tap, which is what actually guards
+  // the write.
+  const staleCachedWeek = fromCache && !isCurrentWeek(weekIso);
+
   // Tapping an item toggles its completion, attributed to the active participant
   // (T3): an `Open` item completes through C4, a `Done` item undoes that
-  // completion. With no active participant the board is read-only, so the tap does
-  // nothing. Both directions are optimistic - the flip shows immediately,
-  // reconciles to the response status, and reverts to the item's prior state on
-  // error (or an unconfirmed/empty response), so a mis-tap either way is
-  // recoverable and the board never lies about the server.
+  // completion. With no active participant - or on a cached board whose week has
+  // rolled over - the board is read-only, so the tap does nothing.
   //
-  // A board served from the offline cache writes nothing at all. Its `weekIso` is
-  // the *cached* week, and the API resolves a completion by
-  // `(householdId, weekIso, choreId)` without checking that the week is current -
-  // so a tap taken on a cached board after the network returned would land a
-  // completion in the stale week and succeed. Refusing the write is the only
-  // honest answer until O3 can queue one.
+  // The flip is optimistic in every case: it shows immediately, and it survives
+  // whatever happens next unless the service itself refuses the write.
+  // - Offline, from a cached board: there is no live network to try, so the write
+  //   goes straight to the durable queue (O3) and replays when the network is
+  //   back. The row stays done.
+  // - Live, but the network drops between the load and the tap: the API answers
+  //   `unreachable`, which is the same situation arriving a moment later, so the
+  //   write is queued too and the row still stays done. Reverting here would tell
+  //   the family their tap was lost when it is sitting in a durable queue; a write
+  //   that ultimately cannot sync is surfaced instead (O4).
+  // - Live, and the service answers with a real error (HTTP / problem details /
+  //   an unreadable body): that is a refusal, not an outage, so the row reverts
+  //   exactly as it did before O3 - the board never lies about the server.
+  // - Otherwise the row reconciles to the status the response confirms.
   const toggle = useCallback(
     async (choreId: string) => {
-      if (fromCache || activePersonId === null) {
+      // Re-checked here rather than reused from render: a wall hub can sit
+      // untouched for days, so the week must be judged at the moment of the tap,
+      // not at the moment the board last drew itself.
+      if (activePersonId === null || (fromCache && !isCurrentWeek(weekIso))) {
         return;
       }
       const target = items.find((item) => item.choreId === choreId);
@@ -259,18 +340,37 @@ export function ChoreBoard({
       const previous = target.status;
       const optimistic: 'Open' | 'Done' = previous === 'Open' ? 'Done' : 'Open';
       const action = previous === 'Open' ? 'complete' : 'undo';
+      const path = `/households/${householdId}/assignments/${weekIso}/${choreId}/${action}`;
+      const body = { personId: activePersonId };
+      // Keyed by the target, not the direction, so tapping twice queues one write
+      // and a complete-then-undo collapses to what the user last meant.
+      const queueWrite = () =>
+        enqueue({
+          kind: action === 'complete' ? 'chore-complete' : 'chore-undo',
+          dedupeKey: assignmentDedupeKey(weekIso, choreId),
+          method: 'POST',
+          path,
+          body,
+        });
 
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: optimistic } : item)),
       );
 
-      const result = await client.update<CompleteChoreResponse | UndoChoreResponse>(
-        `/households/${householdId}/assignments/${weekIso}/${choreId}/${action}`,
-        { personId: activePersonId },
-        { method: 'POST' },
-      );
+      if (fromCache) {
+        queueWrite();
+        return;
+      }
+
+      const result = await client.update<CompleteChoreResponse | UndoChoreResponse>(path, body, {
+        method: 'POST',
+      });
 
       if (!result || !result.ok) {
+        if (result && result.error.kind === 'network') {
+          queueWrite();
+          return;
+        }
         setItems((prev) =>
           prev.map((item) => (item.choreId === choreId ? { ...item, status: previous } : item)),
         );
@@ -282,7 +382,7 @@ export function ChoreBoard({
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );
     },
-    [client, householdId, weekIso, activePersonId, items, fromCache],
+    [client, householdId, weekIso, activePersonId, items, fromCache, enqueue],
   );
 
   if (phase === 'loading') {
@@ -364,13 +464,13 @@ export function ChoreBoard({
                       item={item}
                       accent={accent}
                       glow={isActive}
-                      // Read-only when no participant is active, or when the whole
-                      // board is the last-known one served from cache (a cached
+                      // Read-only when no participant is active, or when the board
+                      // is a last-known one whose week has since rolled over (that
                       // row must never write - see `toggle`). Otherwise both an
                       // Open item (tap to complete) and a Done item (tap to undo)
-                      // are actionable. The tap handler still makes a read-only
-                      // press a safe no-op.
-                      inert={fromCache || activePersonId === null}
+                      // are actionable, online or off - offline the tap is queued.
+                      // The tap handler still makes a read-only press a safe no-op.
+                      inert={staleCachedWeek || activePersonId === null}
                       onPress={() => toggle(item.choreId)}
                     />
                   ))}

@@ -71,8 +71,8 @@ for a `web.output: single` app:
 | Build step | `scripts/pwa-export.js` | Injects the exported (content-hashed) file list and a build id into `dist/sw.js`, then verifies the export is installable. |
 
 **Offline scope.** This is the app *shell* only: HTML, JS, icons, static assets. API responses are
-not cached by the worker (the glance cache below is O2) and writes are not queued (that is O3) -
-non-GET and cross-origin requests fall straight through to the network.
+not cached by the worker (the glance cache below is O2) and writes are not queued by it (that is
+O3, below) - non-GET and cross-origin requests fall straight through to the network.
 
 **Checking it offline (local).**
 
@@ -108,11 +108,8 @@ last-known week and today's board (BRD 6.5 step 1, guardrail BO-5).
 
 Five rules keep it honest:
 
-- **Read cache only, and a cached board cannot write.** Nothing here touches the write path, and a
-  board served from cache is inert: its rows carry the *cached* `weekIso`, and the API resolves a
-  completion by `(householdId, weekIso, choreId)` with no current-week check - so a tap taken after
-  an outage that spanned a week boundary would land a completion in the stale week and succeed. Until
-  O3 can queue an offline tap, the last-known board is a display, not a control.
+- **Read cache only.** Nothing here touches the write path; queuing an offline tap is O3's job
+  (below), which persists separately through the same storage seam.
 - **It revives itself.** The hub is a tablet on a wall; nobody reloads it. While degraded each surface
   listens for `online` and refetches when the network returns, which re-stamps the cache and clears
   the last-known line. A healthy surface subscribes to nothing.
@@ -127,6 +124,52 @@ Five rules keep it honest:
   the caller back on its normal empty/error path. Reads are rebuilt field by field rather than cast,
   and each half is validated on its own, so a corrupt half cannot reach a render and the good half
   still serves.
+
+### The write queue (O3)
+
+O2 kept a cached board *readable* offline but refused every tap, because a cached row carries a
+stale `weekIso` and the API has no current-week check on a completion. O3 makes that tap safe to
+take: while offline (or the instant a live request answers `unreachable`), the tap still flips the
+row immediately and the write lands in a durable local queue instead of the API, then replays in
+order once the network is back (BRD 6.5 step 2, guardrail BO-5). Replay is safe without any
+client-side conflict resolution because `ChoreCompletions` are append-only and an assignment's
+`Status` is last-writer-wins under optimistic concurrency (risk R-2) - so a write that reaches the
+server twice cannot double-count or corrupt state; a client-side de-duplication key keeps the
+common double-send from even happening.
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Storage seam | `src/offline/storage.ts` | The one feature-detected, `SecurityError`-guarded Web Storage accessor (`defaultLocalStorage`) both O2 and O3 persist through, plus the shared `isRecord` validator. It also holds `sessionFallbackStorage()`, the write-only-as-far-as-this-session stand-in the queue (and only the queue) falls back to - see "never dropped, even with nowhere to persist" below. |
+| Queue | `src/offline/writeQueue.ts` | One record per household under `butler.writeq.v1.<householdId>`: an ordered list of `{ method, path, body, kind, dedupeKey, attempts, status }` entries. `enqueueWrite`/`readWriteQueue`/`saveWriteQueue` plus `drainWriteQueue`, which replays head-first, persists after every step, and stops (never reorders) at the first write it cannot confirm. |
+| React seam | `src/offline/useWriteQueue.ts` | `useWriteQueue(householdId, client)` hydrates the queue from storage on mount, drains on mount/reconnect/backoff-timer, coalesces concurrent drain requests into one pass, and hands a surface `{ entries, pending, failed, enqueue, flush }`. |
+| Week guard | `src/offline/weekIso.ts` | `isCurrentWeek(weekIso)` - the client-side mirror of the API's ISO year-week bucketing, used to refuse a write from a cached board whose week has rolled over (the one case queuing would still be unsafe). |
+| Board | `src/components/ChoreBoard.tsx` | Calls `enqueue()` from `toggle()` when offline (a cached board) or when a live request answers `network`; the optimistic flip stays either way. `applyQueuedWrites()` overlays not-yet-synced entries onto every fresh load, so a reconnect refetch racing the drain can never flicker a queued tap back to `Open`. |
+
+Five rules keep replay honest:
+
+- **An outage costs a write nothing.** A `network` answer means the outage is still on, not that the
+  write is bad - it does not consume the retry budget, so an outage of any length can never mark a
+  write terminally failed. A real HTTP/problem/parse error is the service actually refusing the
+  write; that one still reverts the optimistic flip, exactly as it did before O3.
+- **Bounded retries, then flag and continue.** A real error backs off exponentially (1s, 2s, 4s, 8s,
+  capped at 30s); at 5 attempts the entry is flagged `failed` and the drain steps past it rather than
+  blocking everything queued behind it. A flagged entry stays in storage - never dropped, never
+  auto-cleared - which is what O4 surfaces; only a fresh tap on the same target revives it.
+- **One write per target.** `enqueueWrite` keys by `(weekIso, choreId)`, not by direction: tapping
+  done twice queues one write, and a complete-then-undo collapses to the single write the user
+  actually meant, at its original queue position.
+- **Never dropped, even with nowhere to persist.** The read cache degrades to "no cache" when Web
+  Storage is absent (React Native), blocked (a privacy or kiosk profile), or refuses the write (quota,
+  private mode) - a cache miss costs nothing. The *queue* cannot degrade that far: a tap the board has
+  already flipped to done would be discarded with nothing left to replay it and nothing for O4 to
+  surface. So it falls back one step less far, to `sessionFallbackStorage()` - session memory that the
+  drain reads back through the same seam, so the queue stays complete, ordered, and replayable for the
+  rest of the session, and only *durability across a relaunch* is given up. `saveWriteQueue` returns
+  whether the queue landed durably, so the distinction is reported rather than assumed.
+- **A cached board that has rolled into a new week stays read-only.** `isCurrentWeek` is checked both
+  at render (whether the row is tappable) and again inside `toggle` (a wall tablet can sit untouched
+  for days, so the week is judged at the moment of the tap, not the moment the board last drew
+  itself) - the one case where queuing the tap would still land a completion in the wrong week.
 
 ## Project structure
 
@@ -157,8 +200,12 @@ src/
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
-  offline/    glanceCache.ts # last-known glance read cache in browser storage, keyed by householdId (O2)
+  offline/    storage.ts    # shared, feature-detected Web Storage seam both offline modules persist through, plus the queue's session-memory fallback (O2/O3)
+              glanceCache.ts # last-known glance read cache in browser storage, keyed by householdId (O2)
               useReconnect.ts # `online`-event signal that refetches a degraded surface; no-op off web (O2)
+              weekIso.ts    # client-side ISO year-week helpers (isCurrentWeek) guarding a write from a stale cached board (O3)
+              writeQueue.ts # durable local write queue + drain/replay-on-reconnect, keyed by householdId (O3)
+              useWriteQueue.ts # React seam over the write queue: hydrate, drain on mount/reconnect/backoff, enqueue (O3)
   pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
               useServiceWorkerRegistration.ts # the hook App.tsx calls on mount (O1)
   state/      AppConfigContext.tsx # app-wide config/context providers
@@ -330,8 +377,8 @@ or `{ ok: false, error }`, where `error.kind` is one of `http` (error status, no
 (a success status whose body wasn't valid JSON). Callers branch on `result.ok` and never need to
 `try/catch` a raw fetch. In components, get a client bound to the current config via the
 `useApiClient()` hook (`src/api/useApiClient.ts`) rather than calling `createApiClient` directly.
-Offline behavior (queuing writes while unreachable, Epic 60) layers on top of this seam and is not
-built yet.
+Offline behavior layers on top of this seam: a `network` result is what the O3 write queue
+(`src/offline/writeQueue.ts`) queues instead of surfacing as an error.
 
 **Household context** (`src/state/HouseholdContext.tsx`) holds the currently-selected household for the
 shared tablet. Wrap the app in `HouseholdProvider` (already wired in `App.tsx`) and read/set the active
@@ -377,5 +424,6 @@ touching anything under `public/` or `scripts/`.
   token on later reads/completion writes, and the actual roster-edit/order-confirm/teardown screens the
   `OrganizerBar` callbacks wire into, are later tickets.
 - The web export is an installable PWA (O1): manifest, icons, and a service worker that precaches the
-  app shell, so a second load of the hub works with the network off. Caching API data (O2) and queuing
-  writes while offline (O3) are later tickets and are deliberately not in the worker yet.
+  app shell, so a second load of the hub works with the network off. Caching API data (O2, the
+  last-known glance) and queuing writes while offline (O3, the durable write queue) both build on top
+  of that shell rather than living in the worker itself.
