@@ -54,7 +54,10 @@ jobs:
       - name: Verify (lint, typecheck, 98% coverage gate)
         run: npm run ci:verify
 
-      # Prove the web bundle still builds - the v1 hub ships as this static
-      # export (deployed to Azure Static Web Apps).
-      - name: Web export
-        run: npx expo export --platform web
+      # Prove the deployable artifact still builds - the v1 hub ships as this
+      # static export (deployed to Azure Static Web Apps). This is the same
+      # command a deploy runs: the Expo web export plus the PWA post-export step,
+      # which injects the real precache list into dist/sw.js and then fails the
+      # build if the result is not an installable, offline-capable PWA.
+      - name: Web export (build + PWA verification)
+        run: npm run build:web

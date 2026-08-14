@@ -28,8 +28,20 @@ npm run android    # Android emulator
 ## Build & deploy (web)
 
 ```bash
-npx expo export --platform web     # static site -> dist/
+npm run build:web          # expo export --platform web  +  the PWA post-export step -> dist/
+npm run verify:web-export  # assert dist/ is an installable PWA, without re-exporting
 ```
+
+`build:web` is the command to deploy from, and the one CI runs. It runs the Expo web export and
+then `scripts/pwa-export.js`, which injects the real precache list into `dist/sw.js` and verifies
+the result.
+
+A bare `npx expo export --platform web` is **not** a deployable export. `public/` is copied verbatim
+into `dist/`, so the manifest, icons, and worker are all present and the browser will still offer the
+install - but `dist/sw.js` still carries its placeholder precache list (`/`, `/index.html`,
+`/manifest.json`) with no JS bundle in it. The worker would cache a shell it cannot run, and the
+first offline load would render blank. `verify:web-export` fails on exactly that, so an un-injected
+export never gets past CI.
 
 Publish `dist/` to Azure Static Web Apps. Infra is Bicep with fully parameterized names/tags (fill
 `infra/main.bicepparam` with values valid for the target subscription's Azure Policy first):
@@ -42,6 +54,42 @@ az deployment group create \
 ```
 
 App source is published via CI/CD (GitHub Actions / azd), not from the Bicep template.
+
+### The PWA (O1)
+
+The hub is installed on the family tablet as a PWA, which needs three things served together: a web
+app manifest, a registered service worker, and an https (or localhost) origin. All three ship from
+this folder, following the versioned [Expo 57 PWA guide](https://docs.expo.dev/guides/progressive-web-apps/)
+for a `web.output: single` app:
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Manifest | `public/manifest.json` | Install metadata: name, `display: standalone`, start URL, theme/background colour, and 192px + 512px icons in both `any` and `maskable` form (`public/icons/`, derived from `assets/icon.png`). |
+| HTML | `public/index.html` | The exporter's HTML template (`npx expo customize public/index.html`), with the `<link rel="manifest">`, `theme-color`, and apple-touch-icon added. |
+| Worker | `public/sw.js` | Precaches the app shell on install, serves it cache-first, and answers navigations network-first so a deploy is never pinned. Static assets only. |
+| Registration | `src/pwa/` | `registerServiceWorker()` + the `useServiceWorkerRegistration()` hook `App.tsx` calls on mount. Feature-detected, so it is a no-op on iOS/Android and never throws. |
+| Build step | `scripts/pwa-export.js` | Injects the exported (content-hashed) file list and a build id into `dist/sw.js`, then verifies the export is installable. |
+
+**Offline scope.** This is the app *shell* only: HTML, JS, icons, static assets. API responses are
+not cached (that is O2) and writes are not queued (that is O3) - non-GET and cross-origin requests
+fall straight through to the network.
+
+**Checking it offline (local).**
+
+```bash
+npm run build:web
+npx serve dist        # or any static server; localhost counts as a secure origin
+```
+
+Load the page, then in DevTools **Application > Service Workers** confirm the worker is activated,
+tick **Offline**, and reload: the hub still renders. `scripts/service-worker.test.js` asserts this
+same lifecycle headlessly, so the manual pass is a confirmation, not the only evidence.
+
+**Manual installability check (Lighthouse).** Automated tests cover the manifest, the worker, and
+the export; the browser's own install verdict is checked by hand. Serve `dist/` over https or
+localhost, open Chrome DevTools > **Lighthouse**, and run the report - the install criteria should
+pass and the address bar should offer **Install**. Re-run this whenever the manifest, the icons, or
+the worker change.
 
 ## Project structure
 
@@ -71,10 +119,19 @@ src/
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
+  pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
+              useServiceWorkerRegistration.ts # the hook App.tsx calls on mount (O1)
   state/      AppConfigContext.tsx # app-wide config/context providers
               HouseholdContext.tsx # current householdId + setter (useHousehold)
               OrganizerContext.tsx # signed-in organizer + token, backed by IAuthProvider (T4)
               HubDeviceContext.tsx # paired hub device token for the shared tablet (T5)
+public/                     # copied verbatim into dist/ by the web export (O1)
+  index.html                # the HTML template: links the manifest, keeps the Expo placeholders
+  manifest.json             # web app manifest (install metadata)
+  sw.js                     # the app-shell service worker
+  icons/                    # 192/512 install icons, `any` + `maskable`, and the apple-touch-icon
+scripts/                    # web-export build tooling (plain Node, no bundler)
+  pwa-export.js             # inject the precache list into dist/sw.js, then verify the export
 ```
 
 **Navigation** uses [React Navigation](https://reactnavigation.org/) with a native stack
@@ -256,6 +313,13 @@ Tests use `jest-expo` + `@testing-library/react-native` and live next to the cod
 (`coverageThreshold.global` in `jest.config.js`), per Engineering Contract 7.7 - keep new code covered.
 Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are async - `await` them.
 
+The web-export tooling is held to the same bar: `scripts/pwa-export.test.js` checks the shipped
+`public/` assets and the injection/verification logic against fixture exports, and
+`scripts/service-worker.test.js` drives `public/sw.js` through install -> activate -> offline fetch
+in a Node VM. Both run inside `npm run ci:verify`. The export itself is built by a separate CI step
+(`npm run build:web`, which fails if the result is not an installable PWA), so run that locally when
+touching anything under `public/` or `scripts/`.
+
 ## Notes
 
 - `CLAUDE.md` / `AGENTS.md` here are Expo-generated UI guidance and apply within this folder; the
@@ -272,3 +336,6 @@ Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are as
   the tablet and the resulting device token is held in memory for the process lifetime. Presenting that
   token on later reads/completion writes, and the actual roster-edit/order-confirm/teardown screens the
   `OrganizerBar` callbacks wire into, are later tickets.
+- The web export is an installable PWA (O1): manifest, icons, and a service worker that precaches the
+  app shell, so a second load of the hub works with the network off. Caching API data (O2) and queuing
+  writes while offline (O3) are later tickets and are deliberately not in the worker yet.

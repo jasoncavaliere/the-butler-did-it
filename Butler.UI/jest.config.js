@@ -16,7 +16,10 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|react-native-screens|react-native-safe-area-context|@sentry/react-native|native-base|react-native-svg)',
   ],
-  collectCoverageFrom: ['App.tsx', 'src/**/*.{ts,tsx}'],
+  // App code plus the build tooling that decides whether the web export is an installable PWA
+  // (O1) -- a broken `scripts/pwa-export.js` ships a hub that will not install, so it is held to
+  // the same bar as the app.
+  collectCoverageFrom: ['App.tsx', 'src/**/*.{ts,tsx}', 'scripts/**/*.js', '!scripts/**/*.test.js'],
   coverageThreshold: {
     global: {
       statements: 98,
