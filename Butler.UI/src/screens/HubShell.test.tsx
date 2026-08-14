@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { HubShell } from './HubShell';
-import type { ApiClient, ApiResult } from '../api/client';
+import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type { ParticipantSessionResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
+import { readGlance, writeGlance } from '../offline/glanceCache';
 import { HouseholdProvider } from '../state/HouseholdContext';
 import { OrganizerProvider } from '../state/OrganizerContext';
 
@@ -572,5 +573,382 @@ describe('HubShell', () => {
       });
       expect(screen.getByText("Alex's day")).toBeOnTheScreen();
     });
+  });
+});
+
+/**
+ * Epic 60 O2: the glance survives an outage. The hub caches the household and
+ * its people on every successful load, renders the real name tiles from that
+ * cache when the API is unreachable, and says so while it does.
+ */
+describe('HubShell offline cache', () => {
+  /** An in-memory stand-in for the browser storage the cache writes to. */
+  function installStorage(): void {
+    const entries = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (key: string) => entries.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          entries.set(key, value);
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  let reconnectCleanups: (() => void)[] = [];
+
+  /**
+   * Stand in for the browser's `online` event, which this test environment does
+   * not provide. Returns a function that fires a reconnect at whatever the hub
+   * subscribed, so a test can prove the wall recovers with nobody touching it.
+   */
+  function installReconnect(): () => void {
+    const listeners = new Set<() => void>();
+    const original = {
+      add: (globalThis as { addEventListener?: unknown }).addEventListener,
+      remove: (globalThis as { removeEventListener?: unknown }).removeEventListener,
+    };
+    const define = (name: string, value: unknown) =>
+      Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+
+    define('addEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.add(listener);
+      }
+    });
+    define('removeEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.delete(listener);
+      }
+    });
+
+    reconnectCleanups.push(() => {
+      define('addEventListener', original.add);
+      define('removeEventListener', original.remove);
+    });
+
+    return () => {
+      for (const listener of Array.from(listeners)) {
+        listener();
+      }
+    };
+  }
+
+  beforeEach(() => {
+    installStorage();
+    reconnectCleanups = [];
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    for (const cleanup of reconnectCleanups) {
+      cleanup();
+    }
+    useApiClientMock.mockReset();
+  });
+
+  const cachedPeople = [
+    { personId: 'p1', displayName: 'Alex', claimColor: '#B0206F', isChild: false },
+    { personId: 'p2', displayName: 'Sam', claimColor: null, isChild: true },
+  ];
+
+  const cachedBoard = {
+    weekIso: '2026-W29',
+    items: [
+      {
+        choreId: 'c1',
+        title: 'Dishes',
+        cadence: 'Daily',
+        assignedPersonId: 'p1',
+        status: 'Open' as const,
+      },
+    ],
+  };
+
+  /** A client whose every call fails the way an unreachable API does. */
+  function offlineClient(): ApiClient {
+    return {
+      baseUrl: 'http://api.test:1',
+      get: jest.fn(async () => unreachable) as unknown as ApiClient['get'],
+      update: jest.fn(async () => unreachable) as unknown as ApiClient['update'],
+    };
+  }
+
+  it('cache-write-on-successful-load: a live load caches the household and its people', async () => {
+    useApiClientMock.mockReturnValue(
+      clientWith({
+        household: okHousehold('The Rivera Household'),
+        people: { ok: true, status: 200, data: cachedPeople, etag: null },
+      }),
+    );
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+    expect(readGlance('hh-1')?.household).toEqual({
+      name: 'The Rivera Household',
+      people: cachedPeople,
+    });
+    // Nothing was served from cache, so the hub does not claim it was.
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+  });
+
+  it('render-from-cache-when-offline: name tiles render from cache, marked last-known', async () => {
+    writeGlance(
+      'hh-1',
+      { household: { name: 'The Rivera Household', people: cachedPeople }, board: cachedBoard },
+      undefined,
+      new Date(Date.now() - 12 * 60_000).toISOString(),
+    );
+    useApiClientMock.mockReturnValue(offlineClient());
+
+    await renderHub();
+
+    // Real tiles and a real household name, not an error or an empty wall.
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+    expect(screen.getByTestId('hub-household-name')).toHaveTextContent('The Rivera Household');
+    expect(screen.getByText('Sam')).toBeOnTheScreen();
+    expect(screen.queryByTestId('hub-error')).toBeNull();
+    // ...and today's board comes back from the same cache.
+    expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen();
+    // The view never pretends to be live.
+    expect(screen.getByTestId('last-known-banner')).toHaveTextContent(
+      'Showing last-known - saved 12 minutes ago',
+    );
+  });
+
+  it('falls back to cache when it is the roster read that cannot be reached', async () => {
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Home', people: cachedPeople } },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    useApiClientMock.mockReturnValue(
+      clientWith({ household: okHousehold('Home'), people: unreachable }),
+    );
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+    expect(screen.getByTestId('last-known-banner')).toBeOnTheScreen();
+  });
+
+  it('marks the hub last-known when only the board fell back', async () => {
+    writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
+    // The shell's reads succeed; the board's C3 generate is the one that cannot
+    // reach the API.
+    const client: ApiClient = {
+      ...clientWith({
+        household: okHousehold('Home'),
+        people: { ok: true, status: 200, data: cachedPeople, etag: null },
+      }),
+      update: jest.fn(async () => unreachable) as unknown as ApiClient['update'],
+    };
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(screen.getByTestId('last-known-banner')).toBeOnTheScreen();
+  });
+
+  /**
+   * A client that fails like an unreachable API or answers like a live one,
+   * switched by `state.offline` mid-test - the same object throughout, so a
+   * refetch can only have come from the reconnect signal, not from a new client.
+   */
+  function flippableClient(state: { offline: boolean }, liveName: string): ApiClient {
+    const live = clientWith({
+      household: okHousehold(liveName),
+      people: { ok: true, status: 200, data: cachedPeople, etag: null },
+    });
+    return {
+      baseUrl: live.baseUrl,
+      get: jest.fn(async (path: string) =>
+        state.offline ? unreachable : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
+      update: jest.fn(async (path: string, body: unknown, options?: UpdateOptions) =>
+        state.offline ? unreachable : live.update<unknown>(path, body, options),
+      ) as unknown as ApiClient['update'],
+    };
+  }
+
+  it('reconnect-refreshes-the-hub: an online event reloads the glance with nobody touching the wall', async () => {
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Stale Name', people: cachedPeople }, board: cachedBoard },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    const emitOnline = installReconnect();
+    const state = { offline: true };
+    useApiClientMock.mockReturnValue(flippableClient(state, 'The Rivera Household'));
+
+    await renderHub();
+
+    // The outage: the cached glance, honestly marked.
+    await waitFor(() => expect(screen.getByTestId('last-known-banner')).toBeOnTheScreen());
+    expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Stale Name');
+
+    // The network returns. No reload, no rerender, no new client - just the event.
+    state.offline = false;
+    await act(async () => {
+      emitOnline();
+    });
+
+    // The live household replaces the cached one...
+    await waitFor(() =>
+      expect(screen.getByTestId('hub-household-name')).toHaveTextContent('The Rivera Household'),
+    );
+    // ...the last-known indication clears (AC-5)...
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    // ...and the cache carries the live data under a newer stamp (AC-4).
+    const refreshed = readGlance('hh-1');
+    expect(refreshed?.household?.name).toBe('The Rivera Household');
+    expect(Date.parse(refreshed?.cachedAtIso ?? '')).toBeGreaterThan(
+      Date.parse('2026-07-20T09:00:00.000Z'),
+    );
+  });
+
+  it('reconnect-refreshes-the-hub: an online event recovers a hub that had nothing cached', async () => {
+    const emitOnline = installReconnect();
+    const state = { offline: true };
+    useApiClientMock.mockReturnValue(flippableClient(state, 'Home'));
+
+    await renderHub();
+
+    // Nothing cached, so the outage is the plain error state.
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+
+    state.offline = false;
+    await act(async () => {
+      emitOnline();
+    });
+
+    // The wall comes back by itself rather than holding an error until someone
+    // notices and reloads it.
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+    expect(screen.queryByTestId('hub-error')).toBeNull();
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+  });
+
+  it('does not listen for a reconnect while the hub is live', async () => {
+    const emitOnline = installReconnect();
+    const client = clientWith({
+      household: okHousehold('Home'),
+      people: { ok: true, status: 200, data: cachedPeople, etag: null },
+    });
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+    const readsBefore = (client.get as jest.Mock).mock.calls.length;
+    await act(async () => {
+      emitOnline();
+    });
+
+    // A healthy hub subscribes to nothing, so a stray reconnect cannot start a
+    // refetch storm on a device that is on all day.
+    expect((client.get as jest.Mock).mock.calls.length).toBe(readsBefore);
+  });
+
+  it('cache-refresh-on-a-later-load: the live data returns, the indication clears, the stamp moves', async () => {
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Stale Name', people: cachedPeople }, board: cachedBoard },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    useApiClientMock.mockReturnValue(offlineClient());
+
+    const view = await renderHub();
+    await waitFor(() => expect(screen.getByTestId('last-known-banner')).toBeOnTheScreen());
+
+    // The network comes back: a fresh client re-runs the load.
+    useApiClientMock.mockReturnValue(
+      clientWith({
+        household: okHousehold('The Rivera Household'),
+        people: { ok: true, status: 200, data: cachedPeople, etag: null },
+      }),
+    );
+    await act(async () => {
+      view.rerender(
+        <HouseholdProvider initialHouseholdId="hh-1">
+          <HubShell />
+        </HouseholdProvider>,
+      );
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('hub-household-name')).toHaveTextContent('The Rivera Household'),
+    );
+    // The indication clears...
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    // ...and the cache now holds the live data under a newer stamp.
+    const refreshed = readGlance('hh-1');
+    expect(refreshed?.household?.name).toBe('The Rivera Household');
+    expect(Date.parse(refreshed?.cachedAtIso ?? '')).toBeGreaterThan(
+      Date.parse('2026-07-20T09:00:00.000Z'),
+    );
+  });
+
+  it('keeps the error state when a reachable service fails, cache or not', async () => {
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Home', people: cachedPeople } },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    useApiClientMock.mockReturnValue(
+      clientWith({
+        household: {
+          ok: false,
+          error: { kind: 'problem', status: 403, title: 'Forbidden', detail: 'Not your household.' },
+        },
+        people: { ok: true, status: 200, data: cachedPeople, etag: null },
+      }),
+    );
+
+    await renderHub();
+
+    // A real answer from a reachable service is not something the cache hides.
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    expect(screen.getByTestId('hub-error')).toHaveTextContent('Not your household.');
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+  });
+
+  it('shows the offline error when there is nothing cached to fall back to', async () => {
+    useApiClientMock.mockReturnValue(offlineClient());
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+  });
+
+  it('never renders another household from cache', async () => {
+    writeGlance(
+      'hh-2',
+      { household: { name: 'Lake House', people: cachedPeople } },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    useApiClientMock.mockReturnValue(offlineClient());
+
+    await renderHub();
+
+    // hh-1 is the active household and has no cache of its own; hh-2's is never
+    // borrowed, no matter that it is the only thing stored.
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    expect(screen.queryByText('Lake House')).toBeNull();
+    expect(screen.queryByTestId('name-tile-p1')).toBeNull();
   });
 });

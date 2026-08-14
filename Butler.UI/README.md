@@ -71,8 +71,8 @@ for a `web.output: single` app:
 | Build step | `scripts/pwa-export.js` | Injects the exported (content-hashed) file list and a build id into `dist/sw.js`, then verifies the export is installable. |
 
 **Offline scope.** This is the app *shell* only: HTML, JS, icons, static assets. API responses are
-not cached (that is O2) and writes are not queued (that is O3) - non-GET and cross-origin requests
-fall straight through to the network.
+not cached by the worker (the glance cache below is O2) and writes are not queued (that is O3) -
+non-GET and cross-origin requests fall straight through to the network.
 
 **Checking it offline (local).**
 
@@ -90,6 +90,43 @@ the export; the browser's own install verdict is checked by hand. Serve `dist/` 
 localhost, open Chrome DevTools > **Lighthouse**, and run the report - the install criteria should
 pass and the address bar should offer **Install**. Re-run this whenever the manifest, the icons, or
 the worker change.
+
+### The last-known cache (O2)
+
+O1 keeps the app *shell* loading with no network; O2 keeps it *worth looking at*. Every successful
+load writes the data behind the daily glance to browser storage, and a load that fails because the
+API is unreachable renders from that copy instead of an error - so the wall still shows the
+last-known week and today's board (BRD 6.5 step 1, guardrail BO-5).
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Cache | `src/offline/glanceCache.ts` | One record per household under `butler.glance.v1.<householdId>`: the household + its people, the week + its board items, and a `cachedAtIso` freshness stamp. Read/write/merge helpers plus `describeLastKnown()`. |
+| Reconnect | `src/offline/useReconnect.ts` | `useReconnectSignal(enabled)` - a counter that bumps on the browser `online` event while a surface is degraded. Both load effects list it, so the network returning refetches. |
+| Tiles | `src/screens/HubShell.tsx` | Caches the household read; falls back to it when the API is unreachable, so the name tiles stay real. |
+| Board | `src/components/ChoreBoard.tsx` | Caches the built week; falls back to it the same way, renders that fallback read-only, and reports up so the hub can mark the view. |
+| Indication | `src/components/LastKnownBanner.tsx` | One calm line under the header ("Showing last-known - saved 12 minutes ago"), shown whenever any region is served from cache and cleared on the next successful load. |
+
+Five rules keep it honest:
+
+- **Read cache only, and a cached board cannot write.** Nothing here touches the write path, and a
+  board served from cache is inert: its rows carry the *cached* `weekIso`, and the API resolves a
+  completion by `(householdId, weekIso, choreId)` with no current-week check - so a tap taken after
+  an outage that spanned a week boundary would land a completion in the stale week and succeed. Until
+  O3 can queue an offline tap, the last-known board is a display, not a control.
+- **It revives itself.** The hub is a tablet on a wall; nobody reloads it. While degraded each surface
+  listens for `online` and refetches when the network returns, which re-stamps the cache and clears
+  the last-known line. A healthy surface subscribes to nothing.
+- **Only for an unreachable API.** The fallback fires on the client's normalized `network` error. An
+  HTTP/problem/parse failure is a real answer from a reachable service and still shows as an error,
+  so the cache never hides a bug behind stale data. A partial outage shows the cached record whole
+  rather than splicing it with the half that arrived - one glance, one freshness stamp.
+- **Never cross-household.** The record is keyed by `householdId` *and* carries its own, verified on
+  read; a mismatch reads as no cache.
+- **Never a crash.** Storage that is absent, blocked (where even *reading* `localStorage` throws), or
+  full, and an entry that is missing, unparseable, or wrong-shaped, all degrade to "no cache" and drop
+  the caller back on its normal empty/error path. Reads are rebuilt field by field rather than cast,
+  and each half is validated on its own, so a corrupt half cannot reach a render and the good half
+  still serves.
 
 ## Project structure
 
@@ -115,10 +152,13 @@ src/
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
               GroceryCart.tsx # hub grocery region: add by typing, review the cart, organizer-only confirm (Epic 50 G5)
+              LastKnownBanner.tsx # "showing last-known" indication when a region is served from cache (O2)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
+  offline/    glanceCache.ts # last-known glance read cache in browser storage, keyed by householdId (O2)
+              useReconnect.ts # `online`-event signal that refetches a degraded surface; no-op off web (O2)
   pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
               useServiceWorkerRegistration.ts # the hook App.tsx calls on mount (O1)
   state/      AppConfigContext.tsx # app-wide config/context providers
