@@ -43,6 +43,7 @@ npm install
 npm run web                      # web-first dev loop (the hub in a browser)
 npm run ios | npm run android    # native simulators
 npx expo export --platform web   # static build -> dist/ (deploy target for Azure SWA)
+npm run build:web                # the same export + the PWA precache/verify step (deploy from this)
 ```
 
 Butler.API (from `Butler.API/`):
