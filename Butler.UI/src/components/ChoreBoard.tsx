@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { ApiResult } from '../api/client';
 import type {
   AssignmentSetResponse,
   ChoreResponse,
@@ -10,6 +11,8 @@ import type {
 } from '../api/models';
 import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
+import { readGlance, writeGlance } from '../offline/glanceCache';
+import { useReconnectSignal } from '../offline/useReconnect';
 import { colors } from './Screen';
 
 /**
@@ -42,6 +45,28 @@ import { colors } from './Screen';
  * back to `Open`. Both reconcile to the response status and revert on error, so a
  * mis-tap in either direction is recoverable without leaving the board lying about
  * the server.
+ *
+ * Offline (Epic 60 O2), the read path falls back to the last-known week: every
+ * successful load caches the built week, and a load that fails *because the API
+ * is unreachable* renders those cached items through this same board instead of
+ * the error line, reporting the cache's freshness stamp up to the shell so the
+ * hub can mark the view as last-known. Only a `network` failure falls back - an
+ * HTTP/problem/parse error is a real answer from a reachable service and still
+ * shows as an error.
+ *
+ * A board served from cache is **read-only**, and it comes back to life by
+ * itself:
+ * - read-only, because a cached row carries the *cached* `weekIso` and the API
+ *   resolves a completion by `(householdId, weekIso, choreId)` with no
+ *   current-week check. Left tappable, a tap taken after an outage that spanned a
+ *   week boundary would post a completion into the stale week and *succeed* -
+ *   marking last week done while this week's chore stays open. O2 is a read
+ *   cache; queuing an offline tap is O3's job, so until then the honest
+ *   behaviour is that the last-known board is a display, not a control.
+ * - self-reviving, because the hub lives on a wall and nobody reloads it. While
+ *   degraded the board listens for a reconnect ({@link useReconnectSignal}) and
+ *   refetches when the network returns, which is what turns the cached board back
+ *   into a live, tappable one and re-stamps the cache.
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -65,20 +90,63 @@ function isDaily(cadence: string): boolean {
   return cadence.toLowerCase() === 'daily';
 }
 
+/** A read that did not produce a board, and whether the API was unreachable. */
+export type LoadFailure = { message: string; offline: boolean };
+
+/**
+ * Describe one of the board's failed reads: the line to show, and whether the
+ * API was unreachable. Only the client's normalized `network` error means
+ * "unreachable", which is the single case the last-known cache stands in for -
+ * an HTTP/problem/parse error is a real answer from a reachable service, and a
+ * result that never arrived carries no error to classify at all.
+ */
+export function describeFailure(result: ApiResult<unknown> | undefined): LoadFailure {
+  if (result && !result.ok) {
+    return { message: describeApiError(result.error), offline: result.error.kind === 'network' };
+  }
+  return { message: 'The board is unavailable.', offline: false };
+}
+
 export function ChoreBoard({
   householdId,
   people,
   activePersonId,
+  onLastKnown,
 }: {
   householdId: string;
   people: RosterEntryResponse[];
   activePersonId: string | null;
+  /**
+   * Reports whether this board is being served from the offline cache: the
+   * record's freshness stamp when it is, `null` when it is live. The shell uses
+   * it to show a single "showing last-known" indication for the whole hub
+   * instead of one per region.
+   */
+  onLastKnown?: (cachedAtIso: string | null) => void;
 }) {
   const client = useApiClient();
   const [phase, setPhase] = useState<Phase>('loading');
   const [message, setMessage] = useState('');
   const [weekIso, setWeekIso] = useState('');
   const [items, setItems] = useState<BoardItem[]>([]);
+  // Whether what is on screen came from the offline cache rather than the API.
+  // This is what makes the board read-only (see the module docstring): a cached
+  // row carries the cached week, so a tap on it could complete the wrong week.
+  const [fromCache, setFromCache] = useState(false);
+
+  // Held in a ref so an inline callback from the parent cannot re-trigger the
+  // load effect below (which would refetch the week on every render).
+  const reportRef = useRef(onLastKnown);
+  useEffect(() => {
+    reportRef.current = onLastKnown;
+  }, [onLastKnown]);
+
+  // Degraded = the last load did not produce live data, whether it fell back to
+  // the cache or had nothing to fall back to. Only while degraded does the board
+  // listen for a reconnect, so a healthy hub subscribes to nothing; the returned
+  // counter is a load dependency, so the network coming back refetches the week.
+  const degraded = fromCache || phase === 'error';
+  const reconnectSignal = useReconnectSignal(degraded);
 
   useEffect(() => {
     let active = true;
@@ -94,14 +162,39 @@ export function ChoreBoard({
       if (!active) {
         return;
       }
-      if (!assignments || !assignments.ok) {
-        setMessage(assignments ? describeApiError(assignments.error) : 'The board is unavailable.');
+
+      // A failed read falls back to the last-known week when (and only when) the
+      // API was unreachable, so the wall keeps showing a real, readable board
+      // rather than an error line (BRD 6.5 step 1). With no usable cache it is
+      // the pre-O2 error state, unchanged.
+      //
+      // A partial outage (one of the two reads answered) deliberately falls back
+      // to the whole cached record rather than rendering the half that arrived:
+      // one coherent week under one freshness stamp is honest, whereas a live
+      // assignment set drawn with cached titles - or with none - would be a mix
+      // the "showing last-known" line could not describe truthfully.
+      const applyFailure = (failure: LoadFailure) => {
+        const cached = failure.offline ? readGlance(householdId) : null;
+        if (cached !== null && cached.board !== null) {
+          setWeekIso(cached.board.weekIso);
+          setItems(cached.board.items);
+          setFromCache(true);
+          setPhase('ready');
+          reportRef.current?.(cached.cachedAtIso);
+          return;
+        }
+        setMessage(failure.message);
+        setFromCache(false);
         setPhase('error');
+        reportRef.current?.(null);
+      };
+
+      if (!assignments || !assignments.ok) {
+        applyFailure(describeFailure(assignments));
         return;
       }
       if (!chores || !chores.ok) {
-        setMessage(chores ? describeApiError(chores.error) : 'The board is unavailable.');
-        setPhase('error');
+        applyFailure(describeFailure(chores));
         return;
       }
 
@@ -117,16 +210,27 @@ export function ChoreBoard({
           status: assignment.status === 'Done' ? 'Done' : 'Open',
         };
       });
+      const week = set?.weekIso ?? '';
 
-      setWeekIso(set?.weekIso ?? '');
+      setWeekIso(week);
       setItems(built);
+      // Live data: the board is tappable again and no longer last-known, which is
+      // how a reconnect turns a read-only cached board back into a control.
+      setFromCache(false);
       setPhase('ready');
+      // Refresh the cache (and its freshness stamp) on every successful load, so
+      // the next outage falls back to this week rather than an older one.
+      writeGlance(householdId, { board: { weekIso: week, items: built } });
+      reportRef.current?.(null);
     });
 
     return () => {
       active = false;
     };
-  }, [client, householdId]);
+    // `reconnectSignal` bumps when the network returns while degraded; listing it
+    // here is what makes the reconnect refetch (AC-4/AC-5) rather than waiting for
+    // someone to reload a tablet nobody touches.
+  }, [client, householdId, reconnectSignal]);
 
   // Tapping an item toggles its completion, attributed to the active participant
   // (T3): an `Open` item completes through C4, a `Done` item undoes that
@@ -135,9 +239,16 @@ export function ChoreBoard({
   // reconciles to the response status, and reverts to the item's prior state on
   // error (or an unconfirmed/empty response), so a mis-tap either way is
   // recoverable and the board never lies about the server.
+  //
+  // A board served from the offline cache writes nothing at all. Its `weekIso` is
+  // the *cached* week, and the API resolves a completion by
+  // `(householdId, weekIso, choreId)` without checking that the week is current -
+  // so a tap taken on a cached board after the network returned would land a
+  // completion in the stale week and succeed. Refusing the write is the only
+  // honest answer until O3 can queue one.
   const toggle = useCallback(
     async (choreId: string) => {
-      if (activePersonId === null) {
+      if (fromCache || activePersonId === null) {
         return;
       }
       const target = items.find((item) => item.choreId === choreId);
@@ -171,7 +282,7 @@ export function ChoreBoard({
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );
     },
-    [client, householdId, weekIso, activePersonId, items],
+    [client, householdId, weekIso, activePersonId, items, fromCache],
   );
 
   if (phase === 'loading') {
@@ -253,11 +364,13 @@ export function ChoreBoard({
                       item={item}
                       accent={accent}
                       glow={isActive}
-                      // Read-only only when no participant is active: with one
-                      // active, both an Open item (tap to complete) and a Done item
-                      // (tap to undo) are actionable. The tap handler still makes a
-                      // read-only press a safe no-op.
-                      inert={activePersonId === null}
+                      // Read-only when no participant is active, or when the whole
+                      // board is the last-known one served from cache (a cached
+                      // row must never write - see `toggle`). Otherwise both an
+                      // Open item (tap to complete) and a Done item (tap to undo)
+                      // are actionable. The tap handler still makes a read-only
+                      // press a safe no-op.
+                      inert={fromCache || activePersonId === null}
                       onPress={() => toggle(item.choreId)}
                     />
                   ))}

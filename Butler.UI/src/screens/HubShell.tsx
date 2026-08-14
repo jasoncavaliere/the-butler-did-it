@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { ApiClient } from '../api/client';
+import type { ApiClient, ApiError } from '../api/client';
 import { describeApiError } from '../api/errors';
 import type {
   HouseholdResponse,
@@ -14,8 +14,11 @@ import { OrganizerBar } from '../auth/OrganizerBar';
 import { ChoreBoard } from '../components/ChoreBoard';
 import { FairnessView } from '../components/FairnessView';
 import { GroceryCart } from '../components/GroceryCart';
+import { LastKnownBanner } from '../components/LastKnownBanner';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
+import { readGlance, writeGlance } from '../offline/glanceCache';
+import { useReconnectSignal } from '../offline/useReconnect';
 import { useHousehold } from '../state/HouseholdContext';
 
 /**
@@ -62,11 +65,50 @@ export function isClaimableMember(person: RosterEntryResponse): boolean {
  * or an unreachable service) so the wall never shows a crash or a blank screen.
  * There is no password or sign-in prompt here: participants glance and tap, and
  * organizer sign-in is a separate affordance (T4).
+ *
+ * Offline (Epic 60 O2) the glance survives: each successful load caches the
+ * household and its roster, and a load that fails because the API is
+ * unreachable renders the real name tiles from that cache instead of the error
+ * line. Whenever any region of the hub - these tiles or the board - is served
+ * from cache, one {@link LastKnownBanner} says so, and it clears the moment a
+ * load succeeds again. While degraded the shell listens for a reconnect
+ * ({@link useReconnectSignal}) and reloads itself when the network returns, so
+ * the wall recovers on its own - nobody reloads a tablet in a kitchen.
  */
 type LoadState =
   | { phase: 'loading' }
-  | { phase: 'ready'; householdName: string; people: RosterEntryResponse[] }
+  | {
+      phase: 'ready';
+      householdName: string;
+      people: RosterEntryResponse[];
+      /** The cache's freshness stamp when served offline; `null` when live. */
+      cachedAtIso: string | null;
+    }
   | { phase: 'error'; message: string };
+
+/**
+ * Decide what to show when a shell read fails. An unreachable API falls back to
+ * the household's cached glance so the tiles stay real and tappable; every other
+ * failure (and an outage with no usable cache) keeps the pre-O2 error state, so
+ * the cache stands in for the network and nothing else.
+ *
+ * When only one of the two reads failed, the cached record is still shown whole
+ * rather than spliced with the half that arrived: one coherent glance under one
+ * freshness stamp is something the "showing last-known" line can describe
+ * honestly, and a live name over a cached roster is not.
+ */
+function resolveShellFailure(householdId: string, error: ApiError): LoadState {
+  const cached = error.kind === 'network' ? readGlance(householdId) : null;
+  if (cached !== null && cached.household !== null) {
+    return {
+      phase: 'ready',
+      householdName: cached.household.name,
+      people: cached.household.people,
+      cachedAtIso: cached.cachedAtIso,
+    };
+  }
+  return { phase: 'error', message: describeApiError(error) };
+}
 
 /** Today's date, formatted for a glance ("Monday, July 20"). */
 function todayLabel(): string {
@@ -89,6 +131,14 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
     null,
   );
 
+  // Degraded = the shell is showing the cached glance, or has nothing to show at
+  // all. Only then does it listen for a reconnect, and the returned counter is a
+  // load dependency - so the network coming back reloads the hub, refreshes the
+  // cache, and clears the last-known indication (AC-4/AC-5) without a reload.
+  const shellDegraded =
+    state.phase === 'error' || (state.phase === 'ready' && state.cachedAtIso !== null);
+  const reconnectSignal = useReconnectSignal(shellDegraded);
+
   useEffect(() => {
     // Without a selected household there is nothing to load; the "no household"
     // state is derived at render, so the effect never sets state synchronously.
@@ -106,24 +156,32 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
         return;
       }
       if (!householdResult.ok) {
-        setState({ phase: 'error', message: describeApiError(householdResult.error) });
+        setState(resolveShellFailure(householdId, householdResult.error));
         return;
       }
       if (!peopleResult.ok) {
-        setState({ phase: 'error', message: describeApiError(peopleResult.error) });
+        setState(resolveShellFailure(householdId, peopleResult.error));
         return;
       }
+      const people = peopleResult.data ?? [];
       setState({
         phase: 'ready',
         householdName: householdResult.data.name,
-        people: peopleResult.data ?? [],
+        people,
+        cachedAtIso: null,
       });
+      // Refresh the cache (and its freshness stamp) on every successful load, so
+      // the next outage - and the reconnect after it - always shows the newest
+      // household the hub has actually seen.
+      writeGlance(householdId, { household: { name: householdResult.data.name, people } });
     });
 
     return () => {
       active = false;
     };
-  }, [client, householdId]);
+    // `reconnectSignal` bumps when the network returns while degraded, which is
+    // what makes the hub reload itself rather than sitting on last-known data.
+  }, [client, householdId, reconnectSignal]);
 
   // Tapping a name claims that person through T1 and makes them active. There is
   // no password/PIN step: a successful claim sets the session, a switch (tapping
@@ -152,6 +210,14 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
     return () => clearTimeout(timer);
   }, [activeParticipant, idleTimeoutMs]);
 
+  // The board reports whether it is serving the last-known week (O2). Stable
+  // across renders so it never re-triggers the board's load effect.
+  const [boardCachedAtIso, setBoardCachedAtIso] = useState<string | null>(null);
+  const handleBoardLastKnown = useCallback(
+    (cachedAtIso: string | null) => setBoardCachedAtIso(cachedAtIso),
+    [],
+  );
+
   // A missing household is a calm derived state, not a fetch outcome.
   const view: LoadState =
     householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
@@ -161,6 +227,11 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
   // the board, and never counted in the fairness balance. This mirrors the API's
   // already-filtered roster read and holds the line even if one ever slips through.
   const members: RosterEntryResponse[] = view.phase === 'ready' ? view.people.filter(isClaimableMember) : [];
+  // One last-known indication for the whole hub: the tiles' own stamp when the
+  // shell fell back, otherwise the board's when only it did. Either way it
+  // clears as soon as both are live again.
+  const lastKnownAtIso: string | null =
+    view.phase === 'ready' ? view.cachedAtIso ?? boardCachedAtIso : null;
 
   return (
     <View style={styles.hub} testID="hub-shell">
@@ -174,6 +245,8 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
           {todayLabel()}
         </Text>
       </View>
+
+      {lastKnownAtIso !== null ? <LastKnownBanner cachedAtIso={lastKnownAtIso} /> : null}
 
       <View style={styles.tiles} testID="hub-name-tiles">
         {view.phase === 'loading' && (
@@ -214,6 +287,7 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
             householdId={householdId}
             people={members}
             activePersonId={activeParticipant?.personId ?? null}
+            onLastKnown={handleBoardLastKnown}
           />
         ) : null}
       </TodayPanel>
