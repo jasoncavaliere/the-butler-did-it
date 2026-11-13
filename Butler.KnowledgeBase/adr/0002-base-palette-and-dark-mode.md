@@ -1,6 +1,8 @@
 ---
 id: ADR-0002
 title: Warm-ivory and deep-teal base palette with first-class dark mode
+type: Decision Record
+description: We will use a warm-ivory and deep-teal base palette with light and dark both first class.
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [color, brand, accessibility]
 supersedes: none
 superseded-by: none
 related: [ADR-0003, ADR-0005, ADR-0008, ADR-0010]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0002: Warm-ivory and deep-teal base palette with first-class dark mode

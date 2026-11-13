@@ -1,14 +1,15 @@
 ---
-name:          20-architecture-overview
-title:         Architecture Overview (v1)
-category:      Architecture
-lifecycle:     Living
-owner:         agent-managed
-last-reviewed: 2026-07-21
-audience:      Engineers and agents building Butler v1
-keywords:      [architecture, v1, azure table storage, mediatr, cqrs, entra external id, tap-to-claim, store connector, coverage gate, offline pwa, engineering contract, householdId]
-related:       [10-product-vision, 90-glossary]
-published-to:
+type: Architecture
+title: Architecture Overview (v1)
+description: "How v1 is built: a map of each locked architecture decision, linked to the binding Engineering Contract clause."
+tags: [architecture, v1, azure table storage, mediatr, cqrs, entra external id, tap-to-claim, store connector]
+category: Architecture
+lifecycle: Living
+owner: agent-managed
+related: [10-product-vision, 90-glossary]
+sources:
+  - { id: contract, resource: ../brd/07-engineering-contract.md, title: Butler v1 Engineering Contract }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
 ---
 
 # Architecture Overview (v1)
@@ -33,25 +34,26 @@ These are the end-to-end journeys the architecture has to serve. Each is specifi
 
 One entry per locked decision. Each is a summary that links to its authoritative source, not a copy.
 
-- **Persistence.** Azure Table Storage partitioned by `householdId`, plus Blob and Queues, all behind repository interfaces. No EF Core and no relational database. The choice is about cost and fit: the household model is a natural per-`householdId` aggregate, so every product read and write is a single-partition operation, and idle cost stays near zero. See the [data model](../brd/07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) and decision D-1 in [Section 5.3](../brd/00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions); the short rationale is in [`brd/README.md`](../brd/README.md).
-- **API architecture.** Layered with MediatR CQRS, adopted from the QControl house style: Controller (thin) to MediatR command or query to Handler to Application Service to Repository to Azure Storage. Features compose through an `Add<Feature>Feature()` extension registered in `Program.cs`. Central package management, `TreatWarningsAsErrors`, targeting .NET 10. See [Section 7.2](../brd/07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
-- **Identity.** The organizer authenticates through Microsoft Entra External ID as a JWT bearer. Participants use no-password [tap-to-claim](90-glossary.md#tap-to-claim). Sensitive actions sit behind the organizer policy, the hub tablet is a paired device identity, and no money moves in v1 (D-3, D-8). See [Section 7.4](../brd/07-engineering-contract.md#74-authentication-and-authorization).
-- **Grocery.** A real `IStoreConnector` seam with a deterministic `SimulatedHebConnector`, because HEB has no public consumer API. Capture sits behind an `ICaptureSource` seam so live Alexa can drop in later (D-4, D-5). See the connector detail in [Section 7.2](../brd/07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol) and decisions D-4 and D-5 in [Section 5.3](../brd/00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions).
-- **Determinism.** Time and randomness are injected, and the fair-assignment algorithm is a deterministic pure function (D-6). Same inputs always produce the same assignment set, so it is unit-tested against fixed inputs. See [Section 7.6](../brd/07-engineering-contract.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses).
-- **Quality gate.** A hard 98 percent coverage gate on lines, methods, and branches for the code sub-services, enforced by the build and by CI, so a PR that drops below the bar cannot merge. See [Section 7.7](../brd/07-engineering-contract.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable).
-- **Repository and toolchains.** One repo, `the-butler-did-it`, with two sub-services on independent gates and no root build: `Butler.API/` on .NET 10 and `Butler.UI/` on Expo, web-first (D-7). See [Section 7.1](../brd/07-engineering-contract.md#71-repository-and-toolchains).
+- **Persistence.** Azure Table Storage partitioned by `householdId`, plus Blob and Queues, all behind repository interfaces. No EF Core and no relational database. The choice is about cost and fit: the household model is a natural per-`householdId` aggregate, so every product read and write is a single-partition operation, and idle cost stays near zero. See the [data model](../brd/engineering-contract/73-data-model.md) and decision D-1 in [Section 5.3](../brd/00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions); the short rationale is in [`brd/index.md`](../brd/index.md).
+- **API architecture.** Layered with MediatR CQRS, adopted from the QControl house style: Controller (thin) to MediatR command or query to Handler to Application Service to Repository to Azure Storage. Features compose through an `Add<Feature>Feature()` extension registered in `Program.cs`. Central package management, `TreatWarningsAsErrors`, targeting .NET 10. See [Section 7.2](../brd/engineering-contract/72-api-architecture.md).
+- **Identity.** The organizer authenticates through Microsoft Entra External ID as a JWT bearer. Participants use no-password [tap-to-claim](90-glossary.md#tap-to-claim). Sensitive actions sit behind the organizer policy, the hub tablet is a paired device identity, and no money moves in v1 (D-3, D-8). See [Section 7.4](../brd/engineering-contract/74-authentication-and-authorization.md).
+- **Grocery.** A real `IStoreConnector` seam with a deterministic `SimulatedHebConnector`, because HEB has no public consumer API. Capture sits behind an `ICaptureSource` seam so live Alexa can drop in later (D-4, D-5). See the connector detail in [Section 7.2](../brd/engineering-contract/72-api-architecture.md) and decisions D-4 and D-5 in [Section 5.3](../brd/00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions).
+- **Determinism.** Time and randomness are injected, and the fair-assignment algorithm is a deterministic pure function (D-6). Same inputs always produce the same assignment set, so it is unit-tested against fixed inputs. See [Section 7.6](../brd/engineering-contract/76-fair-assignment-algorithm.md).
+- **Quality gate.** A hard 98 percent coverage gate on lines, methods, and branches for the code sub-services, enforced by the build and by CI, so a PR that drops below the bar cannot merge. See [Section 7.7](../brd/engineering-contract/77-testing-and-definition-of-done.md).
+- **Repository and toolchains.** One repo, `the-butler-did-it`, with two sub-services on independent gates and no root build: `Butler.API/` on .NET 10 and `Butler.UI/` on Expo, web-first (D-7). See [Section 7.1](../brd/engineering-contract/71-repository-and-toolchains.md).
 - **UI.** `Butler.UI/` is an Expo web-first, installable, offline-tolerant PWA - the [BYO-tablet](90-glossary.md#byo-tablet) hub. See the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app).
 
-There are cross-cutting conventions every ticket also inherits - RFC 7807 error shapes, optimistic concurrency, injected time - specified in [Section 7.5](../brd/07-engineering-contract.md#75-cross-cutting-conventions-binding-for-every-ticket).
+There are cross-cutting conventions every ticket also inherits - RFC 7807 error shapes, optimistic concurrency, injected time - specified in [Section 7.5](../brd/engineering-contract/75-cross-cutting-conventions.md).
 
 ## How the pieces fit
 
-Follow one write request to see how the layers connect. A participant taps a chore done on the hub. The UI sends an HTTP request to `Butler.API`. A thin Controller receives it and does almost nothing except hand a MediatR command to the sender. MediatR routes the command to its Handler, passing through the pipeline behaviors first (logging, validation, exception mapping). The Handler calls the feature's Application Service, which holds the orchestration logic. The Application Service reads and writes through a Repository interface, and the Azure-backed repository stores the completion in a Table partitioned by `householdId`. The response flows back out the same path. Every product read and write stays inside one household's partition. The binding detail of this path is [Section 7.2](../brd/07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
+Follow one write request to see how the layers connect. A participant taps a chore done on the hub. The UI sends an HTTP request to `Butler.API`. A thin Controller receives it and does almost nothing except hand a MediatR command to the sender. MediatR routes the command to its Handler, passing through the pipeline behaviors first (logging, validation, exception mapping). The Handler calls the feature's Application Service, which holds the orchestration logic. The Application Service reads and writes through a Repository interface, and the Azure-backed repository stores the completion in a Table partitioned by `householdId`. The response flows back out the same path. Every product read and write stays inside one household's partition. The binding detail of this path is [Section 7.2](../brd/engineering-contract/72-api-architecture.md).
 
 ## Sources
 
 - [`brd/00-brd-master.md`](../brd/00-brd-master.md) - the master BRD. Section 7 is the binding [Engineering Contract](../brd/07-engineering-contract.md); Section 5.3 holds the [scope decisions](../brd/00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions) (D-1 through D-8) this article summarizes.
-- [`brd/README.md`](../brd/README.md) - the epic index and the short rationale behind Table Storage, Entra External ID, and the simulated connector.
+- [`brd/index.md`](../brd/index.md) - the BRD map: master, contract clauses, epics, and tickets.
+- [`brd/filing-guide.md`](../brd/filing-guide.md) - the short rationale behind Table Storage, Entra External ID, and the simulated connector, plus the dependency order.
 - The `intake/` folder - the raw vision and build brief that the BRD and this KB derive from. Provenance; keep it.
 
 ## Related

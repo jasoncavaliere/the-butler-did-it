@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the canonical Ticket <-> GitHub Issue crosswalk (ticket-issue-map.md).
 
-Reads the BRD epic files for ticket metadata (id, title, epic, priority, blocked-by)
+Reads the ticket files (brd/tickets/*.md frontmatter: title, epic, tags, blocked-by)
 and the live GitHub issues (matched by the "ID:" title prefix), then writes
 Butler.KnowledgeBase/brd/ticket-issue-map.md.
 
@@ -12,10 +12,12 @@ Re-run any time issues are added, renumbered, or closed:
 Requires: `gh` authenticated for the repo. Output is plain ASCII (KB usability scorer).
 """
 import re, json, subprocess, pathlib, sys
+from datetime import datetime, timezone
 
 REPO = "jasoncavaliere/the-butler-did-it"
 BRD = pathlib.Path(__file__).resolve().parent.parent          # .../brd
 OUT = BRD / "ticket-issue-map.md"
+TICKETS = BRD / "tickets"
 
 # epic file -> (display name, epic label). Order defines the map + implementation order.
 EPICS = [
@@ -27,36 +29,41 @@ EPICS = [
     ("60-epic-offline-pwa.md",           "Offline PWA",                  "epic:offline"),
 ]
 
-TICKET_RE   = re.compile(r"^## ([A-Z]+\d+): (.+)$")
-BLOCKED_RE  = re.compile(r"^\*\*Blocked by:\*\*\s*(.+)$")
-PRIORITY_RE = re.compile(r"priority:(p\d)")
+FM_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 
 def sh(*args):
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
-def parse_epics():
-    tickets = []  # {id,title,epic,epic_file,priority,blocked:[ids]}
-    for fname, epic_name, epic_label in EPICS:
-        lines = (BRD / fname).read_text().splitlines()
-        heads = [i for i, l in enumerate(lines) if TICKET_RE.match(l)]
-        for start in heads:
-            m = TICKET_RE.match(lines[start])
-            tid, ttitle = m.group(1), m.group(2)
-            end = next((j for j in range(start + 1, len(lines))
-                        if lines[j].strip() == "---" or TICKET_RE.match(lines[j])
-                        or lines[j].startswith("## Related")), len(lines))
-            block = "\n".join(lines[start + 1:end])
-            prio = PRIORITY_RE.search(block)
-            blocked = []
-            for bl in block.splitlines():
-                bm = BLOCKED_RE.match(bl)
-                if bm:
-                    blocked = re.findall(r"#<([A-Z]+\d+)>", bm.group(1))
-                    break
-            tickets.append({
-                "id": tid, "title": ttitle, "epic": epic_name, "epic_file": fname,
-                "priority": prio.group(1) if prio else "-", "blocked": blocked,
-            })
+def frontmatter(path):
+    fm = {}
+    m = FM_RE.match(path.read_text())
+    for line in (m.group(1).splitlines() if m else []):
+        if ":" in line and not line.startswith(" "):
+            k, _, v = line.partition(":")
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                v = [s.strip() for s in v[1:-1].split(",") if s.strip()]
+            elif v.startswith('"') and v.endswith('"'):
+                v = json.loads(v)
+            fm[k.strip()] = v
+    return fm
+
+def parse_tickets():
+    """One ticket per file under brd/tickets/, ordered by epic (EPICS order) then ticket number."""
+    order = {fname: i for i, (fname, _, _) in enumerate(EPICS)}
+    names = {fname: name for fname, name, _ in EPICS}
+    tickets = []
+    for f in sorted(TICKETS.glob("*.md")):
+        fm = frontmatter(f)
+        tid, _, title = fm["title"].partition(": ")
+        epic_file = fm["epic"].split("/")[-1]
+        prio = next((t.split(":")[1] for t in fm.get("tags", []) if t.startswith("priority:")), "-")
+        tickets.append({
+            "id": tid, "title": title, "file": f"tickets/{f.name}",
+            "epic": names[epic_file], "epic_file": epic_file,
+            "priority": prio, "blocked": fm.get("blocked-by", []) or [],
+        })
+    tickets.sort(key=lambda t: (order[t["epic_file"]], int(re.search(r"\d+", t["id"]).group())))
     return tickets
 
 def live_issue_index():
@@ -70,7 +77,7 @@ def live_issue_index():
     return idx
 
 def main():
-    tickets = parse_epics()
+    tickets = parse_tickets()
     idx = live_issue_index()
     covered = {t["id"] for t in tickets}
     # standalone "ID:"-titled issues not in any epic file (e.g. DOC1)
@@ -85,19 +92,21 @@ def main():
         return f"#{info['number']}{s}"
 
     L = []
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     L.append("---")
-    L.append("name:          brd-ticket-issue-map")
-    L.append("title:         Ticket to GitHub Issue Map (canonical crosswalk)")
-    L.append("category:      Product & Strategy")
-    L.append("lifecycle:     Living")
-    L.append("owner:         product")
-    L.append("generated-by:  brd/tools/generate_issue_map.py")
+    L.append("type: Crosswalk")
+    L.append("title: Ticket to GitHub Issue Map (canonical crosswalk)")
+    L.append("description: Generated map from each v1 ticket ID to its ticket file, epic, priority, blockers, and GitHub issue number.")
+    L.append("tags: [brd, tickets, github-issues, crosswalk]")
+    L.append("owner: product")
+    L.append(f"resource: https://github.com/{REPO}/issues")
+    L.append(f"generated: {{ by: process:generate_issue_map, at: {now} }}")
     L.append("---")
     L.append("")
     L.append("# Butler v1 - Ticket to GitHub Issue Map")
     L.append("")
     L.append("> **Canonical crosswalk.** This is the single source that bridges the BRD ticket IDs "
-             "(F1, H1, ...), their epic-file specs, and the live GitHub issues. Future Claude sessions "
+             "(F1, H1, ...), their ticket files, and the live GitHub issues. Future Claude sessions "
              "and team members reference this to translate between the planning docs and the tracker.")
     L.append("")
     L.append(f"- **Repo:** `{REPO}`  -  **Issues:** https://github.com/{REPO}/issues")
@@ -110,12 +119,12 @@ def main():
     L.append("- **Ticket ID** (`F1`, `H3`, `C2`, ...) is the stable planning handle. Letter = epic "
              "(F=Foundations, H=Household, T=Tap-to-Claim, C=Chores, G=Grocery, O=Offline); the "
              "number orders within the epic.")
-    L.append("- **Epic file** under `Butler.KnowledgeBase/brd/` holds the full spec (Summary, Context, "
-             "Acceptance Criteria, Testing, Risks).")
+    L.append("- **Ticket file** `Butler.KnowledgeBase/brd/tickets/<ID>-<slug>.md` holds the full spec (Summary, "
+             "Context, Acceptance Criteria, Testing, Risks); its epic file lists it.")
     L.append("- **GitHub issue** title is `\"<ID>: <title>\"`, so the ID is always recoverable from the "
              "tracker: `gh issue list --search \"F1 in:title\"`.")
     L.append("- **Blocked by** is captured as GitHub `#` cross-references in each issue body; the "
-             "epic-file specs use `#<ID>` placeholders that this generator resolves to live numbers.")
+             "ticket files use `#<ID>` placeholders that this generator resolves to live numbers.")
     L.append("- **Labels** classify each issue: `epic:*`, `area:*` (api / ui / infra / docs), `type:*`, "
              "`priority:*`. The `/implement-issue` workflow adds its own `status:*` labels on top.")
     L.append("")
@@ -126,7 +135,7 @@ def main():
     for t in tickets:
         blocked = ", ".join(f"{b} {link(b)}" for b in t["blocked"]) or "-"
         title = t["title"].replace("|", "\\|")
-        L.append(f"| **{t['id']}** | {link(t['id'])} | {t['priority']} | "
+        L.append(f"| [**{t['id']}**]({t['file']}) | {link(t['id'])} | {t['priority']} | "
                  f"[{t['epic']}]({t['epic_file']}) | {blocked} | {title} |")
     for tid in extras:
         info = idx[tid]
@@ -141,7 +150,7 @@ def main():
     L.append("")
     L.append("## Implementation order")
     L.append("")
-    L.append("Follow the dependency order in [README.md](README.md): Foundations first, then Household "
+    L.append("Follow the dependency order in [filing-guide.md](filing-guide.md): Foundations first, then Household "
              "Model, then Tap-to-Claim and Grocery, then Chores, then Offline. Each issue's `Blocked by` "
              "column above lists the issues that must land first. Start an issue with "
              "`/implement-issue <number>` and land it with `/merge-issue <number>`.")
@@ -149,7 +158,7 @@ def main():
     L.append("## Related")
     L.append("")
     L.append("- [00-brd-master.md](00-brd-master.md) - the requirements; [07-engineering-contract.md](07-engineering-contract.md) - the binding Engineering Contract.")
-    L.append("- [README.md](README.md) - epic index, label taxonomy, dependency graph, filing recipe.")
+    L.append("- [index.md](index.md) - the BRD map; [filing-guide.md](filing-guide.md) - label taxonomy, dependency order, filing recipe.")
     L.append("")
 
     OUT.write_text("\n".join(L))

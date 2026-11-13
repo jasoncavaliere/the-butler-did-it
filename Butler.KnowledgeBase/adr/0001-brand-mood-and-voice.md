@@ -1,6 +1,8 @@
 ---
 id: ADR-0001
 title: Butler's brand mood and voice is the calm concierge
+type: Decision Record
+description: "We will give Butler one personality: the calm concierge."
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [brand, voice]
 supersedes: none
 superseded-by: none
 related: [ADR-0003, ADR-0004, ADR-0007, ADR-0009]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0001: Butler's brand mood and voice is the calm concierge

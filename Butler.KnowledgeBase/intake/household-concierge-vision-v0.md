@@ -1,3 +1,11 @@
+---
+type: Source
+title: Household Concierge product vision (v0, raw)
+description: Raw v0 product vision the knowledge base was derived from. Provenance only; do not read for implementation work.
+tags: [intake, provenance]
+generated: { by: human:jasoncavaliere, at: 2026-07-13T00:00:00Z }
+---
+
 # Product Vision — Household Concierge (working title)
 
 *A shared family operating system that turns the chaos of running a home into something calm, fair, and automatic.*

@@ -1,0 +1,4 @@
+{
+  "_comment": "Bundle-local overrides for the knowledge-base skill's kb_score.py. The bundle follows OKF v0.2 (adr/0011), so the required keys are OKF's type/title/description plus this skill's graph keys and generated.",
+  "required_frontmatter": ["type", "title", "description", "category", "lifecycle", "owner", "related", "generated"]
+}

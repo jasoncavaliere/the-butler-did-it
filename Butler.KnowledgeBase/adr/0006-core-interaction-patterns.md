@@ -1,6 +1,8 @@
 ---
 id: ADR-0006
 title: Tap to claim, optimistic completion, idle return, gentle motion
+type: Decision Record
+description: Tap a name to claim, tap a chore to complete optimistically with undo, return to neutral on idle, 44px+ targets, gentle motion.
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [interaction, accessibility, state]
 supersedes: none
 superseded-by: none
 related: [ADR-0005, ADR-0007, ADR-0010]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0006: Tap to claim, optimistic completion, idle return, gentle motion

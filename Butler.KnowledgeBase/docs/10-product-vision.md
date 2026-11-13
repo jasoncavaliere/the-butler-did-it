@@ -1,14 +1,16 @@
 ---
-name:          10-product-vision
-title:         Product Vision
-category:      Product & Strategy
-lifecycle:     Living
-owner:         agent-managed
-last-reviewed: 2026-07-21
-audience:      Product, leadership, engineers, investors, and partners
-keywords:      [vision, strategy, household, chores, fair assignment, grocery, store connector, hub, tap-to-claim, north star, beachhead, moat, business model, HEB, BYO-tablet, retention]
-related:       [00-overview, 20-architecture-overview, 90-glossary]
-published-to:
+type: Product Vision
+title: Product Vision
+description: The quantified case for Butler and every locked v1 decision, including what v1 will not build. The hub of the graph.
+tags: [vision, strategy, household, chores, fair assignment, grocery, store connector, hub]
+category: Product & Strategy
+lifecycle: Living
+owner: agent-managed
+related: [00-overview, 20-architecture-overview, 90-glossary]
+sources:
+  - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
+  - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
+generated: { by: human:jasoncavaliere, at: 2026-07-21T00:00:00Z }
 ---
 
 # Product Vision

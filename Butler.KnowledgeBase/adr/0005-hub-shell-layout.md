@@ -1,6 +1,8 @@
 ---
 id: ADR-0005
 title: Hub shell is a three-zone horizontal band with a neutral and active state
+type: Decision Record
+description: The hub is a landscape three-zone band (header, name tiles, Today panel) with a calm neutral state and a glowing active state.
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [layout, interaction, stack]
 supersedes: none
 superseded-by: none
 related: [ADR-0002, ADR-0003, ADR-0004, ADR-0006, ADR-0007, ADR-0008]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0005: Hub shell is a three-zone horizontal band with a neutral and active state
