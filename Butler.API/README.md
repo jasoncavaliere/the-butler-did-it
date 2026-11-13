@@ -21,6 +21,7 @@ Butler.API/
 │       ├── Domain/           one folder per feature (entities/value types with no framework dependency)
 │       └── Mediation/         cross-cutting MediatR wiring, incl. ApiExceptionHandler (RFC 7807)
 │   └── Butler.Api.Tests/    xUnit + NSubstitute unit tests; coverlet enforces the 98% coverage gate
+│   └── Butler.Api.SmokeTests/ black-box smoke suite vs a running API + Azurite (not in the sln; see "Smoke tests")
 ├── infra/
 │   ├── main.bicep           Azure App Service (Linux) - parameter-driven, policy-agnostic
 │   └── main.bicepparam      per-environment values (fill in before deploy)
@@ -70,6 +71,76 @@ variables):
 | `Storage:AccountName` | Storage account for the managed-identity path in deployed envs (endpoint derived as `https://<account>.table.core.windows.net`). |
 | `Storage:TableServiceUri` | Explicit table service endpoint (overrides the derived one; e.g. sovereign clouds). |
 | `Storage:UseInMemoryStore` | Explicit override: `true` forces the in-memory store, `false` forces real storage. Unset = in-memory only when no connection is configured. |
+
+## Smoke tests
+
+`src/Butler.Api.SmokeTests` is a separate xUnit suite that checks a **running** API end to end,
+unlike `Butler.Api.Tests`, which hosts the app in-process against the in-memory store. It sends real
+HTTP to a base URL and drives the production `IEntityRepository<T>` storage seam against a real Table
+backend (Azurite).
+
+The project is deliberately **not** in `Butler.API.sln`, so plain `dotnet test` (and the CI unit step)
+keeps running only the unit suite with nothing else running. Run the smoke suite by pointing
+`dotnet test` at its project, as shown below. A dependency that is down (API or Azurite) fails the run;
+no test is ever silently skipped.
+
+### Run locally (API + Azurite)
+
+```bash
+# from Butler.API/
+# 1. Start Azurite and the API against it (Development, http://localhost:5099).
+./Start-LocalSession.ps1
+# 2. In a second terminal, run the whole suite.
+dotnet test src/Butler.Api.SmokeTests
+```
+
+Without PowerShell, start the two dependencies by hand and then run the same `dotnet test`:
+
+```bash
+# from Butler.API/
+npx --yes -p azurite azurite-table --tableHost 127.0.0.1 --location .azurite &   # or: docker run -d -p 10002:10002 mcr.microsoft.com/azure-storage/azurite:3.35.0 azurite-table --tableHost 0.0.0.0 --skipApiVersionCheck
+ASPNETCORE_ENVIRONMENT=Development Storage__ConnectionString=UseDevelopmentStorage=true Storage__UseInMemoryStore=false \
+  dotnet run --project src/Butler.Api --no-launch-profile -- --urls http://localhost:5099 &
+dotnet test src/Butler.Api.SmokeTests
+```
+
+With no settings, the suite targets the local dev URL `http://localhost:5099` (the `http` launch
+profile used by `dotnet run` and `Start-LocalSession.ps1`) and Azurite's `UseDevelopmentStorage=true`.
+An API booted by the `.workspace` tooling listens on `:5108` instead and uses the in-memory store, so
+set `BUTLER_SMOKE_BASE_URL=http://localhost:5108` for it; the Storage tests still need Azurite, because
+they talk to Table Storage directly rather than through the API.
+
+### Run against a base URL (a deployed or already-running API)
+
+Only the `Liveness` category is read-only, so filter to it when the target is a shared environment.
+Set the base URL as an environment variable, or pass it on the command line with `dotnet test -e`:
+
+```bash
+# from Butler.API/
+BUTLER_SMOKE_BASE_URL=https://<your-api-host> dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
+dotnet test src/Butler.Api.SmokeTests -e BUTLER_SMOKE_BASE_URL=https://<your-api-host> --filter Category=Liveness
+```
+
+```powershell
+# PowerShell
+$env:BUTLER_SMOKE_BASE_URL = 'https://<your-api-host>'
+dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
+```
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `BUTLER_SMOKE_BASE_URL` | `http://localhost:5099` | API every liveness request is sent to. Must be an absolute http(s) URL; a malformed value fails the run immediately. |
+| `BUTLER_SMOKE_STORAGE_CONNECTION_STRING` | `UseDevelopmentStorage=true` | Table Storage backend for the storage round trips (Azurite). |
+
+| Category (`--filter Category=...`) | What it checks | Needs | Safe against a shared env? |
+| --- | --- | --- | --- |
+| `Liveness` | `GET /health` returns `200 {"status":"ok"}`; `GET /api/system/ping` returns `200` with `status`, `service` (`Butler.API`), and `timestampUtc`. | A running API at the base URL | Yes - read-only |
+| `Storage` | Create, read, then update with `If-Match` through `IEntityRepository<T>`; a missing `If-Match` is rejected (`428`) and a stale ETag is rejected (`412`); the seam resolves the Table-backed repository, not the in-memory fallback. Each test creates and drops its own `Smoke<guid>` table. | Azurite | No - writes data; Azurite only |
+| `Settings` | How the suite resolves the variables above. | Nothing | Yes - offline |
+
+In CI, the `smoke (booted API + Azurite)` job in `.github/workflows/api-ci.yml` starts Azurite, boots
+the API in Development against it, and runs every category on each PR that touches `Butler.API/**`.
+Any failed assertion fails the check.
 
 ## Organizer authentication
 
