@@ -22,6 +22,12 @@ internal static class SmokeCategories
     /// </summary>
     public const string Demo = "Demo";
 
+    /// <summary>
+    /// Checks that a running API created its registered tables at startup and
+    /// that each accepts a first write; mutating, so Azurite only.
+    /// </summary>
+    public const string Provisioning = "Provisioning";
+
     /// <summary>Offline checks of how the suite resolves its own settings.</summary>
     public const string Settings = "Settings";
 }
