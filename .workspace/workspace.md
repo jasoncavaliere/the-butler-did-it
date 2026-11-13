@@ -20,8 +20,8 @@ external storage) and is deliberately bound to :5108 to match the UI's hard-code
 
 ```
 # setup
-dotnet restore Butler.API/Butler.API.sln
-npm --prefix Butler.UI ci
+dotnet restore Butler.API/Butler.API.sln -v q --nologo
+npm --prefix Butler.UI ci --no-audit --no-fund --loglevel=error
 
 # run (both long-running; start the API first, then the UI)
 dotnet run --project Butler.API/src/Butler.Api -- --urls http://localhost:5108
@@ -38,7 +38,7 @@ Exposed ports: `5108: api`, `8081: expo web / metro`
 ## Run the tests
 
 ```
-dotnet test Butler.API/Butler.API.sln
+dotnet test Butler.API/Butler.API.sln --nologo
 npm --prefix Butler.UI run ci:verify      # CI-equivalent: lint + typecheck + coverage-gated jest (non-interactive)
 ```
 

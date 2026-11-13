@@ -1,11 +1,11 @@
 # Epic 10 - Foundations & Delivery Rails
 
-**Goal:** stand up the architecture skeleton, storage, auth seam, test harness, and CI so every later ticket is implementable and its gates are real. Butler today is bare scaffolds (`Butler.API/src/Butler.Api` is just `Program.cs`; `Butler.UI` is a bare Expo app; no test projects; no CI). This epic fixes that, mirroring the QControl house style documented in [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section).
+**Goal:** stand up the architecture skeleton, storage, auth seam, test harness, and CI so every later ticket is implementable and its gates are real. Butler today is bare scaffolds (`Butler.API/src/Butler.Api` is just `Program.cs`; `Butler.UI` is a bare Expo app; no test projects; no CI). This epic fixes that, mirroring the QControl house style documented in [Engineering Contract](07-engineering-contract.md).
 
 **Serves:** FR-1, BO-6, and (as a dependency) all other objectives.
 **Lands first.** Everything else is `Blocked by` this epic.
 
-Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Fn>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) as binding and does not restate it.
+Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Fn>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](07-engineering-contract.md) as binding and does not restate it.
 
 ---
 
@@ -17,7 +17,7 @@ Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](READ
 **Serves:** FR-1
 
 ## Summary
-Convert the bare `Butler.Api` scaffold into the layered, MediatR-based skeleton every feature will plug into, matching the QControl pattern in [Engineering Contract 7.2](00-brd-master.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
+Convert the bare `Butler.Api` scaffold into the layered, MediatR-based skeleton every feature will plug into, matching the QControl pattern in [Engineering Contract 7.2](07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
 
 ## Context
 The composition-root + `Add<Feature>Feature()` convention is what lets later tickets add a feature by creating two folders and registering one extension. This ticket creates the skeleton and one trivial vertical slice (a `System` health/ping feature) to prove the path end to end. Remove the placeholder `/api/hello` record types from `Program.cs`.
@@ -61,7 +61,7 @@ Create the `Butler.Api.Tests` project (xUnit + NSubstitute, centrally versioned)
 - [ ] `dotnet test` from `Butler.API/` discovers and runs the suite green.
 - [ ] Test build honors `TreatWarningsAsErrors` (matches CI in F5).
 - [ ] Coverage tooling is wired: `coverlet.collector` (and/or `coverlet.msbuild`, centrally versioned) collects line, branch, and method coverage on `dotnet test` and emits a report (for example Cobertura).
-- [ ] The 98 percent coverage gate from [Engineering Contract 7.7](00-brd-master.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable) is enforced locally: `dotnet test` fails when line, branch, or method coverage is below 98 percent (for example `/p:Threshold=98 /p:ThresholdType=line,branch,method /p:ThresholdStat=total`). Any exclusion is explicit, minimal, and justified in the coverage config - never a blanket ignore.
+- [ ] The 98 percent coverage gate from [Engineering Contract 7.7](07-engineering-contract.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable) is enforced locally: `dotnet test` fails when line, branch, or method coverage is below 98 percent (for example `/p:Threshold=98 /p:ThresholdType=line,branch,method /p:ThresholdStat=total`). Any exclusion is explicit, minimal, and justified in the coverage config - never a blanket ignore.
 
 ## Testing
 - Gates: `cd Butler.API && dotnet test /p:CollectCoverage=true /p:Threshold=98 /p:ThresholdType=line,branch,method /p:ThresholdStat=total`.
@@ -83,7 +83,7 @@ Create the `Butler.Api.Tests` project (xUnit + NSubstitute, centrally versioned)
 Provide the shared Table Storage access seam (a table-client factory + a generic repository base with optimistic-concurrency helpers) and a local dev path against Azurite, so every data feature (H1+, C1+, G1+) has a consistent, tested persistence base.
 
 ## Context
-Implements [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid). `householdId` is the partition key everywhere. Mirrors QControl's `Azure.Data.Tables` repositories + Azurite + seed-fallback so the API runs with no cloud storage.
+Implements [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid). `householdId` is the partition key everywhere. Mirrors QControl's `Azure.Data.Tables` repositories + Azurite + seed-fallback so the API runs with no cloud storage.
 
 ## Acceptance Criteria
 - [ ] `Azure.Data.Tables` and `Azure.Identity` are referenced (central versions).
@@ -121,7 +121,7 @@ The UI is web-first (Expo web export -> Azure Static Web App). Read the exact ve
 - [ ] Navigation is wired (Expo Router or React Navigation - author's choice, documented) with at least a Home route.
 - [ ] `jest-expo` (or the Expo-recommended RN test runner) is configured; one component test renders the Home screen and asserts visible text; `npm test` passes.
 - [ ] `npm run lint`, `npm run typecheck` (or `tsc --noEmit`), and `npm test` scripts exist and pass; `npm run ci:verify` runs all three.
-- [ ] A `npm run test:coverage` script collects coverage, and the jest config sets `coverageThreshold.global` to 98 for `statements`, `branches`, `functions`, and `lines`; the command fails below 98 percent. `npm run ci:verify` runs the coverage-gated test (so the 98 percent bar from [Engineering Contract 7.7](00-brd-master.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable) is enforced). Any exclusion (`coveragePathIgnorePatterns`) is explicit, minimal, and justified.
+- [ ] A `npm run test:coverage` script collects coverage, and the jest config sets `coverageThreshold.global` to 98 for `statements`, `branches`, `functions`, and `lines`; the command fails below 98 percent. `npm run ci:verify` runs the coverage-gated test (so the 98 percent bar from [Engineering Contract 7.7](07-engineering-contract.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable) is enforced). Any exclusion (`coveragePathIgnorePatterns`) is explicit, minimal, and justified.
 - [ ] `npx expo export --platform web` produces a `dist/` build with no errors.
 - [ ] A typed API base config (base URL from env, dev default `http://localhost:5108`) exists for later tickets to build on.
 
@@ -150,7 +150,7 @@ Add GitHub Actions so the gates the tickets name actually run on every PR: the A
 ## Acceptance Criteria
 - [ ] `.github/workflows/api-ci.yml` runs on PRs touching `Butler.API/**`: `dotnet restore`, `dotnet build --configuration Release /p:TreatWarningsAsErrors=true`, and a coverage-gated `dotnet test` (`/p:CollectCoverage=true /p:Threshold=98 /p:ThresholdType=line,branch,method /p:ThresholdStat=total`).
 - [ ] `.github/workflows/ui-ci.yml` runs on PRs touching `Butler.UI/**`: `npm ci`, `npm run ci:verify` (which runs the coverage-gated test at the 98 percent global threshold), `npx expo export --platform web`.
-- [ ] The 98 percent coverage gate from [Engineering Contract 7.7](00-brd-master.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable) fails the CI check in both sub-services when coverage on lines, methods, or branches drops below 98 percent (verified by a deliberately-undercovered change failing the check, then reverted).
+- [ ] The 98 percent coverage gate from [Engineering Contract 7.7](07-engineering-contract.md#77-testing-and-definition-of-done-what-makes-a-tickets-ac-verifiable) fails the CI check in both sub-services when coverage on lines, methods, or branches drops below 98 percent (verified by a deliberately-undercovered change failing the check, then reverted).
 - [ ] Both workflows pin the toolchain versions (.NET 10 via `global.json`; Node LTS).
 - [ ] Both are required-check-eligible (named, appear on PRs) and pass on the current `main` after F1-F4 land.
 - [ ] A short `CONTRIBUTING`/README note documents the local commands that mirror CI.
@@ -175,7 +175,7 @@ Add GitHub Actions so the gates the tickets name actually run on every PR: the A
 Wire JWT bearer authentication (Entra External ID as the issuer) and an `Organizer` authorization policy, with a `DisableAuthentication` dev mode so local + CI need no live tenant. Add a `GET /me` endpoint resolving the caller.
 
 ## Context
-Implements [Engineering Contract 7.4](00-brd-master.md#74-authentication-and-authorization). Only the organizer authenticates; participants never do (that is Epic 30). Non-Development environments must fail closed when auth is misconfigured.
+Implements [Engineering Contract 7.4](07-engineering-contract.md#74-authentication-and-authorization). Only the organizer authenticates; participants never do (that is Epic 30). Non-Development environments must fail closed when auth is misconfigured.
 
 ## Acceptance Criteria
 - [ ] `Microsoft.AspNetCore.Authentication.JwtBearer` is referenced and configured for an Entra External ID authority (values from config; no secrets committed).

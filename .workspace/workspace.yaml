@@ -15,8 +15,8 @@ prerequisites:
     min: "22"          # .github/workflows/ui-ci.yml pins Node 22
 
 setup:
-  - dotnet restore Butler.API/Butler.API.sln
-  - npm --prefix Butler.UI ci
+  - dotnet restore Butler.API/Butler.API.sln -v q --nologo
+  - npm --prefix Butler.UI ci --no-audit --no-fund --loglevel=error
 
 run:
   # Long-running; both are backgrounded by the provisioner, API started first.
@@ -41,7 +41,7 @@ health:
     timeout_s: 120
 
 test:
-  - dotnet test Butler.API/Butler.API.sln
+  - dotnet test Butler.API/Butler.API.sln --nologo
   - npm --prefix Butler.UI run ci:verify   # CI-equivalent: lint + typecheck + coverage-gated jest (non-interactive, no watch)
 
 teardown:

@@ -5,7 +5,7 @@
 **Serves:** FR-5, BO-3.
 **Blocked by Foundations and the household spine.** These tickets assume the storage, auth, test, and household layers from Epics 10 and 20 already landed.
 
-Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Xn>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) as binding and does not restate it. Three decisions are load-bearing for this epic and are not up for reinterpretation: D-4 (real seam, simulated connector), D-5 (capture seam, live Alexa deferred), and D-8 (no money moves - confirm records intent only).
+Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Xn>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](07-engineering-contract.md) as binding and does not restate it. Three decisions are load-bearing for this epic and are not up for reinterpretation: D-4 (real seam, simulated connector), D-5 (capture seam, live Alexa deferred), and D-8 (no money moves - confirm records intent only).
 
 ---
 
@@ -20,7 +20,7 @@ Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](READ
 Ship the real store-connector seam and its one v1 implementation: an `IStoreConnector` interface plus a deterministic `SimulatedHebConnector` that searches a checked-in fixture catalog with no network dependency, so the rest of the grocery flow builds against a stable, swappable abstraction.
 
 ## Context
-Implements decision [D-4](00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions): HEB has no public consumer API, so v1 ships the real interface and a simulated implementation. The abstraction is what keeps "plug into any store later" honest. An aggregator/assisted connector and an official connector are explicitly deferred behind this exact seam (Section 9 fast-follow) - do not build them here, but do not close the interface against them either (hence `SourceConnector` on results). Follows the feature-extension pattern in [Engineering Contract 7.2](00-brd-master.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
+Implements decision [D-4](00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions): HEB has no public consumer API, so v1 ships the real interface and a simulated implementation. The abstraction is what keeps "plug into any store later" honest. An aggregator/assisted connector and an official connector are explicitly deferred behind this exact seam (Section 9 fast-follow) - do not build them here, but do not close the interface against them either (hence `SourceConnector` on results). Follows the feature-extension pattern in [Engineering Contract 7.2](07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
 
 ## Acceptance Criteria
 - [ ] An `IStoreConnector` interface defines at least `SearchProducts(query)` and `GetProduct(id)`, returning product DTOs with `ProductId`, `DisplayName`, `Size`/`Unit`, and an indicative price string (labelled non-transactional - it is display text, never a charge).
@@ -51,7 +51,7 @@ Implements decision [D-4](00-brd-master.md#53-scope-decisions-that-resolve-would
 Persist the weekly cart: `Carts` and `CartItems` tables (partitioned by `householdId`, keyed by `weekIso`) with repositories, a get-or-create "building" cart for the current week, and a read endpoint that returns the cart with its items.
 
 ## Context
-Implements the `Carts`/`CartItems` rows in [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) on the shared Table Storage base from F3. `weekIso` is computed server-side from an injected/supplied date (never `DateTime.Now` in a handler). The cart is the container the capture flow (G3) writes into and the confirm flow (G4) transitions.
+Implements the `Carts`/`CartItems` rows in [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) on the shared Table Storage base from F3. `weekIso` is computed server-side from an injected/supplied date (never `DateTime.Now` in a handler). The cart is the container the capture flow (G3) writes into and the confirm flow (G4) transitions.
 
 ## Acceptance Criteria
 - [ ] A `Carts` entity exists (PartitionKey `householdId`, RowKey `{weekIso}`) with `Status` (`Building`|`Confirmed`), `ConfirmedByPersonId` (nullable), and `ConfirmedUtc` (nullable), behind an `ICartRepository`.
@@ -114,7 +114,7 @@ Implements decision [D-5](00-brd-master.md#53-scope-decisions-that-resolve-would
 Let a human review the building cart and confirm it. Confirm requires the organizer, flips the cart to `Confirmed` with who/when, is idempotent, and - per D-8 - places no real order and moves no money. It records intent only.
 
 ## Context
-This is the "human on the final tap" from [Section 6.4](00-brd-master.md#64-grocery-the-monthly-wow) and the enforcement point for decision [D-8](00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions). Confirm is a sensitive action, so it carries the `Organizer` policy from F6 ([Engineering Contract 7.4](00-brd-master.md#74-authentication-and-authorization)); a tap-to-claim participant or the hub device cannot confirm. No money movement and no external order call is the whole point - it keeps tap-to-claim safe (R-1). The clock is injected for a deterministic `ConfirmedUtc`.
+This is the "human on the final tap" from [Section 6.4](00-brd-master.md#64-grocery-the-monthly-wow) and the enforcement point for decision [D-8](00-brd-master.md#53-scope-decisions-that-resolve-would-be-material-assumptions). Confirm is a sensitive action, so it carries the `Organizer` policy from F6 ([Engineering Contract 7.4](07-engineering-contract.md#74-authentication-and-authorization)); a tap-to-claim participant or the hub device cannot confirm. No money movement and no external order call is the whole point - it keeps tap-to-claim safe (R-1). The clock is injected for a deterministic `ConfirmedUtc`.
 
 ## Acceptance Criteria
 - [ ] `GET` returns the current building cart (cart + items) for organizer review.
@@ -145,7 +145,7 @@ This is the "human on the final tap" from [Section 6.4](00-brd-master.md#64-groc
 Put the grocery flow on the hub: a screen where anyone can add an item by typing, the cart lists what has been added, and a signed-in organizer can confirm. This is the demoable "add oat milk -> review -> confirm" path from end to end against the simulated connector.
 
 ## Context
-The UI surface for the whole epic. It builds on the F7 API client + household context and the T4 organizer sign-in state to gate the confirm action. Adding an item calls G3; confirming calls G4. The demo must work fully offline of any real store because the backing connector is the G1 simulated one. Follows the UI conventions from F4 ([Engineering Contract 7.1](00-brd-master.md#71-repository-and-toolchains)); read the versioned Expo docs per `Butler.UI/AGENTS.md` before writing code.
+The UI surface for the whole epic. It builds on the F7 API client + household context and the T4 organizer sign-in state to gate the confirm action. Adding an item calls G3; confirming calls G4. The demo must work fully offline of any real store because the backing connector is the G1 simulated one. Follows the UI conventions from F4 ([Engineering Contract 7.1](07-engineering-contract.md#71-repository-and-toolchains)); read the versioned Expo docs per `Butler.UI/AGENTS.md` before writing code.
 
 ## Acceptance Criteria
 - [ ] A hub grocery screen lets anyone add an item by typing a term (for example `"oat milk"`); the entry resolves via the G3 capture endpoint and the resolved item appears in the cart.

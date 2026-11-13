@@ -67,7 +67,7 @@ Bring your own tablet: the v1 hardware decision. Butler ships as a web app and i
 
 ## Engineering Contract
 
-Section 7 of the master BRD: the binding set of build conventions - storage, API layering, auth, determinism, and the coverage gate - that every v1 ticket references instead of restating. It is the "anti-halt" section, written so an autonomous engineer never has to guess about scope or side-effects. See [Section 7 of the master BRD](../brd/00-brd-master.md#7-engineering-contract-the-anti-halt-section) and the [Architecture Overview](20-architecture-overview.md).
+Section 7 of the master BRD: the binding set of build conventions - storage, API layering, auth, determinism, and the coverage gate - that every v1 ticket references instead of restating. It is the "anti-halt" section, written so an autonomous engineer never has to guess about scope or side-effects. See [Section 7 of the master BRD](../brd/07-engineering-contract.md) and the [Architecture Overview](20-architecture-overview.md).
 
 ## Related
 

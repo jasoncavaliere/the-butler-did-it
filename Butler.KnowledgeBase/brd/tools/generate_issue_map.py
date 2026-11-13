@@ -148,7 +148,7 @@ def main():
     L.append("")
     L.append("## Related")
     L.append("")
-    L.append("- [00-brd-master.md](00-brd-master.md) - the requirements and Engineering Contract.")
+    L.append("- [00-brd-master.md](00-brd-master.md) - the requirements; [07-engineering-contract.md](07-engineering-contract.md) - the binding Engineering Contract.")
     L.append("- [README.md](README.md) - epic index, label taxonomy, dependency graph, filing recipe.")
     L.append("")
 
