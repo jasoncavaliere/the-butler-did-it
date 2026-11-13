@@ -70,7 +70,7 @@ Both are the Home Assistant community's reference wall-panel picks [3] - the clo
 | **Long OS support** (A9+ ~4 years) | The vision calls the hub's physical position the moat; it has to keep receiving security updates |
 | **USB-C, side-mounted** | Permanent power via a right-angle cable behind a wall mount |
 | **Battery charge cap** | Samsung "Protect battery" (85%), Lenovo charging protection - see F6 |
-| **~$150-180** | Inside the vision's stated "$100 to $150 if they buy one" band, so the test device represents the customer |
+| **~$150-180** | Near the vision's stated "$100 to $150 if they buy one" band: the M11 (~$150) sits at its top, the A9+ (~$180) about $30 above it. Whether the reference device must sit inside the band is left to #163 |
 
 Rough split: **A9+** for the longest support runway; **M11** for ambient auto-dim in a dim kitchen. Prices and support windows are as of 2026-08-13.
 
