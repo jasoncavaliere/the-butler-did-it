@@ -7,7 +7,7 @@ category: Start Here
 lifecycle: Living
 owner: agent-managed
 related: [10-product-vision, 90-glossary]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T18:59:42Z }
 ---
 
 # Overview - What Butler Is and How This Knowledge Base Works
@@ -46,12 +46,13 @@ The docs are a **knowledge graph**, not a folder of files. Each article is a nod
 | --- | --- |
 | **New to Butler** | This overview, then the [Glossary](90-glossary.md). |
 | **Product / leadership** | The [Product Vision](10-product-vision.md), especially What winning looks like and What we are NOT building in v1. |
-| **Engineer / agent** | The [Architecture Overview](20-architecture-overview.md), then only the Engineering Contract clause and ticket file your work needs (see the [BRD index](../brd/index.md)). Read [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md) before you edit these docs. |
+| **Engineer / agent** | The [Architecture Overview](20-architecture-overview.md), then only the Engineering Contract clause and ticket file your work needs (see the [BRD index](../brd/index.md)). Read [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md) before you edit these docs. Check the [decision log](../adr/README.md) before proposing design work. |
 | **Investor / partner** | The [Product Vision](10-product-vision.md): the problem, the moat, why now, and the business model, all sourced. |
 
 - To understand the product and the strategy: read the [Product Vision](10-product-vision.md). It is the centerpiece and every other article hangs off it.
 - To look up a term: the [Glossary](90-glossary.md) defines the shared vocabulary (the Hub, tap-to-claim, store connector, north star, and the rest) so no article has to re-explain them.
 - To add or change an article: follow [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md). Every write is a graph edit - no orphans, edges both ways.
+- Settled design and process decisions are recorded as ADRs in the [decision log](../adr/README.md). Read them before proposing design work. An accepted ADR is never edited, only superseded.
 - The source material behind all of this (the raw vision and the build brief) lives in `intake/`. Keep it; future agents need the provenance.
 
 ## Related

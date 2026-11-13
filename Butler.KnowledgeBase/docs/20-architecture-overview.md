@@ -9,7 +9,7 @@ owner: agent-managed
 related: [10-product-vision, 90-glossary]
 sources:
   - { id: contract, resource: ../brd/07-engineering-contract.md, title: Butler v1 Engineering Contract }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T18:59:42Z }
 ---
 
 # Architecture Overview (v1)
@@ -41,7 +41,7 @@ One entry per locked decision. Each is a summary that links to its authoritative
 - **Determinism.** Time and randomness are injected, and the fair-assignment algorithm is a deterministic pure function (D-6). Same inputs always produce the same assignment set, so it is unit-tested against fixed inputs. See [Section 7.6](../brd/engineering-contract/76-fair-assignment-algorithm.md).
 - **Quality gate.** A hard 98 percent coverage gate on lines, methods, and branches for the code sub-services (UI presentation folders are held to 90 percent during the demo push), enforced by the build and by CI, so a PR that drops below the bar cannot merge. See [Section 7.7](../brd/engineering-contract/77-testing-and-definition-of-done.md).
 - **Repository and toolchains.** One repo, `the-butler-did-it`, with two sub-services on independent gates and no root build: `Butler.API/` on .NET 10 and `Butler.UI/` on Expo, web-first (D-7). See [Section 7.1](../brd/engineering-contract/71-repository-and-toolchains.md).
-- **UI.** `Butler.UI/` is an Expo web-first, installable, offline-tolerant PWA - the [BYO-tablet](90-glossary.md#byo-tablet) hub. See the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app).
+- **UI.** `Butler.UI/` is an Expo web-first, installable, offline-tolerant PWA - the [BYO-tablet](90-glossary.md#byo-tablet) hub. See the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app). The hub's settled design decisions (palette, type scale, hub layout, interaction, accessibility) are recorded as ADRs in the [decision log](../adr/README.md).
 
 There are cross-cutting conventions every ticket also inherits - RFC 7807 error shapes, optimistic concurrency, injected time - specified in [Section 7.5](../brd/engineering-contract/75-cross-cutting-conventions.md).
 
