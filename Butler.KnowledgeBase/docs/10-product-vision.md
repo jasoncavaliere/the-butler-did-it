@@ -6,7 +6,7 @@ tags: [vision, strategy, household, chores, fair assignment, grocery, store conn
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [00-overview, 20-architecture-overview, 90-glossary]
+related: [00-overview, 11-hub-hardware-findings, 20-architecture-overview, 90-glossary]
 sources:
   - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
   - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
@@ -69,7 +69,7 @@ Most family apps die because they need every member to download, log in, and ope
 
 That reframes what Butler competes for. It is not fighting other to-do apps for a slot on a phone; it is competing for a physical spot in the home and for being the family's default place to look. That is a bigger and stickier position, and it drives the offline, display, and always-on choices below.
 
-**Hardware and offline decision (v1):** bring your own tablet. Butler ships as a web app and installable [PWA](90-glossary.md#byo-tablet) that runs on any Android tablet or iPad a family already owns (roughly $100 to $150 if they buy one). It is offline-tolerant by design: the last-known week stays glanceable and readable with no network, writes queue locally, and everything syncs on reconnect. Butler-made hardware is a deliberate later step, door left open, not a v1 bet.
+**Hardware and offline decision (v1):** bring your own tablet. Butler ships as a web app and installable [PWA](90-glossary.md#byo-tablet) that runs on any Android tablet or iPad a family already owns (roughly $100 to $150 if they buy one). It is offline-tolerant by design: the last-known week stays glanceable and readable with no network, writes queue locally, and everything syncs on reconnect. Butler-made hardware is a deliberate later step, door left open, not a v1 bet. For which tablet the hub runs on and how it boots straight into Butler, see the [Hub Hardware Findings](11-hub-hardware-findings.md).
 
 **Identity decision - tap-to-claim (v1):** on the hub, each participant has a [tap-to-claim](90-glossary.md#tap-to-claim) profile with no password. One [Household Organizer](90-glossary.md#household-organizer) account holds the real credentials and billing. Sensitive actions - billing, teardown, large purchases - sit behind the organizer's auth. Off the hub, Butler reaches people on channels they already have (SMS and Alexa first) so a teen or a reluctant spouse never installs anything. A mobile companion is optional and organizer-first, never required to participate. Kids get lightweight profiles with a simple parent/child flag for age-appropriate chores; full parental controls are deferred past v1.
 
@@ -185,5 +185,6 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 ## Related
 
 - [Overview](00-overview.md) - what Butler is and how this knowledge base is organized.
+- [Hub Hardware Findings](11-hub-hardware-findings.md) - which tablet the hub runs on and how it boots into Butler.
 - [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.

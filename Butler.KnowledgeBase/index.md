@@ -10,6 +10,7 @@ okf_version: "0.2"
 # Product & Strategy
 
 * [10 Product Vision](docs/10-product-vision.md) - The quantified case for Butler and every locked v1 decision, including what v1 will not build. The hub of the graph.
+* [11 Hub Hardware Findings](docs/11-hub-hardware-findings.md) - Research findings (2026-08-13, not a ratified decision) on which tablet the hub runs on and how it boots into Butler: a stock Android tablet in device-owner kiosk mode, not a custom OS.
 
 # Architecture
 
