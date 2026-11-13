@@ -160,7 +160,8 @@ curl -X POST http://localhost:5108/demo/seed
 `src/Butler.Api.SmokeTests` is a separate xUnit suite that checks a **running** API end to end,
 unlike `Butler.Api.Tests`, which hosts the app in-process against the in-memory store. It sends real
 HTTP to a base URL and drives the production `IEntityRepository<T>` storage seam against a real Table
-backend (Azurite).
+backend (Azurite). It also round-trips a real H1 entity (Rooms) over HTTP: create, read, update with
+`If-Match`, and delete through the booted API, checking the rows land in Table Storage.
 
 The project is deliberately **not** in `Butler.API.sln`, so plain `dotnet test` (and the CI unit step)
 keeps running only the unit suite with nothing else running. Run the smoke suite by pointing
@@ -191,7 +192,9 @@ With no settings, the suite targets the local dev URL `http://localhost:5099` (t
 profile used by `dotnet run` and `Start-LocalSession.ps1`) and Azurite's `UseDevelopmentStorage=true`.
 An API booted by the `.workspace` tooling listens on `:5108` instead and uses the in-memory store, so
 set `BUTLER_SMOKE_BASE_URL=http://localhost:5108` for it; the Storage tests still need Azurite, because
-they talk to Table Storage directly rather than through the API.
+they talk to Table Storage directly rather than through the API. An in-memory API (that `:5108` boot)
+fails the `Endpoints` category, because those tests read the `Rooms` table directly to prove the API
+persisted to Table Storage.
 
 ### Run against a base URL (a deployed or already-running API)
 
@@ -221,6 +224,7 @@ dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
 | `Storage` | Create, read, then update with `If-Match` through `IEntityRepository<T>`; a missing `If-Match` is rejected (`428`) and a stale ETag is rejected (`412`); the seam resolves the Table-backed repository, not the in-memory fallback. Each test creates and drops its own `Smoke<guid>` table. | Azurite | No - writes data; Azurite only |
 | `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. | A running API (Development or Demo) and Azurite | No - replaces the demo household; Azurite only |
 | `Provisioning` | Every feature table (`Households`, `People`, `Rooms`, `Chores`, `ChoreCompletions`, `Assignments`, `Carts`, `CartItems`, `HubDevices`) exists after the API starts and accepts a first write, with no table created by the test; once every table exists, provisioning them again (a restart) succeeds. No test in the suite creates a feature table, so a table the API failed to provision cannot be masked. Each write uses its own `smoke-provisioning-<guid>` partition and is deleted afterwards. | A running API booted against Azurite | No - writes data; Azurite only |
+| `Endpoints` | Rooms over HTTP: `POST /households/{id}/rooms` returns `201` and the row lands in the `Rooms` table; `GET` returns `200` with the `eTag`; `PUT` with the current `If-Match` returns `200` and a following `GET` shows the new values; `PUT` without `If-Match` returns `428`; `PUT` with a stale ETag returns `412`; `DELETE` returns `204`, then `GET` returns `404`. Each test uses its own `smoke-rooms-<guid>` partition, deletes every room it created, and creates no table. | A running API (Development) booted against Azurite | No - writes data; Azurite only |
 | `Settings` | How the suite resolves the variables above. | Nothing | Yes - offline |
 
 In CI, the `smoke (booted API + Azurite)` job in `.github/workflows/api-ci.yml` starts Azurite, boots

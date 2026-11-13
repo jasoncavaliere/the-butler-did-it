@@ -28,6 +28,12 @@ internal static class SmokeCategories
     /// </summary>
     public const string Provisioning = "Provisioning";
 
+    /// <summary>
+    /// Mutating round trips through the API's HTTP endpoints (a running API in
+    /// Development booted against Azurite); never point it at a deployed environment.
+    /// </summary>
+    public const string Endpoints = "Endpoints";
+
     /// <summary>Offline checks of how the suite resolves its own settings.</summary>
     public const string Settings = "Settings";
 }
