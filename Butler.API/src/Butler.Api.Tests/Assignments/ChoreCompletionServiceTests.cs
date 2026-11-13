@@ -29,6 +29,9 @@ public sealed class ChoreCompletionServiceTests
     // A fixed instant inside ISO week 2026-W29 (Wednesday 2026-07-15 09:00 UTC).
     private static readonly DateTimeOffset MidWeek29 = new(2026, 7, 15, 9, 0, 0, TimeSpan.Zero);
 
+    // The Monday 00:00 UTC rollover into 2026-W30; W29 stays open for 24h after it.
+    private static readonly DateTimeOffset Week30Rollover = new(2026, 7, 20, 0, 0, 0, TimeSpan.Zero);
+
     private sealed class Harness
     {
         public IAssignmentRepository Assignments { get; } = Substitute.For<IAssignmentRepository>();
@@ -303,6 +306,156 @@ public sealed class ChoreCompletionServiceTests
             () => harness.Service.UndoAsync(Household, Week29, string.Empty, PersonId, CancellationToken.None));
         await Assert.ThrowsAnyAsync<ArgumentException>(
             () => harness.Service.UndoAsync(Household, Week29, ChoreId, string.Empty, CancellationToken.None));
+    }
+
+    // ---- Week window (issue #86): only the current week, or the previous week
+    // within 24h of the Monday 00:00 UTC rollover, is open for complete and undo.
+
+    private static async Task AssertRejectedWithoutIoAsync(
+        Harness harness, Func<Task> act, string requestedWeek, string currentWeek)
+    {
+        var exception = await Assert.ThrowsAsync<WeekNotCurrentException>(act);
+        Assert.Equal(requestedWeek, exception.RequestedWeekIso);
+        Assert.Equal(currentWeek, exception.CurrentWeekIso);
+
+        // A rejected request touches no repository at all.
+        Assert.Empty(harness.Assignments.ReceivedCalls());
+        Assert.Empty(harness.Completions.ReceivedCalls());
+        Assert.Empty(harness.Chores.ReceivedCalls());
+    }
+
+    [Fact]
+    public async Task Complete_two_weeks_back_is_rejected_and_writes_nothing()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Open));
+        harness.Clock.Set(Week30Rollover.AddHours(1));
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.CompleteAsync(Household, "2026-W28", ChoreId, PersonId, CancellationToken.None),
+            "2026-W28",
+            "2026-W30");
+    }
+
+    [Fact]
+    public async Task Complete_previous_week_at_exactly_rollover_plus_24h_is_rejected()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Open));
+        harness.Clock.Set(Week30Rollover.AddHours(24));
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.CompleteAsync(Household, Week29, ChoreId, PersonId, CancellationToken.None),
+            Week29,
+            "2026-W30");
+    }
+
+    [Fact]
+    public async Task Complete_future_week_is_rejected()
+    {
+        var harness = new Harness();
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.CompleteAsync(Household, "2026-W30", ChoreId, PersonId, CancellationToken.None),
+            "2026-W30",
+            Week29);
+    }
+
+    [Fact]
+    public async Task Complete_previous_week_inside_the_grace_window_is_accepted()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Open));
+        var lastSecondOfGrace = Week30Rollover.AddHours(24).AddSeconds(-1);
+        harness.Clock.Set(lastSecondOfGrace);
+
+        var result = await harness.Service.CompleteAsync(
+            Household, Week29, ChoreId, PersonId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(AssignmentStatus.Done, result!.Status);
+
+        // The completion is still bucketed into the assignment's week (W29).
+        await harness.Completions.Received(1).AddAsync(
+            Household,
+            Arg.Is<ChoreCompletionEntity>(c => c.WeekIso == Week29 && c.CompletedUtc == lastSecondOfGrace),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Complete_out_of_window_week_is_rejected_even_when_the_assignment_is_missing()
+    {
+        // The window is checked before the lookup, so the 404 applies only inside it.
+        var harness = new Harness();
+        harness.SetAssignment(null);
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.CompleteAsync(Household, "2026-W27", ChoreId, PersonId, CancellationToken.None),
+            "2026-W27",
+            Week29);
+    }
+
+    [Fact]
+    public async Task Undo_two_weeks_back_is_rejected_and_writes_nothing()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Done));
+        harness.Clock.Set(Week30Rollover.AddHours(1));
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.UndoAsync(Household, "2026-W28", ChoreId, PersonId, CancellationToken.None),
+            "2026-W28",
+            "2026-W30");
+    }
+
+    [Fact]
+    public async Task Undo_previous_week_at_exactly_rollover_plus_24h_is_rejected()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Done));
+        harness.Clock.Set(Week30Rollover.AddHours(24));
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.UndoAsync(Household, Week29, ChoreId, PersonId, CancellationToken.None),
+            Week29,
+            "2026-W30");
+    }
+
+    [Fact]
+    public async Task Undo_future_week_is_rejected()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Done));
+
+        await AssertRejectedWithoutIoAsync(
+            harness,
+            () => harness.Service.UndoAsync(Household, "2026-W30", ChoreId, PersonId, CancellationToken.None),
+            "2026-W30",
+            Week29);
+    }
+
+    [Fact]
+    public async Task Undo_previous_week_inside_the_grace_window_is_accepted()
+    {
+        var harness = new Harness();
+        harness.SetAssignment(Assignment(AssignmentStatus.Done));
+        harness.Clock.Set(Week30Rollover.AddHours(24).AddSeconds(-1));
+
+        var result = await harness.Service.UndoAsync(
+            Household, Week29, ChoreId, PersonId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(AssignmentStatus.Open, result!.Status);
+        await harness.Completions.Received(1).AddAsync(
+            Household,
+            Arg.Is<ChoreCompletionEntity>(c => c.WeekIso == Week29 && c.Effort == -5),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

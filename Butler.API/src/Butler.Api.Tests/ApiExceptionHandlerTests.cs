@@ -85,6 +85,25 @@ public sealed class ApiExceptionHandlerTests : IClassFixture<ButlerApiFactory>
         await AssertProblemDetailsAsync(response, expectedStatus: 404, expectedTitle: "Demo seeding is not available in this environment.");
     }
 
+    [Fact]
+    public async Task Week_not_current_exception_maps_to_409_problem_details_with_extensions()
+    {
+        using var client = _factory.CreateClient();
+
+        using var response = await client.GetAsync(new Uri("/test/week-not-current", UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal(409, root.GetProperty("status").GetInt32());
+        Assert.Equal("The week is not open for chore changes.", root.GetProperty("title").GetString());
+        Assert.Equal("https://httpstatuses.io/409", root.GetProperty("type").GetString());
+        Assert.Equal("weekNotCurrent", root.GetProperty("reason").GetString());
+        Assert.Equal("2026-W27", root.GetProperty("requestedWeekIso").GetString());
+        Assert.Equal("2026-W29", root.GetProperty("currentWeekIso").GetString());
+    }
+
     private static async Task AssertProblemDetailsAsync(
         HttpResponseMessage response,
         int expectedStatus,

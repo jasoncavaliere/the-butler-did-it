@@ -1,3 +1,4 @@
+using Butler.Api.Application.Assignments;
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Concurrency;
 using Butler.Api.Application.Demo;
@@ -46,7 +47,7 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
 
         httpContext.Response.StatusCode = statusCode;
 
-        return await _problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        var context = new ProblemDetailsContext
         {
             HttpContext = httpContext,
             Exception = exception,
@@ -57,7 +58,18 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
                 Detail = exception.Message,
                 Type = $"https://httpstatuses.io/{statusCode}",
             },
-        });
+        };
+
+        // A stale or future chore week carries a machine-readable reason and both
+        // weeks so a client can tell the user which week is open (issue #86).
+        if (exception is WeekNotCurrentException weekNotCurrent)
+        {
+            context.ProblemDetails.Extensions["reason"] = "weekNotCurrent";
+            context.ProblemDetails.Extensions["requestedWeekIso"] = weekNotCurrent.RequestedWeekIso;
+            context.ProblemDetails.Extensions["currentWeekIso"] = weekNotCurrent.CurrentWeekIso;
+        }
+
+        return await _problemDetailsService.TryWriteAsync(context);
     }
 
     private static (int StatusCode, string Title) Classify(Exception exception) => exception switch
@@ -72,6 +84,10 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
         // back as the building cart, so asking for one is a conflict, not a 500.
         CartAlreadyConfirmedException
             => (StatusCodes.Status409Conflict, "The week's cart is already confirmed."),
+        // Chore complete/undo only accept the current week, or the previous week
+        // within the 24h grace after the Monday 00:00 UTC rollover (issue #86).
+        WeekNotCurrentException
+            => (StatusCodes.Status409Conflict, "The week is not open for chore changes."),
         // A household must always retain at least one organizer (issue #12).
         LastOrganizerException
             => (StatusCodes.Status400BadRequest, "A household must retain an organizer."),

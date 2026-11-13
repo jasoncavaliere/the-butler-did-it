@@ -69,7 +69,9 @@ public sealed class AssignmentsController : ControllerBase
     /// so any authenticated caller - a tap-to-claim participant (T1) or a paired hub
     /// device (T5) - may drive it; no organizer authority is required. A second
     /// complete of an already-<c>Done</c> assignment is an idempotent success. An
-    /// unknown assignment is a <c>404</c>.
+    /// unknown assignment is a <c>404</c>. A <paramref name="weekIso"/> that is not the
+    /// current ISO week (or the previous week within 24 hours of the Monday 00:00 UTC
+    /// rollover) is a <c>409</c> with reason <c>weekNotCurrent</c>.
     /// </summary>
     /// <remarks>
     /// The actor the completion is attributed to is the participant session's own
@@ -84,6 +86,7 @@ public sealed class AssignmentsController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<CompleteChoreResponse>> Complete(
         string householdId,
         string weekIso,
@@ -126,7 +129,8 @@ public sealed class AssignmentsController : ControllerBase
     /// C4 - any authenticated caller (a tap-to-claim participant or a paired hub
     /// device) may drive it; no organizer authority is required. Undoing an
     /// already-<c>Open</c> assignment is an idempotent success. An unknown assignment
-    /// is a <c>404</c>.
+    /// is a <c>404</c>. A <paramref name="weekIso"/> outside the same window as
+    /// <see cref="Complete"/> is a <c>409</c> with reason <c>weekNotCurrent</c>.
     /// </summary>
     /// <remarks>
     /// The actor the reversal is attributed to is resolved exactly as
@@ -141,6 +145,7 @@ public sealed class AssignmentsController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<UndoChoreResponse>> Undo(
         string householdId,
         string weekIso,

@@ -38,6 +38,13 @@ public interface IChoreCompletionService
     /// The completed assignment's state, or <c>null</c> when no assignment matches
     /// <c>(householdId, weekIso, choreId)</c> (the controller maps that to a <c>404</c>).
     /// </returns>
+    /// <exception cref="WeekNotCurrentException">
+    /// <paramref name="weekIso"/> is outside the accepted window: it is neither the
+    /// current ISO week nor the previous ISO week within 24 hours of the Monday 00:00
+    /// UTC rollover (both derived from the injected clock). Nothing is read or written;
+    /// the API maps it to <c>409</c>. The window is checked before the assignment is
+    /// looked up, so an out-of-window week is a <c>409</c> even when no assignment matches.
+    /// </exception>
     Task<CompleteChoreResponse?> CompleteAsync(
         string householdId,
         string weekIso,
@@ -75,6 +82,13 @@ public interface IChoreCompletionService
     /// The reopened assignment's state, or <c>null</c> when no assignment matches
     /// <c>(householdId, weekIso, choreId)</c> (the controller maps that to a <c>404</c>).
     /// </returns>
+    /// <exception cref="WeekNotCurrentException">
+    /// <paramref name="weekIso"/> is outside the accepted window: it is neither the
+    /// current ISO week nor the previous ISO week within 24 hours of the Monday 00:00
+    /// UTC rollover (both derived from the injected clock). Nothing is read or written;
+    /// the API maps it to <c>409</c>. The window is checked before the assignment is
+    /// looked up, so an out-of-window week is a <c>409</c> even when no assignment matches.
+    /// </exception>
     Task<UndoChoreResponse?> UndoAsync(
         string householdId,
         string weekIso,
