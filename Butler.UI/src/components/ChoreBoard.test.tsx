@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import type { ReactElement } from 'react';
 
 import {
   CLOCK_NOTICE_AFTER,
@@ -16,6 +17,7 @@ import type {
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { readGlance, writeGlance, type GlanceStorage } from '../offline/glanceCache';
+import { WriteQueueProvider } from '../offline/WriteQueueContext';
 import { currentWeekIso } from '../offline/weekIso';
 import {
   MAX_WRITE_ATTEMPTS,
@@ -123,13 +125,25 @@ function boardClient(opts: ClientOpts = {}): ApiClient {
   };
 }
 
+/**
+ * Mount `ui` inside the one write queue the hub provides (O4), replaying through
+ * the same client the board loads with - exactly what HubShell does.
+ */
+function inQueue(client: ApiClient, ui: ReactElement) {
+  return (
+    <WriteQueueProvider householdId="hh-1" client={client}>
+      {ui}
+    </WriteQueueProvider>
+  );
+}
+
 async function renderBoard(
   client: ApiClient,
   { activePersonId = null, people = roster }: { activePersonId?: string | null; people?: RosterEntryResponse[] } = {},
 ) {
   useApiClientMock.mockReturnValue(client);
   return render(
-    <ChoreBoard householdId="hh-1" people={people} activePersonId={activePersonId} />,
+    inQueue(client, <ChoreBoard householdId="hh-1" people={people} activePersonId={activePersonId} />),
   );
 }
 
@@ -202,9 +216,10 @@ describe('ChoreBoard', () => {
   });
 
   it('switch-refocuses: changing the active person changes which items show', async () => {
-    useApiClientMock.mockReturnValue(boardClient());
+    const client = boardClient();
+    useApiClientMock.mockReturnValue(client);
     const view = await render(
-      <ChoreBoard householdId="hh-1" people={roster} activePersonId="p1" />,
+      inQueue(client, <ChoreBoard householdId="hh-1" people={roster} activePersonId="p1" />),
     );
 
     // Focused on Alex: their items show, Sam's do not.
@@ -213,14 +228,18 @@ describe('ChoreBoard', () => {
 
     // Tapping a different tile re-focuses on Sam (no refetch): now Sam's items
     // show and Alex's are gone.
-    await view.rerender(<ChoreBoard householdId="hh-1" people={roster} activePersonId="p2" />);
+    await view.rerender(
+      inQueue(client, <ChoreBoard householdId="hh-1" people={roster} activePersonId="p2" />),
+    );
     await waitFor(() => expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen());
     expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen();
     expect(screen.queryByTestId('chore-item-c1')).toBeNull();
     expect(screen.queryByTestId('chore-item-c4')).toBeNull();
 
     // Clearing the selection (idle-reset -> null) restores the full household.
-    await view.rerender(<ChoreBoard householdId="hh-1" people={roster} activePersonId={null} />);
+    await view.rerender(
+      inQueue(client, <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} />),
+    );
     await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
     expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen();
   });
@@ -672,10 +691,14 @@ describe('ChoreBoard offline cache', () => {
   it('render-from-cache-when-offline: the assignment read being unreachable shows the last-known week', async () => {
     writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
     const onLastKnown = jest.fn();
-    useApiClientMock.mockReturnValue(boardClient({ generate: unreachable }));
+    const client = boardClient({ generate: unreachable });
+    useApiClientMock.mockReturnValue(client);
 
     await render(
-      <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      inQueue(
+        client,
+        <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      ),
     );
 
     // The real board, not an error line: cached titles, grouped by day.
@@ -704,10 +727,14 @@ describe('ChoreBoard offline cache', () => {
   it('reports a live load as not-last-known, clearing the indication', async () => {
     writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
     const onLastKnown = jest.fn();
-    useApiClientMock.mockReturnValue(boardClient());
+    const client = boardClient();
+    useApiClientMock.mockReturnValue(client);
 
     await render(
-      <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      inQueue(
+        client,
+        <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      ),
     );
 
     await waitFor(() => expect(screen.getByTestId('chore-board')).toBeOnTheScreen());
@@ -721,10 +748,14 @@ describe('ChoreBoard offline cache', () => {
       ok: false,
       error: { kind: 'problem', status: 500, title: 'Server error', detail: 'The week could not be built.' },
     };
-    useApiClientMock.mockReturnValue(boardClient({ generate: serverError }));
+    const client = boardClient({ generate: serverError });
+    useApiClientMock.mockReturnValue(client);
 
     await render(
-      <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      inQueue(
+        client,
+        <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      ),
     );
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());

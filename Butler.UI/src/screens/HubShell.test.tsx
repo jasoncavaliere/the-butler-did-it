@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { HubShell } from './HubShell';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
@@ -6,6 +7,14 @@ import type { ParticipantSessionResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
 import { readGlance, writeGlance } from '../offline/glanceCache';
+import { resetSessionFallbackStorage } from '../offline/storage';
+import { currentWeekIso } from '../offline/weekIso';
+import {
+  OFFLINE_RETRY_MS,
+  assignmentDedupeKey,
+  readWriteQueue,
+  saveWriteQueue,
+} from '../offline/writeQueue';
 import { HouseholdProvider } from '../state/HouseholdContext';
 import { OrganizerProvider } from '../state/OrganizerContext';
 
@@ -319,6 +328,8 @@ describe('HubShell', () => {
     await waitFor(() =>
       expect(screen.getByTestId('hub-error')).toHaveTextContent('No household is set up yet.'),
     );
+    // No household means no queue, so there is no sync state to show either.
+    expect(screen.queryByTestId('sync-indicator')).toBeNull();
   });
 
   it('shows the loading state until the reads resolve', async () => {
@@ -721,6 +732,9 @@ describe('HubShell offline cache', () => {
     expect(screen.getByTestId('last-known-banner')).toHaveTextContent(
       'Showing last-known - saved 12 minutes ago',
     );
+    // A cached glance means the API did not answer, so the indicator says Offline
+    // even though nothing told the browser it lost its network (O4).
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
   });
 
   it('falls back to cache when it is the roster read that cannot be reached', async () => {
@@ -950,5 +964,234 @@ describe('HubShell offline cache', () => {
     await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
     expect(screen.queryByText('Lake House')).toBeNull();
     expect(screen.queryByTestId('name-tile-p1')).toBeNull();
+  });
+});
+
+/**
+ * Epic 60 O4: the sync indicator lives in the hub header, reading the one write
+ * queue the shell provides for the household.
+ */
+describe('HubShell sync indicator', () => {
+  type HostNode = {
+    props: { testID?: string; style?: unknown };
+    parent: HostNode | null;
+    children: (HostNode | string)[];
+  };
+
+  beforeEach(() => {
+    const entries = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (key: string) => entries.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          entries.set(key, value);
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+    resetSessionFallbackStorage();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    resetSessionFallbackStorage();
+  });
+
+  /** Whether `node` sits inside the element with `testID`. */
+  function isWithin(node: HostNode, testID: string): boolean {
+    for (let at: HostNode | null = node.parent; at !== null; at = at.parent) {
+      if (at.props.testID === testID) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Every way a style could lift an element out of the flow and over its
+   * neighbours: absolute/fixed positioning, a stacking order, or a negative
+   * margin or offset pulling it onto the region next to it.
+   */
+  function overlapStyles(node: HostNode): string[] {
+    const style = (StyleSheet.flatten(node.props.style as never) ?? {}) as Record<string, unknown>;
+    const found: string[] = [];
+    if (style.position === 'absolute' || style.position === 'fixed') {
+      found.push(`position:${String(style.position)}`);
+    }
+    if (style.zIndex !== undefined) {
+      found.push('zIndex');
+    }
+    for (const key of [
+      'margin',
+      'marginTop',
+      'marginBottom',
+      'marginLeft',
+      'marginRight',
+      'marginHorizontal',
+      'marginVertical',
+      'marginStart',
+      'marginEnd',
+      'top',
+      'bottom',
+      'left',
+      'right',
+      'start',
+      'end',
+    ]) {
+      if (typeof style[key] === 'number' && (style[key] as number) < 0) {
+        found.push(key);
+      }
+    }
+    return found;
+  }
+
+  it('sync indicator sits in the header flow and overlaps neither the name tiles nor the board (AC5)', async () => {
+    useApiClientMock.mockReturnValue(interactiveClient());
+
+    await renderHub();
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+    const indicator = screen.getByTestId('sync-indicator') as unknown as HostNode;
+    const shell = screen.getByTestId('hub-shell') as unknown as HostNode;
+    const header = screen.getByTestId('hub-header') as unknown as HostNode;
+    const tiles = screen.getByTestId('hub-name-tiles') as unknown as HostNode;
+    const panel = screen.getByTestId('today-panel') as unknown as HostNode;
+
+    // Inside the header, and not inside either region it must never cover.
+    expect(isWithin(indicator, 'hub-header')).toBe(true);
+    expect(within(screen.getByTestId('hub-name-tiles')).queryByTestId('sync-indicator')).toBeNull();
+    expect(within(screen.getByTestId('today-panel')).queryByTestId('sync-indicator')).toBeNull();
+
+    // In normal flow all the way up to the shell: nothing lifts it (or the
+    // regions beside it) out of layout and onto its neighbours.
+    const offending: string[] = [];
+    for (let at: HostNode | null = indicator; at !== null && at !== shell; at = at.parent) {
+      offending.push(...overlapStyles(at).map((s) => `${at?.props.testID ?? 'node'}:${s}`));
+    }
+    offending.push(...overlapStyles(tiles).map((s) => `hub-name-tiles:${s}`));
+    offending.push(...overlapStyles(panel).map((s) => `today-panel:${s}`));
+    expect(offending).toEqual([]);
+
+    // ...and the header precedes the tiles, which precede the board, in the
+    // shell's own column - so in flow, the header's box ends before theirs begin.
+    const order = shell.children.filter((child): child is HostNode => typeof child !== 'string');
+    const indexOf = (node: HostNode) => order.indexOf(node);
+    expect(indexOf(header)).toBeGreaterThanOrEqual(0);
+    expect(indexOf(header)).toBeLessThan(indexOf(tiles));
+    expect(indexOf(tiles)).toBeLessThan(indexOf(panel));
+  });
+
+  it('hub header shows a queued write from storage and clears it after sync', async () => {
+    const week = currentWeekIso();
+    saveWriteQueue('hh-1', [
+      {
+        kind: 'chore-complete',
+        dedupeKey: assignmentDedupeKey(week, 'c1'),
+        method: 'POST',
+        path: `/households/hh-1/assignments/${week}/c1/complete`,
+        body: { personId: 'p1' },
+        enqueuedAtMs: 1,
+        attempts: 0,
+        status: 'pending',
+      },
+    ]);
+    const client = clientWith({
+      household: okHousehold('Home'),
+      people: { ok: true, status: 200, data: [], etag: null },
+    });
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    // One provider, one drain: the queued write replays through the hub's own
+    // client exactly once, and the header confirms it.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('hub-header')).getByTestId('sync-indicator-synced')).toHaveTextContent(
+        /All synced\./,
+      ),
+    );
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    const completes = (client.update as jest.Mock).mock.calls.filter(([path]: [string]) =>
+      path.endsWith('/c1/complete'),
+    );
+    expect(completes).toHaveLength(1);
+    expect(screen.queryByTestId('sync-indicator-pending')).toBeNull();
+    // A live shell does no extra household read after a sync - only a degraded
+    // one revives on a confirmation.
+    const householdReads = (client.get as jest.Mock).mock.calls.filter(
+      ([path]: [string]) => path === '/households/hh-1',
+    );
+    expect(householdReads).toHaveLength(1);
+  });
+
+  it('revives the shell when a queued write gets through after an API-only outage (no online event)', async () => {
+    jest.useFakeTimers();
+    const week = currentWeekIso();
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Cached Home', people: [] } },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    saveWriteQueue('hh-1', [
+      {
+        kind: 'chore-complete',
+        dedupeKey: assignmentDedupeKey(week, 'c1'),
+        method: 'POST',
+        path: `/households/hh-1/assignments/${week}/c1/complete`,
+        body: { personId: 'p1' },
+        enqueuedAtMs: 1,
+        attempts: 0,
+        status: 'pending',
+      },
+    ]);
+    // Wifi stays up the whole time: only the API is down, so the browser never
+    // fires `online`. The same client throughout, flipped mid-test.
+    const api = { down: true };
+    const live = clientWith({
+      household: okHousehold('Live Home'),
+      people: { ok: true, status: 200, data: [], etag: null },
+    });
+    const client: ApiClient = {
+      baseUrl: live.baseUrl,
+      get: jest.fn(async (path: string) =>
+        api.down ? unreachable : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
+      update: jest.fn(async (path: string, body: unknown, options?: UpdateOptions) =>
+        api.down ? unreachable : live.update<unknown>(path, body, options),
+      ) as unknown as ApiClient['update'],
+    };
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    // The outage: cached glance, the write waiting, and the header says Offline.
+    expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Cached Home');
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
+    expect(screen.getByTestId('sync-indicator-pending')).toHaveTextContent(/1 waiting to sync/);
+
+    // The API comes back; the queue's backoff retry gets the write through.
+    api.down = false;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(OFFLINE_RETRY_MS);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    // The confirmation revived the shell: live data, no last-known line, Online.
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Live Home');
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
+    expect(screen.getByTestId('sync-indicator-synced')).toHaveTextContent(/All synced\./);
   });
 });

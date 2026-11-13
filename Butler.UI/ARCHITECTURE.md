@@ -88,7 +88,7 @@ common double-send from even happening.
 | --- | --- | --- |
 | Storage seam | `src/offline/storage.ts` | The one feature-detected, `SecurityError`-guarded Web Storage accessor (`defaultLocalStorage`) both O2 and O3 persist through, plus the shared `isRecord` validator. It also holds `sessionFallbackStorage()`, the write-only-as-far-as-this-session stand-in the queue (and only the queue) falls back to - see "never dropped, even with nowhere to persist" below. |
 | Queue | `src/offline/writeQueue.ts` | One record per household under `butler.writeq.v1.<householdId>`: an ordered list of `{ method, path, body, kind, dedupeKey, attempts, status }` entries. `enqueueWrite`/`readWriteQueue`/`saveWriteQueue` plus `drainWriteQueue`, which replays head-first, persists after every step, and stops (never reorders) at the first write it cannot confirm. |
-| React seam | `src/offline/useWriteQueue.ts` | `useWriteQueue(householdId, client)` hydrates the queue from storage on mount, drains on mount/reconnect/backoff-timer, coalesces concurrent drain requests into one pass, and hands a surface `{ entries, pending, failed, enqueue, flush, confirmedRevision }`. `confirmedRevision` is a counter that bumps once per drain run that confirmed at least one write (never on an empty, unreachable, or refused run), for a load effect to list in its dependencies. |
+| React seam | `src/offline/useWriteQueue.ts` | `useWriteQueue(householdId, client)` hydrates the queue from storage on mount, drains on mount/reconnect/backoff-timer, coalesces concurrent drain requests into one pass, and hands a surface `{ entries, pending, failed, enqueue, flush, confirmedRevision, unreachable }`. `confirmedRevision` is a counter that bumps once per drain run that confirmed at least one write (never on an empty, unreachable, or refused run), for a load effect to list in its dependencies. `unreachable` is whether the last drain run ended on a `network` answer (reset by the next run that reaches the API), which the O4 indicator reads. Called exactly once per household, by `WriteQueueProvider` (`src/offline/WriteQueueContext.tsx`); surfaces read it through `useWriteQueueContext()`, which throws outside the provider. |
 | Week guard | `src/offline/weekIso.ts`, `src/offline/useCurrentWeek.ts` | `isCurrentWeek(weekIso)` - the client-side mirror of the API's ISO year-week bucketing, used to refuse a write from any board, live or cached, whose week has rolled over, and to refuse to replay a queued assignment write whose week ended before it could sync (#89). `msUntilNextWeekIso()` gives the time to the next Monday 00:00 UTC, and `useCurrentWeekIso()` holds the current week as React state on a timer armed for that instant, so a wall hub nobody reloads redraws (and reloads) at the boundary. |
 | Board | `src/components/ChoreBoard.tsx` | Calls `enqueue()` from `toggle()` when offline (a cached board) or when a live request answers `network`; the optimistic flip stays either way. `applyQueuedWrites()` overlays not-yet-synced entries onto every fresh load, so a reconnect refetch racing the drain cannot flicker a still-queued tap back to `Open`. A write the drain has already confirmed is no longer in the queue to overlay, so the board also lists `confirmedRevision` in its load dependencies: it refetches once when a drain confirms a write, discarding any load that raced the drain with a pre-sync snapshot, and renders the post-sync server state (#88). |
 
@@ -136,6 +136,49 @@ Six rules keep replay honest:
   week in their key (a cart add) are not week-bound. The key is parsed rather than a field added, so
   writes queued before this rule existed are covered and the `v1` schema is unchanged.
 
+### The sync indicator (O4)
+
+The hub header carries one quiet row of status chips, `SyncIndicator`
+(`src/components/SyncIndicator.tsx`), so the family can tell at a glance whether the wall is online,
+whether taps are waiting to sync, and whether any never went through. It is styled after the
+`offline-chip` design token: muted pill chips, a text glyph plus words for every state, never colour
+alone (ADR-0010), and a polite live region for screen readers.
+
+| Segment | When | Copy |
+| --- | --- | --- |
+| Connection | always | `Online` / `Offline` |
+| Pending | the queue's `pending` is above 0 | `2 waiting to sync` |
+| Synced | for `SYNC_CONFIRMATION_MS` (4s) after a drain run confirms writes and leaves nothing pending | `All synced.`, or `Synced.` while any write is flagged failed |
+| Failed | the queue's `failed` is above 0 | `1 change did not go through` / `2 changes did not go through` |
+
+- **One queue, shared.** The board and the indicator both read the queue, and two `useWriteQueue`
+  calls would be two drains over one storage record. So `HubShell` mounts one `WriteQueueProvider`
+  per household (with the same `useApiClient()` client the board loads with) and both read it via
+  `useWriteQueueContext()`.
+- **Offline is more than the browser's flag.** The connection reads `Offline` when the browser says
+  so (`useBrowserOnline`: `navigator.onLine`, then the `online`/`offline` events, inert off web), when
+  the queue's last drain could not reach the API (`unreachable`), or when the hub is serving any
+  region from the O2 cache (that cache only ever stands in on a network failure). So "wifi up, API
+  down" reads `Offline` once a drain fails or a region is served from cache, and stays there until a
+  drain or a reload actually gets through. With no cache and an empty queue neither happens, so the
+  indicator reads `Online` beside the shell's could-not-reach error - a known gap tracked in #151.
+  That outage never fires the
+  browser's `online` event, so a drain that confirms a queued write is what revives the hub: the board
+  refetches on `confirmedRevision`, and while the shell is degraded it reloads on it too (HubShell's
+  `QueueRevival`), which clears the cached stamp and with it `Offline`. None of the indicator's inputs
+  is a load dependency - the indicator itself never causes a refetch.
+- **The confirmation is derived, not stored.** It shows while the queue's `confirmedRevision` is
+  ahead of the revision the indicator last let go of; a timer armed in an effect moves that marker
+  forward. It starts at the current revision, so a remount never replays an old confirmation.
+- **Failed writes are never hidden.** The failed chip has no timer and no dismiss; it clears only
+  when the entry leaves the queue (a fresh tap on the same target revives it, O3). A signed-in
+  organizer also sees a row per failed write: what it was (`Marking a chore done`, `Undoing a
+  chore`, `Adding to the cart`, otherwise `A change`) and the queue's `lastError`.
+- **It never covers the glance.** The indicator renders inside the header (`hub-header`), beside the
+  date, in normal flex flow - no absolute positioning, `zIndex`, or negative margins - so it cannot
+  overlap the name tiles or the board. A `HubShell` component test walks the styles from the
+  indicator up to the shell to hold that line.
+
 ## Project structure
 
 Application code lives under `src/`, layered so later capability tickets have a clear home:
@@ -161,6 +204,7 @@ src/
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
               GroceryCart.tsx # hub grocery region: add by typing, review the cart, organizer-only confirm (Epic 50 G5)
               LastKnownBanner.tsx # "showing last-known" indication when a region is served from cache (O2)
+              SyncIndicator.tsx # hub-header sync state: online/offline, pending count, synced, failed writes (O4)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -171,6 +215,8 @@ src/
               weekIso.ts    # client-side ISO year-week helpers (isCurrentWeek) guarding a write from a stale cached board (O3)
               writeQueue.ts # durable local write queue + drain/replay-on-reconnect, keyed by householdId (O3)
               useWriteQueue.ts # React seam over the write queue: hydrate, drain on mount/reconnect/backoff, enqueue (O3)
+              WriteQueueContext.tsx # WriteQueueProvider: the one queue per household, shared by board and indicator (O4)
+              useBrowserOnline.ts # navigator.onLine + online/offline events; inert off web (O4)
   pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
               useServiceWorkerRegistration.ts # the hook App.tsx calls on mount (O1)
   state/      AppConfigContext.tsx # app-wide config/context providers

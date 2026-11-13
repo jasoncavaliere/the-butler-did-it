@@ -67,8 +67,8 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/state/` | React contexts: app config, household, organizer, hub device. |
 | `src/auth/` | Organizer auth providers (dev / Entra), `OrganizerGate`, hub pairing. |
 | `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding). |
-| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `LastKnownBanner`, `Screen`. |
-| `src/offline/` | Last-known-week cache, durable write queue + sync on reconnect. |
+| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `LastKnownBanner`, `SyncIndicator`, `Screen`. |
+| `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect. |
 | `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration and the PWA post-export step. |
 | `design-tokens.json`, `design/` | Design tokens and the design decision record. |
 

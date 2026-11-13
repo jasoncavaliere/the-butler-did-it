@@ -175,6 +175,41 @@ describe('useWriteQueue', () => {
     expect(readWriteQueue('hh-1')).toHaveLength(1);
   });
 
+  it('unreachable: true after a drain hits a network error, false after a drain confirms (O4)', async () => {
+    let offline = true;
+    const client = queueClient(() => (offline ? unreachable : confirmed));
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    // Nothing has tried the API yet, so nothing says it is down.
+    expect(result.current.unreachable).toBe(false);
+
+    await act(async () => {
+      result.current.enqueue(completion('c1'));
+    });
+    await waitFor(() => expect(result.current.unreachable).toBe(true));
+    expect(result.current.pending).toBe(1);
+
+    offline = false;
+    await act(async () => {
+      result.current.flush();
+    });
+
+    await waitFor(() => expect(result.current.unreachable).toBe(false));
+    expect(result.current.pending).toBe(0);
+  });
+
+  it('a refused write is not an unreachable API', async () => {
+    const client = queueClient(() => refused);
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    await act(async () => {
+      result.current.enqueue(completion('c1'));
+    });
+
+    await waitFor(() => expect(client.update).toHaveBeenCalledTimes(1));
+    expect(result.current.unreachable).toBe(false);
+  });
+
   it('replay-on-reconnect: the network coming back drains the queue', async () => {
     const emitOnline = installReconnect(cleanups);
     let offline = true;

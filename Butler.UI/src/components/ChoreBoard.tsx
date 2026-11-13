@@ -14,7 +14,7 @@ import { useApiClient } from '../api/useApiClient';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';
-import { useWriteQueue } from '../offline/useWriteQueue';
+import { useWriteQueueContext } from '../offline/WriteQueueContext';
 import { currentWeekIso, isCurrentWeek } from '../offline/weekIso';
 import { assignmentDedupeKey, readWriteQueue, type QueuedWrite } from '../offline/writeQueue';
 import { colors } from './Screen';
@@ -70,9 +70,9 @@ import { colors } from './Screen';
  *   just as easily to a live board loaded on Sunday night and tapped on Monday
  *   morning (#89). It is the one case the board refuses ({@link isCurrentWeek}),
  *   whichever way the board was loaded; within the current week an offline tap
- *   is queued ({@link useWriteQueue}) and shown as done immediately, and a queued
- *   write whose week ends before it syncs is flagged at drain time rather than
- *   replayed into the ended week.
+ *   is queued (the hub's shared {@link useWriteQueueContext} queue) and shown as
+ *   done immediately, and a queued write whose week ends before it syncs is
+ *   flagged at drain time rather than replayed into the ended week.
  * - self-reviving, because the hub lives on a wall and nobody reloads it. While
  *   degraded the board listens for a reconnect ({@link useReconnectSignal}) and
  *   refetches when the network returns, which is what turns the cached board back
@@ -245,10 +245,12 @@ export function ChoreBoard({
   const degraded = fromCache || phase === 'error';
   const reconnectSignal = useReconnectSignal(degraded);
 
-  // The durable offline write queue (O3). It hydrates from storage on mount, so
-  // taps taken before a reload of the wall tablet are already here and replaying.
-  // It has to be called above the load effect, which lists `confirmedRevision`.
-  const { enqueue, confirmedRevision } = useWriteQueue(householdId, client);
+  // The durable offline write queue (O3), shared with the hub's sync indicator
+  // through the one WriteQueueProvider the hub mounts (O4). It hydrates from
+  // storage on mount, so taps taken before a reload of the wall tablet are
+  // already here and replaying. It has to be read above the load effect, which
+  // lists `confirmedRevision`.
+  const { enqueue, confirmedRevision } = useWriteQueueContext();
 
   // The week the hub is in, as state that changes at the boundary (#89). It is
   // what the render compares the board's week against, and - listed in the load

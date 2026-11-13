@@ -22,7 +22,7 @@ import { useEffect, useState } from 'react';
  */
 
 /** The sliver of the DOM event-target API this hook needs (no DOM lib dependency). */
-type ReconnectTarget = {
+export type ReconnectTarget = {
   addEventListener(type: string, listener: () => void): void;
   removeEventListener(type: string, listener: () => void): void;
 };
