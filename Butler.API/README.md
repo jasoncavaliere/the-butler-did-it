@@ -12,6 +12,8 @@ Butler.API/
 ├── Butler.API.sln
 ├── Directory.Build.props    solution-wide TFM/Nullable/ImplicitUsings/analyzer settings
 ├── Directory.Packages.props central package management - versions live here, not in .csproj
+├── Dockerfile               multi-stage image (.NET 10 SDK build -> ASP.NET 10 runtime), Demo environment, port 8080
+├── .dockerignore            keeps bin/, obj/, test projects, and .azurite/ out of the build context
 ├── global.json               pins the .NET 10 SDK
 ├── src/
 │   └── Butler.Api/          .NET 10 Web API (entry point: Program.cs)
@@ -22,6 +24,7 @@ Butler.API/
 │       └── Mediation/         cross-cutting MediatR wiring, incl. ApiExceptionHandler (RFC 7807)
 │   └── Butler.Api.Tests/    xUnit + NSubstitute unit tests; coverlet enforces the 98% coverage gate
 │   └── Butler.Api.SmokeTests/ black-box smoke suite vs a running API + Azurite (not in the sln; see "Smoke tests")
+│   └── Butler.Api.ContainerTests/ builds and runs the Docker image, checks the build context (not in the sln; see "Container tests")
 ├── infra/
 │   ├── main.bicep           Azure App Service (Linux) - parameter-driven, policy-agnostic
 │   └── main.bicepparam      per-environment values (fill in before deploy)
@@ -71,6 +74,54 @@ variables):
 | `Storage:AccountName` | Storage account for the managed-identity path in deployed envs (endpoint derived as `https://<account>.table.core.windows.net`). |
 | `Storage:TableServiceUri` | Explicit table service endpoint (overrides the derived one; e.g. sovereign clouds). |
 | `Storage:UseInMemoryStore` | Explicit override: `true` forces the in-memory store, `false` forces real storage. Unset = in-memory only when no connection is configured. |
+
+## Run as a container (Demo environment)
+
+`Dockerfile` builds a multi-stage image for the local demo stack: the .NET 10 SDK publishes
+`src/Butler.Api` only, and the ASP.NET 10 runtime image runs it as a non-root user on port `8080`.
+
+```bash
+# from Butler.API/
+docker build -t butler-api:demo .
+docker run --rm -p 8080:8080 \
+  -e Storage__ConnectionString="<your Azurite or storage connection string>" \
+  butler-api:demo
+
+curl http://localhost:8080/health        # {"status":"ok"}
+# Swagger UI: http://localhost:8080/swagger
+```
+
+- The image defaults to `ASPNETCORE_ENVIRONMENT=Demo`, which loads `appsettings.Demo.json`, serves
+  Swagger at `/swagger`, and turns on the organizer-auth bypass explicitly (see "Organizer
+  authentication" below).
+- The storage connection string is passed at run time through `Storage__ConnectionString`. It is
+  never baked into the image or committed to the repo. Without it the API falls back to the
+  in-memory seed store.
+- Azurite's development-storage shortcut resolves to `127.0.0.1`, which inside the container is the
+  container itself, not the host. The demo compose stack (#94) therefore passes an explicit Azurite
+  endpoint in the connection string.
+
+### Container tests
+
+`src/Butler.Api.ContainerTests` checks the image itself with the real Docker CLI. Like the smoke
+suite it is **not** in `Butler.API.sln`, so plain `dotnet test` never needs Docker. It needs the
+`docker` CLI and a running daemon; if Docker is unavailable the run fails rather than skipping.
+
+```bash
+# from Butler.API/
+dotnet test src/Butler.Api.ContainerTests
+```
+
+| Test | What it checks |
+| --- | --- |
+| `Image_builds_from_the_multi_stage_Dockerfile_onto_the_ASP_NET_10_runtime` | `docker build` on `Butler.API/` succeeds; the final image is the ASP.NET 10 runtime (no SDK) and starts `dotnet Butler.Api.dll`. |
+| `Running_container_listens_on_port_8080` | The image sets `ASPNETCORE_HTTP_PORTS=8080` and exposes `8080/tcp`; the container logs `Now listening on: http://[::]:8080`. |
+| `Running_container_serves_health_200` | `GET /health` through the published container port 8080 returns `200 {"status":"ok"}`. |
+| `Running_container_defaults_to_Demo_and_serves_swagger` | The image defaults to `ASPNETCORE_ENVIRONMENT=Demo` and serves `/swagger/v1/swagger.json`. |
+| `Build_context_excludes_bin_obj_test_projects_and_azurite_data` | Plants files under `bin/`, `obj/`, and `.azurite/`, exports the context Docker actually sends, and asserts none of them (and no test project) is in it. |
+
+Each run builds a uniquely tagged image, runs it on a free loopback port with no storage settings
+(in-memory store), and removes the container and image afterwards.
 
 ## Smoke tests
 
@@ -152,16 +203,18 @@ display name) is the sample organizer-only endpoint that proves the seam end to 
 
 In deployed environments the API validates JWT bearer tokens issued by Entra External ID. Locally and in
 CI (the Development environment), authentication is bypassed by default: every request is authenticated
-as a deterministic dev organizer, so `dotnet run` and `dotnet test` need no live tenant. This bypass
-fails closed everywhere else - a non-Development host refuses to start if authentication is disabled, or
-if it is enabled but no authority is configured. Configure it under the `Authentication` section (or
+as a deterministic dev organizer, so `dotnet run` and `dotnet test` need no live tenant. The Demo
+environment (the local demo container, see "Run as a container") may also use the bypass, but only when
+it is set explicitly - `appsettings.Demo.json` does. The bypass fails closed everywhere else - a host
+outside Development and Demo refuses to start if authentication is disabled, and any host refuses to
+start if authentication is enabled but no authority is configured. Configure it under the `Authentication` section (or
 `Authentication__*` environment variables):
 
 | Setting | Purpose |
 | --- | --- |
 | `Authentication:Authority` | Entra External ID authority (issuer) that mints organizer tokens, e.g. `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0`. Required whenever authentication is enabled. |
 | `Authentication:Audience` | Expected audience (the API's application/client id). Optional; when unset the audience is not validated. |
-| `Authentication:DisableAuthentication` | Explicit override. Defaults to `true` in Development, refused (fail closed) in every other environment. Never set this outside Development. |
+| `Authentication:DisableAuthentication` | Explicit override. Defaults to `true` in Development, permitted in Demo when set explicitly (`appsettings.Demo.json`), refused (fail closed) in every other environment. Never set this outside Development or Demo. |
 
 ## Participant sessions (tap-to-claim)
 

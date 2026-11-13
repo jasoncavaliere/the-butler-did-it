@@ -1,0 +1,36 @@
+# Build context for Butler.API/Dockerfile. Keep the context to what the API
+# image needs: no host build output, no tests, no local storage data.
+
+# Host build output (a leaked obj/project.assets.json breaks in-container restore)
+**/bin
+**/obj
+
+# Test projects (the image restores and publishes src/Butler.Api only)
+src/Butler.Api.Tests/
+src/Butler.Api.SmokeTests/
+src/Butler.Api.ContainerTests/
+
+# Azurite local Table Storage emulator data
+.azurite/
+**/.azurite
+**/__azurite_db*__.json
+**/__blobstorage__
+**/__queuestorage__
+
+# Infrastructure-as-code and local secrets
+infra/
+**/.env
+**/*.user
+
+# IDE folders
+**/.vs
+**/.vscode
+**/.idea
+
+# Test and coverage output
+**/TestResults
+**/coverage*.*
+
+# Docker files themselves
+Dockerfile
+.dockerignore
