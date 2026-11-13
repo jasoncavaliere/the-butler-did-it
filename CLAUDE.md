@@ -94,6 +94,7 @@ dotnet test --nologo                               # xUnit suite
 dotnet test --nologo --filter "FullyQualifiedName~Rooms"   # one feature's tests
 dotnet test --nologo /p:CollectCoverage=true       # + enforce the 98% gate (Contract 7.7)
 dotnet run --project src/Butler.Api -- --urls http://localhost:5108
+dotnet test --nologo src/Butler.Api.SmokeTests   # smoke suite (needs API + Azurite running; see README)
 ```
 
 Infra (both services) - Bicep, deployed per-service:

@@ -1,0 +1,21 @@
+namespace Butler.Api.SmokeTests;
+
+/// <summary>
+/// Values for <c>[Trait("Category", ...)]</c> so a run can be narrowed with
+/// <c>dotnet test --filter Category=...</c>. Only <see cref="Liveness"/> is
+/// read-only and therefore safe against a deployed environment.
+/// </summary>
+internal static class SmokeCategories
+{
+    /// <summary>Trait name used by every smoke test.</summary>
+    public const string Name = "Category";
+
+    /// <summary>Read-only HTTP probes against <c>BUTLER_SMOKE_BASE_URL</c>; safe anywhere.</summary>
+    public const string Liveness = "Liveness";
+
+    /// <summary>Mutating round trips through the storage seam; Azurite only.</summary>
+    public const string Storage = "Storage";
+
+    /// <summary>Offline checks of how the suite resolves its own settings.</summary>
+    public const string Settings = "Settings";
+}

@@ -4,6 +4,13 @@
 # workflow file itself). The monorepo has no root build - each sub-service has
 # its own toolchain - so API and UI get independent, separately-required checks
 # (see ui-ci.yml). This is the pre-merge gate /merge-issue waits on.
+#
+# Two jobs:
+#   api   - warnings-as-errors build of Butler.API.sln + the coverage-gated
+#           unit suite (in-process host, in-memory store; no dependencies).
+#   smoke - boots the real API against Azurite and runs the black-box
+#           Butler.Api.SmokeTests suite (issue #40), which is deliberately kept
+#           out of the sln so the unit step above never needs a live API.
 name: api-ci
 
 on:
@@ -17,7 +24,7 @@ on:
       - "Butler.API/**"
       - ".github/workflows/api-ci.yml"
 
-# Least privilege: this job only reads the checked-out source.
+# Least privilege: both jobs only read the checked-out source.
 permissions:
   contents: read
 
@@ -64,3 +71,88 @@ jobs:
           /p:Threshold=98
           /p:ThresholdType=line%2cbranch%2cmethod
           /p:ThresholdStat=total
+
+  smoke:
+    name: smoke (booted API + Azurite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Butler.API
+    env:
+      # Where the smoke suite points (see Butler.API/README.md "Smoke tests").
+      BUTLER_SMOKE_BASE_URL: http://localhost:5099
+      BUTLER_SMOKE_STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same pinned SDK as the `api` job - no toolchain drift between the two.
+      - name: Set up .NET (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Butler.API/global.json
+
+      # The real Table backend. Only the Table service is needed, so run
+      # azurite-table on 10002. --skipApiVersionCheck lets the Azure.Data.Tables
+      # SDK use a service version newer than this pinned Azurite tag knows.
+      - name: Start Azurite (Table service)
+        run: >-
+          docker run -d --name azurite -p 10002:10002
+          mcr.microsoft.com/azure-storage/azurite:3.35.0
+          azurite-table --tableHost 0.0.0.0 --skipApiVersionCheck
+
+      # Build the smoke project (and, through its ProjectReference, the API)
+      # with warnings as errors. The project is not in the sln, so the `api`
+      # job's build does not cover it - this step is its warnings gate.
+      - name: Build smoke suite (Release, warnings as errors)
+        run: >-
+          dotnet build src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj
+          --configuration Release /p:TreatWarningsAsErrors=true
+
+      # Boot the API in the background against Azurite. Development is required:
+      # other environments need Authentication:Authority and fail closed.
+      # UseInMemoryStore=false forces the real Table store. --no-launch-profile
+      # plus --urls pins the port (a launch profile would override ASPNETCORE_URLS).
+      - name: Boot API in background (Development, Azurite storage)
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          Storage__ConnectionString: UseDevelopmentStorage=true
+          Storage__UseInMemoryStore: "false"
+        run: >-
+          nohup dotnet run --project src/Butler.Api --configuration Release
+          --no-build --no-launch-profile -- --urls http://localhost:5099
+          > "$RUNNER_TEMP/api.log" 2>&1 &
+
+      # Wait for both dependencies before testing, so a slow start is not
+      # reported as a smoke failure - but a dependency that never comes up is.
+      - name: Wait for Azurite and API
+        run: |
+          for i in $(seq 1 60); do
+            if (echo > /dev/tcp/127.0.0.1/10002) 2>/dev/null \
+               && curl -fs "$BUTLER_SMOKE_BASE_URL/health" > /dev/null; then
+              echo "Azurite and API are up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Azurite or the API did not become ready within 60s" >&2
+          exit 1
+
+      # Every smoke category runs here (Liveness, Storage, Settings). Any failed
+      # assertion - or an unreachable dependency, which fails rather than skips -
+      # fails this step and the check.
+      - name: Smoke test
+        run: >-
+          dotnet test src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj
+          --no-build --configuration Release
+
+      # On failure, surface what the API and Azurite logged so the cause is
+      # visible without rerunning.
+      - name: Dump API and Azurite logs
+        if: failure()
+        run: |
+          echo "::group::api.log"
+          cat "$RUNNER_TEMP/api.log" || true
+          echo "::endgroup::"
+          echo "::group::azurite"
+          docker logs azurite || true
+          echo "::endgroup::"

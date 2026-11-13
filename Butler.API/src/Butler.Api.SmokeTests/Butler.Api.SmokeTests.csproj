@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Black-box smoke suite for Butler.Api (issue #40). Unlike Butler.Api.Tests,
+    which boots the app in-process with WebApplicationFactory and the in-memory
+    store, this suite talks to a REAL running API over HTTP (BUTLER_SMOKE_BASE_URL)
+    and drives the IEntityRepository seam against a REAL Table backend (Azurite).
+
+    Deliberately NOT in Butler.API.sln and NOT under the coverage gate: plain
+    `dotnet test` (the CI unit step and the dev inner loop) must keep running only
+    the unit suite with no API or Azurite running. Run it explicitly with
+    `dotnet test src/Butler.Api.SmokeTests` - see Butler.API/README.md "Smoke tests".
+
+    Target framework, nullable, implicit usings, and analyzers are inherited from
+    ../../Directory.Build.props; package versions come from
+    ../../Directory.Packages.props (central package management).
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      Analyzer relaxations scoped to this test project only:
+        NETSDK1188 - Microsoft.TestPlatform.TestHost ships satellite resources
+                     with locale names .NET does not recognize (package issue).
+        CA1707     - underscored test method names are the xUnit convention and
+                     read as sentences (Given_When_Then).
+    -->
+    <NoWarn>$(NoWarn);NETSDK1188;CA1707</NoWarn>
+  </PropertyGroup>
+
+  <!-- xUnit types (Fact, Theory, Assert, ...) available without a per-file using. -->
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Butler.Api\Butler.Api.csproj" />
+  </ItemGroup>
+
+</Project>
