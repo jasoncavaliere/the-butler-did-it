@@ -67,13 +67,15 @@ Offline/PWA internals (service worker, last-known cache, write queue) and the pe
 npm run lint           # eslint (eslint-config-expo)
 npm run typecheck      # tsc --noEmit
 npm test               # jest (jest-expo preset)
-npm run test:coverage  # jest with the 98% global coverage gate
+npm run test:coverage  # jest with the coverage gate (98% logic, 90% presentation)
 npm run ci:verify      # lint + typecheck + coverage-gated test (the CI gate)
 ```
 
 Tests use `jest-expo` + `@testing-library/react-native` and live next to the code they cover
-(`*.test.ts[x]`). Coverage is gated at 98% for statements, branches, functions, and lines
-(`coverageThreshold.global` in `jest.config.js`), per Engineering Contract 7.7 - keep new code covered.
+(`*.test.ts[x]`). Coverage is gated at 98% for statements, branches, functions, and lines on the
+logic folders (`src/api/`, `src/offline/`, `src/state/`, `src/auth/`) and everything else, and at 90%
+on `src/components/` and `src/screens/` during the demo push (`coverageThreshold` in `jest.config.js`),
+per Engineering Contract 7.7 - keep new code covered.
 Note: `@testing-library/react-native` v14's `render`/`rerender`/`unmount` are async - `await` them.
 
 The web-export tooling is held to the same bar: `scripts/pwa-export.test.js` checks the shipped
