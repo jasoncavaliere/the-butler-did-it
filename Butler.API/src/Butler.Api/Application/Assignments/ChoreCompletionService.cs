@@ -1,3 +1,4 @@
+using Butler.Api.Domain.Scheduling;
 using Butler.Api.Infrastructure.Assignments;
 using Butler.Api.Infrastructure.ChoreCompletions;
 using Butler.Api.Infrastructure.Chores;
@@ -8,7 +9,9 @@ namespace Butler.Api.Application.Assignments;
 /// Default <see cref="IChoreCompletionService"/> - the C4 composition behind the
 /// tap-to-complete endpoint. It reads the assignment, appends an append-only
 /// <c>ChoreCompletion</c>, and flips the assignment to <c>Done</c> under optimistic
-/// concurrency (Engineering Contract 7.3, BRD R-2). All I/O lives here; time comes
+/// concurrency (Engineering Contract 7.3, BRD R-2). Complete and undo accept only
+/// the current ISO week, or the previous week within 24 hours of the Monday 00:00 UTC
+/// rollover (<see cref="CompletionWeekWindow"/>, issue #86). All I/O lives here; time comes
 /// from the injected <see cref="TimeProvider"/> seam so the recorded instant stays
 /// deterministic (7.5).
 /// </summary>
@@ -47,6 +50,10 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         ArgumentException.ThrowIfNullOrWhiteSpace(weekIso);
         ArgumentException.ThrowIfNullOrWhiteSpace(choreId);
         ArgumentException.ThrowIfNullOrWhiteSpace(personId);
+
+        // Only the current week (or the previous week within the grace window) is
+        // open; a stale or future week is rejected before any repository access.
+        EnsureWeekIsOpen(weekIso);
 
         var rowKey = RowKeyFor(weekIso, choreId);
 
@@ -108,6 +115,10 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         ArgumentException.ThrowIfNullOrWhiteSpace(choreId);
         ArgumentException.ThrowIfNullOrWhiteSpace(personId);
 
+        // Only the current week (or the previous week within the grace window) is
+        // open; a stale or future week is rejected before any repository access.
+        EnsureWeekIsOpen(weekIso);
+
         var rowKey = RowKeyFor(weekIso, choreId);
 
         // Unknown assignment is a 404, surfaced to the caller as a null result.
@@ -158,6 +169,17 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         await _assignments.UpdateAsync(householdId, assignment, ifMatch, cancellationToken).ConfigureAwait(false);
 
         return RespondOpen(assignment);
+    }
+
+    // Rejects a weekIso outside the accepted window (issue #86) with a
+    // WeekNotCurrentException the API maps to 409. Time comes from the injected clock.
+    private void EnsureWeekIsOpen(string weekIso)
+    {
+        var now = _clock.GetUtcNow();
+        if (!CompletionWeekWindow.Accepts(weekIso, now))
+        {
+            throw WeekNotCurrentException.ForWeeks(weekIso, WeekIso.For(now));
+        }
     }
 
     private static CompleteChoreResponse Respond(AssignmentEntity assignment) => new(

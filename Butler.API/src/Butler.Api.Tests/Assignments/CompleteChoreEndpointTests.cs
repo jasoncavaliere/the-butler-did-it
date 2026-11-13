@@ -3,6 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
 using Butler.Api.Tests.TestSupport;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Butler.Api.Tests.Assignments;
 
@@ -15,11 +19,27 @@ namespace Butler.Api.Tests.Assignments;
 /// document. The default factory runs in Development, so the ambient caller is the
 /// dev organizer.
 /// </summary>
-public sealed class CompleteChoreEndpointTests : IClassFixture<ButlerApiFactory>
+public sealed class CompleteChoreEndpointTests : IClassFixture<ButlerApiFactory>, IDisposable
 {
-    private readonly ButlerApiFactory _factory;
+    // A Wednesday in ISO week 2026-W29. The host clock is pinned here so the
+    // hard-coded 2026-W29 requests stay inside the complete/undo week window
+    // (issue #86) no matter when the suite runs.
+    private static readonly DateTimeOffset MidWeek29 = new(2026, 7, 15, 9, 0, 0, TimeSpan.Zero);
 
-    public CompleteChoreEndpointTests(ButlerApiFactory factory) => _factory = factory;
+    private readonly WebApplicationFactory<Program> _factory;
+
+    public CompleteChoreEndpointTests(ButlerApiFactory factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        _factory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(new MutableClock(MidWeek29));
+            }));
+    }
+
+    public void Dispose() => _factory.Dispose();
 
     private static async Task<string> CreateHouseholdAsync(HttpClient client)
     {

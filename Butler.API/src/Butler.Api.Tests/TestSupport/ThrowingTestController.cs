@@ -1,3 +1,4 @@
+using Butler.Api.Application.Assignments;
 using Butler.Api.Application.Concurrency;
 using Butler.Api.Application.Demo;
 using Microsoft.AspNetCore.Mvc;
@@ -59,4 +60,12 @@ public sealed class ThrowingTestController : ControllerBase
     [HttpGet("/test/demo-seeding-not-allowed")]
     public IActionResult DemoSeedingNotAllowed() =>
         throw DemoSeedingNotAllowedException.ForEnvironment("Production");
+
+    /// <summary>
+    /// Throws <see cref="WeekNotCurrentException"/>, which the handler maps to
+    /// <c>409</c> with the <c>weekNotCurrent</c> problem extensions (issue #86).
+    /// </summary>
+    [HttpGet("/test/week-not-current")]
+    public IActionResult WeekNotCurrent() =>
+        throw WeekNotCurrentException.ForWeeks("2026-W27", "2026-W29");
 }
