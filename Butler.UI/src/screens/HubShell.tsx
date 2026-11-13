@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiClient, ApiError } from '../api/client';
@@ -55,6 +55,28 @@ export function isClaimableMember(person: RosterEntryResponse): boolean {
 }
 
 /**
+ * The slice of a rendered host element that {@link revealAndFocus} touches. On
+ * react-native-web a host ref is the DOM node, which has both; React Native's
+ * own host types declare neither `scrollIntoView` nor these option arguments, so
+ * both are optional and the call site casts to this narrow shape.
+ */
+export type RevealTarget = {
+  scrollIntoView?: (options?: ScrollIntoViewOptions) => void;
+  focus?: (options?: FocusOptions) => void;
+};
+
+/**
+ * Bring a control into view and give it keyboard focus. It scrolls first and
+ * then focuses with `preventScroll`, because a plain `focus()` jumps instantly
+ * and would cancel the smooth scroll. A host without either method (a native
+ * platform, or a test double) is skipped quietly rather than throwing.
+ */
+export function revealAndFocus(node: RevealTarget | null): void {
+  node?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  node?.focus?.({ preventScroll: true });
+}
+
+/**
  * The always-on hub: the shared-device shell the whole product renders inside
  * (BRD 6.2, ADR-0005 three-zone band). It reads the active household from
  * {@link useHousehold} and, through the F7 typed client, loads the household
@@ -66,7 +88,10 @@ export function isClaimableMember(person: RosterEntryResponse): boolean {
  * Every load outcome is a calm, deliberate state (loading, ready, no household,
  * or an unreachable service) so the wall never shows a crash or a blank screen.
  * There is no password or sign-in prompt here: participants glance and tap, and
- * organizer sign-in is a separate affordance (T4).
+ * organizer sign-in is a separate affordance (T4). Of the organizer's sensitive
+ * actions only Confirm order is wired today, and it never confirms anything: it
+ * scrolls to the {@link GroceryCart} and focuses the cart's own Confirm button,
+ * which keeps the final tap (G4).
  *
  * Offline (Epic 60 O2) the glance survives: each successful load caches the
  * household and its roster, and a load that fails because the API is
@@ -242,6 +267,24 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
     [],
   );
 
+  // OrganizerBar's Confirm order (#57) only moves the organizer to the cart: it
+  // scrolls the grocery region into view and focuses the cart's own Confirm
+  // button, which still owns the confirm. When the cart has no Confirm to focus
+  // (no building cart, or the week is already confirmed) it just reveals the
+  // region, since a plain View is not focusable on web. Refs are stable, so the
+  // handler is too.
+  const cartConfirmRef = useRef<ComponentRef<typeof View>>(null);
+  const groceriesRef = useRef<ComponentRef<typeof View>>(null);
+  const handleConfirmOrder = useCallback(() => {
+    const confirmButton = cartConfirmRef.current as unknown as RevealTarget | null;
+    if (confirmButton) {
+      revealAndFocus(confirmButton);
+      return;
+    }
+    const groceries = groceriesRef.current as unknown as RevealTarget | null;
+    groceries?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, []);
+
   // A missing household is a calm derived state, not a fetch outcome.
   const view: LoadState =
     householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
@@ -262,7 +305,9 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
       {householdId !== null ? (
         <QueueRevival enabled={shellDegraded} onConfirmed={handleQueueConfirmed} />
       ) : null}
-      <OrganizerBar />
+      {/* Only Confirm order is wired. Edit roster (#167) and Household teardown
+          (#168) are deliberately not passed, so OrganizerBar does not render them. */}
+      <OrganizerBar onConfirmOrder={handleConfirmOrder} />
       <HubPairing />
       <View style={styles.header} testID="hub-header">
         <Text style={styles.householdName} accessibilityRole="header" testID="hub-household-name">
@@ -323,10 +368,11 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
       </TodayPanel>
 
       {view.phase === 'ready' && householdId !== null ? (
-        <View style={styles.panel} testID="hub-groceries">
+        <View ref={groceriesRef} style={styles.panel} testID="hub-groceries">
           <GroceryCart
             householdId={householdId}
             activePersonId={activeParticipant?.personId ?? null}
+            confirmRef={cartConfirmRef}
           />
         </View>
       ) : null}

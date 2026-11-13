@@ -320,7 +320,8 @@ typed client:
   the review comes back `412` with a re-read-and-try-again message rather than a silent no-op. On
   success the region reads as `Confirmed` and offers neither adding nor confirming again. As
   everywhere else in the hub, hiding the control is convenience: the API independently enforces `403`
-  for a participant or the paired hub device.
+  for a participant or the paired hub device. The `OrganizerBar`'s Confirm order jumps to this button
+  (through `GroceryCart`'s `confirmRef`); it never confirms on its own.
 
 **Demo path (fully offline of any real store).** The backing connector is the simulated G1
 `SimulatedHebConnector` and its fixture catalog, so the end-to-end path needs no store account and no
@@ -354,8 +355,11 @@ separated, defaults to `openid profile`). `OrganizerProvider` (wrapping the app 
 (`src/api/client.ts`) attaches it as `Authorization: Bearer` only when present, so participant reads stay
 unauthenticated. `OrganizerBar` (rendered at the top of `HubShell`) offers only a sign-in button with no
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
-affordances (edit roster, confirm order, household teardown) - hidden entirely rather than merely
-disabled, so a participant is never presented them. This is defense-in-depth only: the API enforces the
+affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
+Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
+does nothing. Today that is only Confirm order, which scrolls the hub to `GroceryCart` and focuses the
+cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Edit roster
+is #167 and Household teardown is #168; until they land, `HubShell` does not pass those handlers. This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.

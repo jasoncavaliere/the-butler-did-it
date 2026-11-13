@@ -9,28 +9,27 @@ import { useOrganizer } from '../state/OrganizerContext';
  * sign-in affordance, and the sensitive actions (edit roster, confirm order,
  * household teardown) are simply not rendered - a participant is never even
  * presented them. Once an organizer signs in, those affordances appear
- * alongside sign-out.
+ * alongside sign-out - but each one only when the hub supplies its handler, so
+ * the strip never shows a button that does nothing. An action whose screen has
+ * not landed yet is simply left out by the hub.
  *
  * This is defense-in-depth only: the server enforces the `Organizer` policy
  * (F6/T5), so a hidden affordance is convenience, not the security boundary.
  * The strip is independent of the participant tap-to-claim state.
  */
 export type OrganizerBarProps = {
-  /** Invoked when the organizer taps "Delete household" (teardown). */
+  /**
+   * Invoked when the organizer taps "Delete household" (teardown). When omitted,
+   * the button is not rendered.
+   */
   onHouseholdTeardown?: () => void;
-  /** Invoked when the organizer taps "Confirm order". */
+  /** Invoked when the organizer taps "Confirm order". When omitted, the button is not rendered. */
   onConfirmOrder?: () => void;
-  /** Invoked when the organizer taps "Edit roster". */
+  /** Invoked when the organizer taps "Edit roster". When omitted, the button is not rendered. */
   onEditRoster?: () => void;
 };
 
-const noop = () => undefined;
-
-export function OrganizerBar({
-  onHouseholdTeardown = noop,
-  onConfirmOrder = noop,
-  onEditRoster = noop,
-}: OrganizerBarProps) {
+export function OrganizerBar({ onHouseholdTeardown, onConfirmOrder, onEditRoster }: OrganizerBarProps) {
   const { organizer, signIn, signOut } = useOrganizer();
 
   if (!organizer) {
@@ -56,17 +55,24 @@ export function OrganizerBar({
         {organizer.name}
       </Text>
       <View style={styles.actions} testID="organizer-actions">
-        <Affordance testID="affordance-edit-roster" label="Edit roster" onPress={onEditRoster} />
-        <Affordance
-          testID="affordance-confirm-order"
-          label="Confirm order"
-          onPress={onConfirmOrder}
-        />
-        <Affordance
-          testID="affordance-household-teardown"
-          label="Delete household"
-          onPress={onHouseholdTeardown}
-        />
+        {/* Absent, not disabled: an action renders only when the hub wires it. */}
+        {onEditRoster ? (
+          <Affordance testID="affordance-edit-roster" label="Edit roster" onPress={onEditRoster} />
+        ) : null}
+        {onConfirmOrder ? (
+          <Affordance
+            testID="affordance-confirm-order"
+            label="Confirm order"
+            onPress={onConfirmOrder}
+          />
+        ) : null}
+        {onHouseholdTeardown ? (
+          <Affordance
+            testID="affordance-household-teardown"
+            label="Delete household"
+            onPress={onHouseholdTeardown}
+          />
+        ) : null}
         <Pressable
           accessibilityRole="button"
           testID="organizer-sign-out"
