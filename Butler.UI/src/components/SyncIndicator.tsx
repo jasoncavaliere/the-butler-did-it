@@ -19,9 +19,12 @@ import { colors } from './Screen';
  *   own `offline` event, **or** the queue's last drain not reaching the API, **or**
  *   the hub serving last-known data (`apiUnreachable`, which the hub derives from
  *   O2's cache - and that cache only ever serves on a network failure). So a
- *   tablet whose wifi is up but whose API is down still reads Offline until a
- *   drain or a reload actually gets through (a confirming drain also makes the
- *   hub reload its cached regions, which clears `apiUnreachable`).
+ *   tablet whose wifi is up but whose API is down reads Offline once a drain
+ *   fails or a region is served from cache, until a drain or a reload actually
+ *   gets through (a confirming drain also makes the hub reload its cached
+ *   regions, which clears `apiUnreachable`). With no cache and an empty queue
+ *   neither signal fires, so it reads Online beside the shell's error - a known
+ *   gap tracked in #151.
  * - *Pending*, while writes are queued: `2 waiting to sync`. Hidden at zero.
  * - *Synced*, briefly: `All synced.` once a drain confirms the queue empty, for
  *   {@link SYNC_CONFIRMATION_MS}. Nothing to dismiss; it simply goes. While any

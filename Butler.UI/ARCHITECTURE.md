@@ -159,7 +159,10 @@ alone (ADR-0010), and a polite live region for screen readers.
   so (`useBrowserOnline`: `navigator.onLine`, then the `online`/`offline` events, inert off web), when
   the queue's last drain could not reach the API (`unreachable`), or when the hub is serving any
   region from the O2 cache (that cache only ever stands in on a network failure). So "wifi up, API
-  down" stays `Offline` until a drain or a reload actually gets through. That outage never fires the
+  down" reads `Offline` once a drain fails or a region is served from cache, and stays there until a
+  drain or a reload actually gets through. With no cache and an empty queue neither happens, so the
+  indicator reads `Online` beside the shell's could-not-reach error - a known gap tracked in #151.
+  That outage never fires the
   browser's `online` event, so a drain that confirms a queued write is what revives the hub: the board
   refetches on `confirmedRevision`, and while the shell is degraded it reloads on it too (HubShell's
   `QueueRevival`), which clears the cached stamp and with it `Offline`. None of the indicator's inputs
