@@ -106,6 +106,15 @@ import { colors } from './Screen';
  *   confirms anything bumps the queue's `confirmedRevision`, and the board
  *   refetches once on it - the stale load is discarded and the fresh one shows
  *   the post-sync server state, whichever request the network answered first.
+ * - a *live* tap never enters the queue, so neither of those covers it: a load
+ *   already in flight when the tap is made (that confirm refetch, a week retry,
+ *   the boundary reload) still answers with the row as it was, and the board
+ *   stays tappable while it loads. So each live tap is remembered while its POST
+ *   is in flight and until a load that started after it settled has landed, and
+ *   every load overlays those taps last, over the queue's
+ *   ({@link applyLiveTaps}, {@link pruneLiveTaps}, #147). The board does not
+ *   refetch again for it - that would cost a request and still redraw a tap
+ *   whose POST had not settled yet.
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -202,6 +211,55 @@ export function applyQueuedWrites(
   });
 }
 
+/**
+ * A live tap (#147), as the board remembers it until a load is sure to include
+ * it: the status the row now shows, and the load sequence number that was
+ * current when its POST settled - `null` while the POST is still in flight.
+ */
+export type LiveTap = { status: 'Open' | 'Done'; settledAtLoad: number | null };
+
+/**
+ * Forget the live taps that load number `load` already reflects (#147).
+ *
+ * A tap whose POST settled before that load started (`settledAtLoad < load`)
+ * was recorded on the server before the load's request was sent, so the
+ * server's answer already carries it. A tap still in flight, or one that
+ * settled while that load (or a later one) was running, may be missing from
+ * the snapshot and is kept. Returns a new map; the input is not changed.
+ */
+export function pruneLiveTaps(taps: Map<string, LiveTap>, load: number): Map<string, LiveTap> {
+  return new Map(
+    Array.from(taps).filter(([, tap]) => tap.settledAtLoad === null || tap.settledAtLoad >= load),
+  );
+}
+
+/**
+ * Overlay the live taps a load may have missed (#147) over a freshly loaded week.
+ *
+ * A live tap goes straight to the API rather than the queue, so
+ * {@link applyQueuedWrites} cannot cover it: a load that was already in flight
+ * when the tap was made - the confirm refetch above all - answers with the row
+ * as it was, and would redraw the tap as undone with nothing left to correct it
+ * on a live board. Records are keyed like the queue, by `(week, chore)`, so the
+ * lookup is exact and a tap on another week never matches.
+ */
+export function applyLiveTaps(
+  items: BoardItem[],
+  weekIso: string,
+  taps: Map<string, LiveTap>,
+): BoardItem[] {
+  if (taps.size === 0) {
+    return items;
+  }
+  return items.map((item) => {
+    const tap = taps.get(assignmentDedupeKey(weekIso, item.choreId));
+    if (tap === undefined) {
+      return item;
+    }
+    return { ...item, status: tap.status };
+  });
+}
+
 export function ChoreBoard({
   householdId,
   people,
@@ -267,8 +325,20 @@ export function ChoreBoard({
   const [weekMismatches, setWeekMismatches] = useState(0);
   const [reloadRevision, setReloadRevision] = useState(0);
 
+  // Counts loads, so a live tap can say which loads it settled during (#147). A
+  // ref, not state: it is bumped inside the load effect and read by `toggle`,
+  // and neither must re-run the load.
+  const loadSeqRef = useRef(0);
+  // The live taps a load may have missed (#147), keyed by `(week, chore)`. A ref
+  // rather than state or a load dependency, for the same reason the queue is read
+  // from storage below: a tap must not refetch the week.
+  const liveTapsRef = useRef(new Map<string, LiveTap>());
+
   useEffect(() => {
     let active = true;
+    // Taken now, before the requests are sent, so a tap that settles after this
+    // point is known to be one this load's snapshot may not include.
+    const load = ++loadSeqRef.current;
 
     Promise.all([
       client.update<AssignmentSetResponse>(
@@ -348,7 +418,19 @@ export function ChoreBoard({
       // re-runs this load instead. The queue is read from storage rather than
       // from the hook's state so this effect does not re-run every time the queue
       // changes.
-      setItems(applyQueuedWrites(built, week, readWriteQueue(householdId)));
+      //
+      // Live taps (#147) go on top, as the newest intent: this load may have been
+      // sent before a tap on the live board, which never enters the queue, so
+      // without them the row would redraw as it was and nothing would correct
+      // it. Taps this load already reflects are forgotten first.
+      liveTapsRef.current = pruneLiveTaps(liveTapsRef.current, load);
+      setItems(
+        applyLiveTaps(
+          applyQueuedWrites(built, week, readWriteQueue(householdId)),
+          week,
+          liveTapsRef.current,
+        ),
+      );
       // Live data: the week on screen is the server's again and no longer
       // last-known, which is how a reconnect retires the cached week (and with it
       // the rolled-over-week guard that could have made the board read-only).
@@ -383,7 +465,9 @@ export function ChoreBoard({
     // `reloadRevision` bumps when a live load's week disagreed with the tablet's
     // and the backoff has elapsed, or when a tap was refused, so a board whose
     // boundary reload beat the server's clock loads again. All four are triggers
-    // only, never read here.
+    // only, never read here. Any of these loads can race a live tap; the live-tap
+    // overlay above covers that (#147), so a tap settling is deliberately not a
+    // trigger.
   }, [client, householdId, reconnectSignal, confirmedRevision, currentWeek, reloadRevision, recheckWeek]);
 
   // The backoff retry for a live load whose week disagreed with the tablet's.
@@ -485,15 +569,23 @@ export function ChoreBoard({
         return;
       }
 
+      // Remember the tap while its POST is in flight, so a load that resolves
+      // meanwhile cannot redraw it (#147). The record always mirrors the row.
+      const tapKey = assignmentDedupeKey(weekIso, choreId);
+      liveTapsRef.current.set(tapKey, { status: optimistic, settledAtLoad: null });
+
       const result = await client.update<CompleteChoreResponse | UndoChoreResponse>(path, body, {
         method: 'POST',
       });
 
       if (!result || !result.ok) {
         if (result && result.error.kind === 'network') {
+          // The queue overlay takes over from here.
+          liveTapsRef.current.delete(tapKey);
           queueWrite();
           return;
         }
+        liveTapsRef.current.delete(tapKey);
         setItems((prev) =>
           prev.map((item) => (item.choreId === choreId ? { ...item, status: previous } : item)),
         );
@@ -501,6 +593,9 @@ export function ChoreBoard({
       }
 
       const reconciled: 'Open' | 'Done' = result.data?.status === 'Done' ? 'Done' : 'Open';
+      // Kept until a load that started after this point has landed: one already
+      // in flight may have been sent before the server recorded the tap.
+      liveTapsRef.current.set(tapKey, { status: reconciled, settledAtLoad: loadSeqRef.current });
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );
