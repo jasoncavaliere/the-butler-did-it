@@ -4,7 +4,7 @@
 
 **Serves:** FR-2 and BO-2 (the household model spine).
 
-Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Hn>` (and the `#<Fn>` dependency) placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) as binding and does not restate it.
+Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Hn>` (and the `#<Fn>` dependency) placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](07-engineering-contract.md) as binding and does not restate it.
 
 ---
 
@@ -19,7 +19,7 @@ Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](READ
 Create the Households feature (`Application/Households/` + `Infrastructure/Households/` + `AddHouseholdFeature()`) with a `TableHouseholdRepository` on the F3 access layer, plus endpoints to create and read a household. This is the root aggregate every later table hangs off; creating a household also creates the organizer's `People` row so the household is never left without an organizer.
 
 ## Context
-Implements the `Households` and (partially) `People` rows in [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid), following the feature-extension pattern from [7.2](00-brd-master.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol) and the auth model in [7.4](00-brd-master.md#74-authentication-and-authorization). The organizer is the only authenticated user (F6); creating a household binds that organizer's object id to an `Organizer` `People` row so downstream features have a real roster owner. Uses the F3 repository base for CRUD and the F6 `Organizer` policy for the mutation.
+Implements the `Households` and (partially) `People` rows in [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid), following the feature-extension pattern from [7.2](07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol) and the auth model in [7.4](07-engineering-contract.md#74-authentication-and-authorization). The organizer is the only authenticated user (F6); creating a household binds that organizer's object id to an `Organizer` `People` row so downstream features have a real roster owner. Uses the F3 repository base for CRUD and the F6 `Organizer` policy for the mutation.
 
 ## Acceptance Criteria
 - [ ] `Application/Households/` exists with the MediatR command/query + handlers, an application service, and a `HouseholdServiceCollectionExtensions.cs` exposing `AddHouseholdFeature()`.
@@ -52,7 +52,7 @@ Implements the `Households` and (partially) `People` rows in [Engineering Contra
 Add the Rooms feature (`Application/Rooms/` + `Infrastructure/Rooms/` + `AddRoomsFeature()`) with create, list, update, and delete endpoints for rooms scoped to a household. Rooms are the physical map chores attach to (H4), so ordering and household scoping matter.
 
 ## Context
-Implements the `Rooms` row in [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) (PartitionKey `householdId`, RowKey `roomId`, fields `Name`, `SortOrder`). Reads are open to the hub device and participants; mutations are organizer-only per [7.4](00-brd-master.md#74-authentication-and-authorization). Uses the F3 optimistic-concurrency helper for updates.
+Implements the `Rooms` row in [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) (PartitionKey `householdId`, RowKey `roomId`, fields `Name`, `SortOrder`). Reads are open to the hub device and participants; mutations are organizer-only per [7.4](07-engineering-contract.md#74-authentication-and-authorization). Uses the F3 optimistic-concurrency helper for updates.
 
 ## Acceptance Criteria
 - [ ] `Application/Rooms/` exists with MediatR commands/queries + handlers, an application service, and `AddRoomsFeature()`; registered in `Program.cs`.
@@ -84,7 +84,7 @@ Implements the `Rooms` row in [Engineering Contract 7.3](00-brd-master.md#73-dat
 Add the People feature (`Application/People/` + `Infrastructure/People/` + `AddPeopleFeature()`) so the organizer can add, list, update, and remove people in the household. This is the organizer-managed roster only; the no-password tap-to-claim CLAIM action lives in Epic 30 (T1) and is out of scope here.
 
 ## Context
-Implements the `People` row in [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) (fields `DisplayName`, `Role` (`Organizer`/`Participant`), `IsChild`, `ClaimColor`, and `OrganizerObjectId` on the organizer only). H1 already seeds the organizer row; this ticket adds participant and child management. Per [7.4](00-brd-master.md#74-authentication-and-authorization) all mutations are organizer-gated. The household must always retain at least one organizer, so demoting or deleting the last organizer is rejected.
+Implements the `People` row in [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) (fields `DisplayName`, `Role` (`Organizer`/`Participant`), `IsChild`, `ClaimColor`, and `OrganizerObjectId` on the organizer only). H1 already seeds the organizer row; this ticket adds participant and child management. Per [7.4](07-engineering-contract.md#74-authentication-and-authorization) all mutations are organizer-gated. The household must always retain at least one organizer, so demoting or deleting the last organizer is rejected.
 
 ## Acceptance Criteria
 - [ ] `Application/People/` exists with MediatR commands/queries + handlers, an application service, and `AddPeopleFeature()`; registered in `Program.cs`.
@@ -118,7 +118,7 @@ Implements the `People` row in [Engineering Contract 7.3](00-brd-master.md#73-da
 Add the Chores feature (`Application/Chores/` + `Infrastructure/Chores/` + `AddChoresFeature()`) so chores can be created, listed, updated, and deactivated, each attached to a room in the same household. Chores are the input the Epic 40 fair-assignment engine reads, so `Effort`, `Cadence`, and `MinAge` are captured here.
 
 ## Context
-Implements the `Chores` row in [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) (fields `Title`, `RoomId`, `Cadence` (`Daily`/`Weekly`), `Effort` (int), `MinAge` (nullable), `Active`). A chore references a `Room` (H2) in the same household; a chore pointing at a non-existent room is rejected. Deactivation (`Active = false`) is preferred over deletion so historical assignments and completions keep referential meaning. Mutations are organizer-gated per [7.4](00-brd-master.md#74-authentication-and-authorization).
+Implements the `Chores` row in [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid) (fields `Title`, `RoomId`, `Cadence` (`Daily`/`Weekly`), `Effort` (int), `MinAge` (nullable), `Active`). A chore references a `Room` (H2) in the same household; a chore pointing at a non-existent room is rejected. Deactivation (`Active = false`) is preferred over deletion so historical assignments and completions keep referential meaning. Mutations are organizer-gated per [7.4](07-engineering-contract.md#74-authentication-and-authorization).
 
 ## Acceptance Criteria
 - [ ] `Application/Chores/` exists with MediatR commands/queries + handlers, an application service, and `AddChoresFeature()`; registered in `Program.cs`.
@@ -152,7 +152,7 @@ Implements the `Chores` row in [Engineering Contract 7.3](00-brd-master.md#73-da
 Build the organizer onboarding screen: a multi-step setup flow that creates the household, adds rooms, adds people (including the child flag and claim color), and maps a starter set of chores to rooms - the UI over H1-H4. It uses the F7 typed API client and `HouseholdContext`, and is reachable only for an authenticated organizer.
 
 ## Context
-Realizes the onboarding journey in [BRD 6.1](00-brd-master.md#61-onboarding-organizer-once) on top of the H1-H4 endpoints and the F7 client/context. Web-first Expo per [Engineering Contract 7.1](00-brd-master.md#71-repository-and-toolchains); follow the versioned Expo 57 docs (`Butler.UI/AGENTS.md`). Errors from the API arrive as RFC 7807 problem details ([7.5](00-brd-master.md#75-cross-cutting-conventions-binding-for-every-ticket)) and must surface as user-visible validation/error states, not silent failures. On completion the new `householdId` lives in `HouseholdContext` for the rest of the app.
+Realizes the onboarding journey in [BRD 6.1](00-brd-master.md#61-onboarding-organizer-once) on top of the H1-H4 endpoints and the F7 client/context. Web-first Expo per [Engineering Contract 7.1](07-engineering-contract.md#71-repository-and-toolchains); follow the versioned Expo 57 docs (`Butler.UI/AGENTS.md`). Errors from the API arrive as RFC 7807 problem details ([7.5](07-engineering-contract.md#75-cross-cutting-conventions-binding-for-every-ticket)) and must surface as user-visible validation/error states, not silent failures. On completion the new `householdId` lives in `HouseholdContext` for the rest of the app.
 
 ## Acceptance Criteria
 - [ ] A multi-step organizer setup screen exists with steps in order: create household -> add rooms -> add people (each with an `IsChild` flag and a `ClaimColor`) -> map starter chores to rooms.
@@ -173,7 +173,7 @@ Realizes the onboarding journey in [BRD 6.1](00-brd-master.md#61-onboarding-orga
 
 ## Related
 
-- [00-brd-master.md](00-brd-master.md) - the master BRD and its binding [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) (Section 7).
+- [00-brd-master.md](00-brd-master.md) - the master BRD and its binding [Engineering Contract](07-engineering-contract.md) (Section 7).
 - [brd/README.md](README.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
 - [10-epic-foundations.md](10-epic-foundations.md) - previous epic; F3, F6, and F7 block this one.
 - [30-epic-tap-to-claim-hub.md](30-epic-tap-to-claim-hub.md) - next epic; adds the no-password tap-to-claim CLAIM action (T1) on top of this roster.

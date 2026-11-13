@@ -5,7 +5,7 @@
 **Serves:** FR-6, BO-5.
 **Lands last.** It depends on Chores (Epic 40) and Grocery (Epic 50) so there is a real loop to cache.
 
-Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Fn>`/`#<Cn>`/`#<Gn>`/`#<On>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) as binding and does not restate it. This is a UI epic: the hub is web-first (Expo web export -> Azure Static Web App / installable PWA), so all tickets touch `Butler.UI/` only and all gates are UI gates - `cd Butler.UI && npm run ci:verify` and `npx expo export --platform web`. Read the exact versioned Expo 57 docs before writing code (`Butler.UI/AGENTS.md`).
+Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Fn>`/`#<Cn>`/`#<Gn>`/`#<On>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](07-engineering-contract.md) as binding and does not restate it. This is a UI epic: the hub is web-first (Expo web export -> Azure Static Web App / installable PWA), so all tickets touch `Butler.UI/` only and all gates are UI gates - `cd Butler.UI && npm run ci:verify` and `npx expo export --platform web`. Read the exact versioned Expo 57 docs before writing code (`Butler.UI/AGENTS.md`).
 
 ---
 

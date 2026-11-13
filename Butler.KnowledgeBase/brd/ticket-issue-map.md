@@ -68,5 +68,5 @@ Follow the dependency order in [README.md](README.md): Foundations first, then H
 
 ## Related
 
-- [00-brd-master.md](00-brd-master.md) - the requirements and Engineering Contract.
+- [00-brd-master.md](00-brd-master.md) - the requirements; [07-engineering-contract.md](07-engineering-contract.md) - the binding Engineering Contract.
 - [README.md](README.md) - epic index, label taxonomy, dependency graph, filing recipe.

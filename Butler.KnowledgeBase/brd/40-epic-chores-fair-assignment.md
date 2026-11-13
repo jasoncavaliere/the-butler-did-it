@@ -4,7 +4,7 @@
 
 **Serves:** FR-4, BO-1 (the wedge), and the Section 10 fairness success metric.
 
-Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<...>` placeholders (`#<C1>`, `#<F3>`, and so on) with real issue numbers after filing. Every ticket assumes the [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) as binding and does not restate it. The fair-assignment algorithm is implemented **exactly** as specified in [Engineering Contract 7.6](00-brd-master.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses); a ticket may not reinterpret it.
+Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<...>` placeholders (`#<C1>`, `#<F3>`, and so on) with real issue numbers after filing. Every ticket assumes the [Engineering Contract](07-engineering-contract.md) as binding and does not restate it. The fair-assignment algorithm is implemented **exactly** as specified in [Engineering Contract 7.6](07-engineering-contract.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses); a ticket may not reinterpret it.
 
 ---
 
@@ -19,7 +19,7 @@ Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](READ
 Add the `Assignments` and `ChoreCompletions` domain shapes, tables, and repositories - plus an injected clock and a deterministic `weekIso` helper - so the assignment engine (C2) and the endpoints (C3, C4) have a tested persistence and time base to build on.
 
 ## Context
-Implements the `Assignments` and `ChoreCompletions` rows from [Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid), on top of the F3 Table Storage access seam. `weekIso` is the ISO-8601 year-week string (for example `2026-W29`) and must be computed from an injected clock/`TimeProvider`, never `DateTime.Now` inside a handler - this is what keeps the engine and endpoints deterministically testable. Completions are append-only (BRD R-2); assignment status is mutated under optimistic concurrency (that behavior lands with C4, but the row and repository seam are created here).
+Implements the `Assignments` and `ChoreCompletions` rows from [Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid), on top of the F3 Table Storage access seam. `weekIso` is the ISO-8601 year-week string (for example `2026-W29`) and must be computed from an injected clock/`TimeProvider`, never `DateTime.Now` inside a handler - this is what keeps the engine and endpoints deterministically testable. Completions are append-only (BRD R-2); assignment status is mutated under optimistic concurrency (that behavior lands with C4, but the row and repository seam are created here).
 
 ## Acceptance Criteria
 - [ ] An `Assignments` table shape exists with `PartitionKey = householdId`, `RowKey = {weekIso}_{choreId}`, and fields `AssignedPersonId`, `WeekIso`, `DueDateUtc`, `Status` (`Open`/`Done`).
@@ -27,7 +27,7 @@ Implements the `Assignments` and `ChoreCompletions` rows from [Engineering Contr
 - [ ] Both are exposed behind repository interfaces (`IAssignmentRepository`, `IChoreCompletionRepository`) with Table-backed implementations built on the F3 access seam; every read and write is scoped by `PartitionKey = householdId` (no cross-household query).
 - [ ] An injected clock (`TimeProvider` or an `IClock` seam) is registered; no assignment/completion code path reads `DateTime.Now`/`DateTime.UtcNow` directly.
 - [ ] A deterministic `WeekIso` helper computes the ISO-8601 year-week string from a supplied `DateTimeOffset` (for example `2026-07-14` -> `2026-W29`), handling the ISO week-numbering-year boundary (a late-December date can belong to week 01 of the next year, and an early-January date to week 52/53 of the prior year).
-- [ ] An `AddAssignmentsFeature()` (or equivalently named) service-collection extension registers the repositories, clock, and helper, and is wired in `Program.cs` per the [feature-extension pattern](00-brd-master.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
+- [ ] An `AddAssignmentsFeature()` (or equivalently named) service-collection extension registers the repositories, clock, and helper, and is wired in `Program.cs` per the [feature-extension pattern](07-engineering-contract.md#72-butlerapi-architecture-layered-mediatr-adopted-from-qcontrol).
 - [ ] Solution builds with `dotnet build --configuration Release /p:TreatWarningsAsErrors=true` (zero warnings); `dotnet test` green.
 
 ## Testing
@@ -47,7 +47,7 @@ Implements the `Assignments` and `ChoreCompletions` rows from [Engineering Contr
 **Serves:** FR-4, BO-1
 
 ## Summary
-Implement the v1 fair-assignment algorithm as a pure, deterministic service exactly per [Engineering Contract 7.6](00-brd-master.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses): given the week's active chores, the eligible people, and each person's trailing completion load, it returns the assignment set. No storage, no clock, no randomness - all inputs are passed in. This is the highest-value test surface in the epic.
+Implement the v1 fair-assignment algorithm as a pure, deterministic service exactly per [Engineering Contract 7.6](07-engineering-contract.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses): given the week's active chores, the eligible people, and each person's trailing completion load, it returns the assignment set. No storage, no clock, no randomness - all inputs are passed in. This is the highest-value test surface in the epic.
 
 ## Context
 This is D-6 (the v1 fair-assignment decision) made real. The engine is a pure function so it is exhaustively unit-testable and so C3 can call it with data it fetched and C2 stays free of I/O. The exact rules from 7.6 are binding: eligibility, load definition, processing order, assignment target, and tie-breaks. Determinism is a hard requirement - the same inputs must always produce the identical assignment set (no ML, no learning, no external calls).
@@ -194,7 +194,7 @@ This is journey 6.3's "fairness view" and the metric that tells us the wedge wor
 
 ## Related
 
-- [00-brd-master.md](00-brd-master.md) - the master BRD; this epic implements FR-4 and serves BO-1, with the binding [Engineering Contract 7.6](00-brd-master.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses) fair-assignment algorithm and the [7.3 data model](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid).
+- [00-brd-master.md](00-brd-master.md) - the master BRD; this epic implements FR-4 and serves BO-1, with the binding [Engineering Contract 7.6](07-engineering-contract.md#76-the-v1-fair-assignment-algorithm-deterministic-specified-so-nobody-guesses) fair-assignment algorithm and the [7.3 data model](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid).
 - [brd/README.md](README.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
 - [30-epic-tap-to-claim-hub.md](30-epic-tap-to-claim-hub.md) - the hub shell, the tap-to-claim participant identity (T1), the active-participant glow (T3), and the "today" panel (T2) this epic fills in.
 - [60-epic-offline-pwa.md](60-epic-offline-pwa.md) - caches the board and queues the completions this epic writes, so the wedge loop survives no network.

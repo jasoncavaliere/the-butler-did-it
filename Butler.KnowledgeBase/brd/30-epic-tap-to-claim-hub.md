@@ -4,7 +4,7 @@
 
 **Serves:** FR-3, BO-4 (and BO-5 for the glance-first shell).
 
-Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Tn>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](00-brd-master.md#7-engineering-contract-the-anti-halt-section) as binding and does not restate it.
+Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](README.md). Replace `#<Tn>` placeholders with real issue numbers after filing. Every ticket assumes the [Engineering Contract](07-engineering-contract.md) as binding and does not restate it.
 
 ---
 
@@ -19,7 +19,7 @@ Each ticket below is a ready-to-file GitHub issue. File per [brd/README.md](READ
 Expose the claimable people roster with no authentication and let anyone at the hub "claim" a person by tapping, receiving a lightweight participant session scoped to `(householdId, personId)` that carries none of the organizer's authority. This is the server side of tap-to-claim (Decision D-3): participants are never behind auth.
 
 ## Context
-Implements the participant half of [Engineering Contract 7.4](00-brd-master.md#74-authentication-and-authorization) and persona `Participant` in [Section 4](00-brd-master.md#4-personas-v1). The roster read must work on a shared device with no login (the daily-glance journey, 6.2). The participant session only identifies who is acting for completion writes - it must be impossible to escalate it into an organizer-policy action (billing, teardown, cart confirmation). The `People` table already exists from H3; this ticket does not create people, it reads them and issues sessions. Money never moves in v1 (D-8), which is what keeps an unauthenticated claim safe.
+Implements the participant half of [Engineering Contract 7.4](07-engineering-contract.md#74-authentication-and-authorization) and persona `Participant` in [Section 4](00-brd-master.md#4-personas-v1). The roster read must work on a shared device with no login (the daily-glance journey, 6.2). The participant session only identifies who is acting for completion writes - it must be impossible to escalate it into an organizer-policy action (billing, teardown, cart confirmation). The `People` table already exists from H3; this ticket does not create people, it reads them and issues sessions. Money never moves in v1 (D-8), which is what keeps an unauthenticated claim safe.
 
 ## Acceptance Criteria
 - [ ] `GET /households/{householdId}/people` returns the claimable roster as a list of `{ personId, displayName, claimColor, isChild }`, scoped to the partition `householdId`, and requires **no** authentication (works with no bearer token in every environment, including when auth is enabled).
@@ -110,7 +110,7 @@ This is the interactive core of the daily-glance journey ([6.2](00-brd-master.md
 Add an organizer sign-in flow that obtains an Entra External ID JWT, expose the signed-in organizer and token to the API client via an `OrganizerContext`, and hide or disable every UI affordance for sensitive actions unless an organizer is signed in. This is the UI side of the only real login in the product.
 
 ## Context
-Implements the organizer half of [Engineering Contract 7.4](00-brd-master.md#74-authentication-and-authorization) and persona `Organizer` ([Section 4](00-brd-master.md#4-personas-v1)). The organizer is the only authenticated user (D-2, D-3); participants never authenticate. In dev mode the F6 `DisableAuthentication` dev organizer is used so local and CI need no live tenant. The API enforces the `Organizer` policy server-side (F6); this ticket is the client-side counterpart - the token flows to the API client and the UI hides affordances the organizer alone may use, so a participant is never even presented a sensitive action.
+Implements the organizer half of [Engineering Contract 7.4](07-engineering-contract.md#74-authentication-and-authorization) and persona `Organizer` ([Section 4](00-brd-master.md#4-personas-v1)). The organizer is the only authenticated user (D-2, D-3); participants never authenticate. In dev mode the F6 `DisableAuthentication` dev organizer is used so local and CI need no live tenant. The API enforces the `Organizer` policy server-side (F6); this ticket is the client-side counterpart - the token flows to the API client and the UI hides affordances the organizer alone may use, so a participant is never even presented a sensitive action.
 
 ## Acceptance Criteria
 - [ ] An organizer sign-in flow obtains a JWT via Entra External ID; in dev mode (`DisableAuthentication`) the F6 dev organizer is used so local and CI runs need no live tenant and no committed secrets.
@@ -140,7 +140,7 @@ Implements the organizer half of [Engineering Contract 7.4](00-brd-master.md#74-
 Let an organizer pair the current tablet as the household's hub device: an organizer-only endpoint writes a `HubDevices` row and returns a long-lived device token scoped to the household that permits reads and completion writes but not organizer actions, and a minimal UI pairing step stores that token. This makes the tablet a first-class, long-lived actor (the persona "The Hub").
 
 ## Context
-Implements the `HubDevices` table ([Engineering Contract 7.3](00-brd-master.md#73-data-model-azure-table-storage---partition-key-is-always-householdid)) and the device-identity persona ([Section 4](00-brd-master.md#4-personas-v1)) and onboarding step 6.1.3. The device token is deliberately weaker than an organizer JWT and stronger than an anonymous caller: it reads the household and records completions but is never trusted with organizer-policy actions. Pairing itself is a sensitive action, so it requires the `Organizer` policy (server-side, from F6). Partition is `householdId` like every table; the token is scoped to exactly one household.
+Implements the `HubDevices` table ([Engineering Contract 7.3](07-engineering-contract.md#73-data-model-azure-table-storage---partition-key-is-always-householdid)) and the device-identity persona ([Section 4](00-brd-master.md#4-personas-v1)) and onboarding step 6.1.3. The device token is deliberately weaker than an organizer JWT and stronger than an anonymous caller: it reads the household and records completions but is never trusted with organizer-policy actions. Pairing itself is a sensitive action, so it requires the `Organizer` policy (server-side, from F6). Partition is `householdId` like every table; the token is scoped to exactly one household.
 
 ## Acceptance Criteria
 - [ ] `POST /households/{householdId}/hub-devices/pair` requires the `Organizer` policy (returns `403` for a participant session or anonymous caller; `200` for a signed-in organizer, or the dev organizer in dev mode).
