@@ -137,9 +137,9 @@ jobs:
           echo "Azurite or the API did not become ready within 60s" >&2
           exit 1
 
-      # Every smoke category runs here (Liveness, Storage, Settings). Any failed
-      # assertion - or an unreachable dependency, which fails rather than skips -
-      # fails this step and the check.
+      # Every smoke category runs here (Liveness, Storage, Demo, Provisioning,
+      # Endpoints, Settings). Any failed assertion - or an unreachable dependency,
+      # which fails rather than skips - fails this step and the check.
       - name: Smoke test
         run: >-
           dotnet test src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj
