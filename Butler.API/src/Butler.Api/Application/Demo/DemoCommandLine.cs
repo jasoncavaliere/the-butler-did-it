@@ -1,4 +1,5 @@
 using Butler.Api.Application.Auth;
+using Butler.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +46,9 @@ public static partial class DemoCommandLine
     /// <summary>
     /// Seeds the demo household when <see cref="SeedOnStartupKey"/> is
     /// <c>true</c>, as the dev organizer, and logs the household id. Does
-    /// nothing otherwise. Throws <see cref="DemoSeedingNotAllowedException"/>
+    /// nothing otherwise. This runs before <c>app.Run()</c> starts the hosted
+    /// services, so it provisions the registered tables itself first (#91); the
+    /// hosted service's later run is an idempotent no-op. Throws <see cref="DemoSeedingNotAllowedException"/>
     /// outside Development and Demo, which stops the host from starting.
     /// </summary>
     /// <param name="app">The built application.</param>
@@ -57,6 +60,8 @@ public static partial class DemoCommandLine
         {
             return;
         }
+
+        await app.Services.GetRequiredService<TableProvisioner>().ProvisionAsync().ConfigureAwait(false);
 
         var scope = app.Services.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))

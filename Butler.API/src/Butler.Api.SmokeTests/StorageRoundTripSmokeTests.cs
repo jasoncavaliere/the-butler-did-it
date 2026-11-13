@@ -19,9 +19,9 @@ namespace Butler.Api.SmokeTests;
 /// <see cref="PreconditionFailedException"/> to <c>412</c>, so asserting the
 /// exception type asserts the HTTP status a caller would see.
 /// <para>
-/// The app never provisions tables, so each test creates its own throwaway
-/// <c>Smoke{guid}</c> table and drops it afterwards - real feature tables are
-/// never touched. Unreachable Azurite fails the test; it never skips.
+/// The app provisions only the tables its features register, and this
+/// throwaway <c>Smoke{guid}</c> table is not one of them, so each test creates
+/// it and drops it afterwards - real feature tables are never touched. Unreachable Azurite fails the test; it never skips.
 /// </para>
 /// </remarks>
 [Trait(SmokeCategories.Name, SmokeCategories.Storage)]

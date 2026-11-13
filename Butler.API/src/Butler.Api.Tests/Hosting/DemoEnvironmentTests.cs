@@ -1,15 +1,19 @@
 using System.Net;
 using System.Text.Json;
+using Azure.Data.Tables;
 using Butler.Api.Application.Auth;
 using Butler.Api.Infrastructure.Hosting;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 
 namespace Butler.Api.Tests.Hosting;
 
@@ -23,7 +27,7 @@ namespace Butler.Api.Tests.Hosting;
 /// </summary>
 public sealed class DemoEnvironmentTests
 {
-    /// <summary>A placeholder that is never parsed: only the options binding is resolved.</summary>
+    /// <summary>A placeholder that is never parsed: the table client factory is substituted.</summary>
     private const string PlaceholderConnection = "placeholder-not-a-real-connection";
 
     /// <summary>
@@ -105,10 +109,22 @@ public sealed class DemoEnvironmentTests
         // Storage:ConnectionString is what the Storage__ConnectionString
         // environment variable maps to through the default configuration providers.
         using var factory = CreateFactory(ButlerEnvironments.Demo, builder =>
-            builder.UseSetting("Storage:ConnectionString", PlaceholderConnection));
+        {
+            builder.UseSetting("Storage:ConnectionString", PlaceholderConnection);
 
-        // Resolve the options only - never a repository or table client, which
-        // would try to parse the placeholder.
+            // Table mode now provisions the registered tables at startup (#91);
+            // substitute the client factory so the placeholder is never parsed.
+            builder.ConfigureTestServices(services =>
+            {
+                var tables = Substitute.For<ITableClientFactory>();
+                tables.GetTableClient(Arg.Any<string>()).Returns(_ => Substitute.For<TableClient>());
+                services.RemoveAll<ITableClientFactory>();
+                services.AddSingleton(tables);
+            });
+        });
+
+        // Resolve the options only - never a repository, which would need a real
+        // table client.
         var storage = factory.Services.GetRequiredService<IOptions<StorageOptions>>().Value;
 
         Assert.Equal(PlaceholderConnection, storage.ConnectionString);

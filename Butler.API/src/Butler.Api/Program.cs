@@ -39,7 +39,9 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 // Shared persistence seam (Engineering Contract 7.3): the Table Storage client
 // factory + options. Feature modules register their own tables on top with
 // services.AddTableRepository<TEntity>("<TableName>"); with no storage
-// configured the seam falls back to the in-memory seed store automatically.
+// configured the seam falls back to the in-memory seed store automatically. In
+// Table mode every table registered that way is created at startup, before the
+// API accepts requests; a table that cannot be created fails startup.
 builder.Services.AddStorage(builder.Configuration);
 
 // Organizer authentication seam (Engineering Contract 7.4): JWT bearer against

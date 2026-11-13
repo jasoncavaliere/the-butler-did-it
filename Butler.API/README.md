@@ -219,7 +219,8 @@ dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
 | --- | --- | --- | --- |
 | `Liveness` | `GET /health` returns `200 {"status":"ok"}`; `GET /api/system/ping` returns `200` with `status`, `service` (`Butler.API`), and `timestampUtc`. | A running API at the base URL | Yes - read-only |
 | `Storage` | Create, read, then update with `If-Match` through `IEntityRepository<T>`; a missing `If-Match` is rejected (`428`) and a stale ETag is rejected (`412`); the seam resolves the Table-backed repository, not the in-memory fallback. Each test creates and drops its own `Smoke<guid>` table. | Azurite | No - writes data; Azurite only |
-| `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. Creates the API's tables first if they are missing. | A running API (Development or Demo) and Azurite | No - replaces the demo household; Azurite only |
+| `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. | A running API (Development or Demo) and Azurite | No - replaces the demo household; Azurite only |
+| `Provisioning` | Every feature table (`Households`, `People`, `Rooms`, `Chores`, `ChoreCompletions`, `Assignments`, `Carts`, `CartItems`, `HubDevices`) exists after the API starts and accepts a first write, with no table created by the test; once every table exists, provisioning them again (a restart) succeeds. No test in the suite creates a feature table, so a table the API failed to provision cannot be masked. Each write uses its own `smoke-provisioning-<guid>` partition and is deleted afterwards. | A running API booted against Azurite | No - writes data; Azurite only |
 | `Settings` | How the suite resolves the variables above. | Nothing | Yes - offline |
 
 In CI, the `smoke (booted API + Azurite)` job in `.github/workflows/api-ci.yml` starts Azurite, boots

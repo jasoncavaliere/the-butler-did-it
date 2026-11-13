@@ -12,14 +12,19 @@ namespace Butler.Api.Infrastructure.Storage;
 /// client factory once; feature modules then register their own tables with
 /// <see cref="AddTableRepository{TEntity}"/>, which transparently resolves to the
 /// in-memory fallback or the Table-backed store based on configuration - so no
-/// feature has to know which store is in play.
+/// feature has to know which store is in play. Every registered table is
+/// recorded as a <see cref="TableRegistration"/>, and in Table mode
+/// <see cref="TableProvisioningHostedService"/> creates them all before the API
+/// accepts requests (#91).
 /// </summary>
 public static class StorageServiceCollectionExtensions
 {
     /// <summary>
     /// Binds <see cref="StorageOptions"/> from the <c>Storage</c> configuration
-    /// section and registers <see cref="ITableClientFactory"/>. Call once in the
-    /// composition root.
+    /// section and registers <see cref="ITableClientFactory"/>, the
+    /// <see cref="TableProvisioner"/>, and the hosted service that runs it at
+    /// startup. Call once in the composition root. The in-memory decision is made
+    /// when provisioning runs, so settings added after this call still count.
     /// </summary>
     public static IServiceCollection AddStorage(this IServiceCollection services, IConfiguration configuration)
     {
@@ -28,6 +33,8 @@ public static class StorageServiceCollectionExtensions
 
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.TryAddSingleton<ITableClientFactory, TableClientFactory>();
+        services.TryAddSingleton<TableProvisioner>();
+        services.AddHostedService<TableProvisioningHostedService>();
         return services;
     }
 
@@ -37,7 +44,9 @@ public static class StorageServiceCollectionExtensions
     /// <c>Storage:UseInMemoryStore</c> is <c>true</c>) it resolves to
     /// <see cref="InMemoryEntityRepository{TEntity}"/>; otherwise to a
     /// <see cref="TableEntityRepository{TEntity}"/> bound to
-    /// <paramref name="tableName"/> via the factory.
+    /// <paramref name="tableName"/> via the factory. Every call also records a
+    /// <see cref="TableRegistration"/>, so the table is created at startup in
+    /// Table mode.
     /// </summary>
     /// <typeparam name="TEntity">The Table entity type stored in the table.</typeparam>
     /// <param name="tableName">The Table Storage table name (for example <c>Households</c>).</param>
@@ -47,6 +56,7 @@ public static class StorageServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(tableName);
 
+        services.AddSingleton(new TableRegistration(tableName));
         services.TryAddSingleton<IEntityRepository<TEntity>>(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<StorageOptions>>().Value;

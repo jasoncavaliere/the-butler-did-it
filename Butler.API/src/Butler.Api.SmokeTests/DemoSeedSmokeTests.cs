@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using Azure.Data.Tables;
 
 namespace Butler.Api.SmokeTests;
 
@@ -13,32 +12,14 @@ namespace Butler.Api.SmokeTests;
 /// environment.
 /// </summary>
 /// <remarks>
-/// The API never creates its tables, and a fresh Azurite has none, so the test
-/// creates the tables the seeder touches first (a no-op when they exist). It
-/// uses <see cref="SmokeSettings.StorageConnectionString"/>, which must point at
-/// the same Azurite the API uses.
+/// The API creates its registered tables at startup (#91), so the test does
+/// not create any itself: a missing table fails the seed rather than being
+/// masked.
 /// </remarks>
 [Trait(SmokeCategories.Name, SmokeCategories.Demo)]
-public sealed class DemoSeedSmokeTests : IAsyncLifetime
+public sealed class DemoSeedSmokeTests
 {
     private const string DemoHouseholdId = "demo-household";
-
-    private static readonly string[] Tables =
-    [
-        "Households", "People", "Rooms", "Chores", "Assignments",
-        "ChoreCompletions", "Carts", "CartItems", "HubDevices",
-    ];
-
-    public async Task InitializeAsync()
-    {
-        var service = new TableServiceClient(SmokeSettings.Current.StorageConnectionString);
-        foreach (var table in Tables)
-        {
-            await service.CreateTableIfNotExistsAsync(table);
-        }
-    }
-
-    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task Post_demo_seed_twice_is_idempotent_against_table_storage()
