@@ -1356,6 +1356,248 @@ describe('ChoreBoard offline write queue', () => {
     await waitFor(() => expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen());
     expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('○');
   });
+
+  /**
+   * A tiny stateful API for the sync-race tests (#88). It holds the server's own
+   * view of c1/c4, so a generate answers with whatever the server knew *when the
+   * request was made* - which is what makes a stale snapshot possible at all.
+   *
+   * - `holdFirstOnlineGenerate` parks the first online generate until
+   *   `releaseGenerate()`, so a drain can confirm before the load resolves.
+   * - `holdComplete` parks the first complete until `releaseComplete()`, and the
+   *   server only records it on release, so the load can resolve first.
+   *
+   * A complete that is not held still lands a tick after it is sent (network
+   * latency), so a generate sent in the same effect flush sees the pre-sync week.
+   */
+  function serverClient(
+    opts: { holdFirstOnlineGenerate?: boolean; holdComplete?: boolean } = {},
+  ) {
+    const server = {
+      offline: true,
+      status: { c1: 'Open', c4: 'Done' } as Record<string, 'Open' | 'Done'>,
+      onlineGenerates: 0,
+    };
+    let releaseGenerate: () => void = () => {};
+    let releaseComplete: () => void = () => {};
+    let generateHeld = false;
+    let completeHeld = false;
+
+    const snapshot = (): ApiResult<unknown> =>
+      ok({
+        weekIso: thisWeek,
+        assignments: [
+          { choreId: 'c1', assignedPersonId: 'p1', effort: 1, status: server.status.c1 },
+          { choreId: 'c4', assignedPersonId: 'p1', effort: 3, status: server.status.c4 },
+        ],
+        unassigned: [],
+      });
+
+    const client: ApiClient = {
+      baseUrl: 'http://api.test:1',
+      get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+        if (server.offline) {
+          return unreachable;
+        }
+        return path.includes('/chores') ? ok(chores) : ok([]);
+      }) as unknown as ApiClient['get'],
+      update: jest.fn((path: string): Promise<ApiResult<unknown>> => {
+        if (server.offline) {
+          return Promise.resolve(unreachable);
+        }
+        if (path.endsWith('/generate')) {
+          server.onlineGenerates += 1;
+          const answer = snapshot();
+          if (opts.holdFirstOnlineGenerate && !generateHeld) {
+            generateHeld = true;
+            return new Promise((resolve) => {
+              releaseGenerate = () => resolve(answer);
+            });
+          }
+          return Promise.resolve(answer);
+        }
+        const undoChoreId = /assignments\/[^/]+\/([^/]+)\/undo$/.exec(path)?.[1];
+        if (undoChoreId !== undefined) {
+          server.status[undoChoreId] = 'Open';
+          return Promise.resolve(
+            ok({ weekIso: thisWeek, choreId: undoChoreId, assignedPersonId: '', status: 'Open' }),
+          );
+        }
+        const choreId = /assignments\/[^/]+\/([^/]+)\/complete$/.exec(path)?.[1] ?? '';
+        const land = () => {
+          server.status[choreId] = 'Done';
+          return ok({ weekIso: thisWeek, choreId, assignedPersonId: 'p1', status: 'Done' });
+        };
+        if (opts.holdComplete && !completeHeld) {
+          completeHeld = true;
+          return new Promise((resolve) => {
+            releaseComplete = () => resolve(land());
+          });
+        }
+        return new Promise((resolve) => setTimeout(() => resolve(land()), 0));
+      }) as unknown as ApiClient['update'],
+    };
+
+    return {
+      client,
+      server,
+      releaseGenerate: () => releaseGenerate(),
+      releaseComplete: () => releaseComplete(),
+    };
+  }
+
+  const pendingWrite = (choreId: string, kind: 'chore-complete' | 'chore-undo', enqueuedAtMs = 1) => ({
+    kind,
+    dedupeKey: assignmentDedupeKey(thisWeek, choreId),
+    method: 'POST' as const,
+    path: `/households/hh-1/assignments/${thisWeek}/${choreId}/${kind === 'chore-complete' ? 'complete' : 'undo'}`,
+    body: { personId: 'p1' },
+    enqueuedAtMs,
+    attempts: 0,
+    status: 'pending' as const,
+  });
+
+  /** Let every settled promise and zero-delay timer run, inside act. */
+  const flush = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  const generateCalls = (client: ApiClient) =>
+    (client.update as jest.Mock).mock.calls.filter(([path]) => String(path).endsWith('/generate'))
+      .length;
+
+  /** Cached board, one queued c1 completion, offline mount, then the network returns. */
+  async function goOnlineWithQueuedTap(
+    fake: ReturnType<typeof serverClient>,
+    queue = [pendingWrite('c1', 'chore-complete')],
+  ) {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+    saveWriteQueue('hh-1', queue);
+    const emitOnline = installReconnect();
+
+    await renderBoard(fake.client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓'));
+
+    fake.server.offline = false;
+    await act(async () => {
+      emitOnline();
+    });
+  }
+
+  it('sync-refetch: a drain that confirms queued writes refetches the board exactly once and renders the post-sync server state', async () => {
+    // The reconnect load races the drain, so it may carry the server's pre-sync
+    // week. Once the drain confirms, the board has to go back to the server for
+    // the truth - once per drain run, not once per write.
+    const fake = serverClient();
+    await goOnlineWithQueuedTap(fake, [
+      pendingWrite('c1', 'chore-complete', 1),
+      pendingWrite('c4', 'chore-undo', 2),
+    ]);
+
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await waitFor(() => expect(fake.server.onlineGenerates).toBe(2));
+    await flush();
+    expect(fake.server.onlineGenerates).toBe(2);
+
+    // The glance cache stores the raw server build, so this is the server's own
+    // post-sync answer rather than the queue overlay.
+    await waitFor(() =>
+      expect(readGlance('hh-1')?.board?.items.map(({ choreId, status }) => ({ choreId, status }))).toEqual([
+        { choreId: 'c1', status: 'Done' },
+        { choreId: 'c4', status: 'Open' },
+      ]),
+    );
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('○');
+  });
+
+  it('sync-race: a write the drain confirms before the reconnect refetch resolves still reads as Done', async () => {
+    // #88: the reconnect generate snapshots c1 as Open, the drain then confirms the
+    // completion (so the queue overlay is empty), and only then does the stale
+    // snapshot resolve. Without a confirm-triggered refetch the live board would
+    // draw the tap as Open and nothing would ever correct it.
+    const fake = serverClient({ holdFirstOnlineGenerate: true });
+    await goOnlineWithQueuedTap(fake);
+
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await act(async () => {
+      fake.releaseGenerate();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓'));
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(true);
+    expect(fake.server.onlineGenerates).toBe(2);
+  });
+
+  it('sync-race: the fix holds whichever request the network answers first', async () => {
+    // The other resolution order: the reconnect load lands while the write is
+    // still queued (the overlay carries it), then the complete is confirmed and
+    // the board refetches the post-sync week.
+    const fake = serverClient({ holdComplete: true });
+    await goOnlineWithQueuedTap(fake);
+
+    await waitFor(() => expect(readGlance('hh-1')?.board?.items[0].status).toBe('Open'));
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(fake.server.onlineGenerates).toBe(1);
+
+    await act(async () => {
+      fake.releaseComplete();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await waitFor(() => expect(fake.server.onlineGenerates).toBe(2));
+    await waitFor(() => expect(readGlance('hh-1')?.board?.items[0].status).toBe('Done'));
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+  });
+
+  it('sync-refetch: a drain that confirms nothing does not refetch', async () => {
+    // A refetch per drain would double every board load (the mount drain runs on
+    // an empty queue) and hammer the API while a replay keeps failing.
+    saveWriteQueue('hh-1', [
+      {
+        kind: 'chore-complete',
+        dedupeKey: assignmentDedupeKey(WEEK, 'c1'),
+        method: 'POST',
+        path: completePath(WEEK, 'c1'),
+        body: { personId: 'p1' },
+        enqueuedAtMs: 1,
+        attempts: 0,
+        status: 'pending',
+      },
+    ]);
+    const client = boardClient({ complete: () => unreachable });
+
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    await waitFor(() =>
+      expect((client.update as jest.Mock).mock.calls.map(([path]) => String(path))).toContain(
+        completePath(WEEK, 'c1'),
+      ),
+    );
+    await flush();
+
+    expect(generateCalls(client)).toBe(1);
+  });
+
+  it('sync-refetch: an offline tap whose drain confirms nothing does not refetch', async () => {
+    writeGlance('hh-1', { board: cachedThisWeek }, undefined, '2026-07-20T09:00:00.000Z');
+    const client = offlineClient();
+
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    const generatesBefore = generateCalls(client);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
+    await flush();
+
+    expect(generateCalls(client)).toBe(generatesBefore);
+  });
 });
 
 describe('applyQueuedWrites', () => {
