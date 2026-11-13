@@ -499,6 +499,49 @@ describe('useWriteQueue', () => {
     );
   });
 
+  it('confirmedRevision: bumps once for a drain run that confirms writes, however many', async () => {
+    // A surface refetches on this counter (#88), so it has to move once per sync,
+    // not once per write - a two-write replay is one refetch, not two.
+    saveWriteQueue('hh-1', [stored('c1'), stored('c2')]);
+    const client = queueClient(() => confirmed);
+
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    await waitFor(() => expect(result.current.pending).toBe(0));
+    expect(client.update).toHaveBeenCalledTimes(2);
+    expect(result.current.confirmedRevision).toBe(1);
+
+    await act(async () => {
+      result.current.enqueue(completion('c3'));
+    });
+
+    await waitFor(() => expect(result.current.confirmedRevision).toBe(2));
+    expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
+  it('confirmedRevision: stays put when a drain confirms nothing', async () => {
+    // The mount drain over an empty queue, an unreachable replay, and a refused
+    // one all leave the server unchanged, so none of them may trigger a refetch.
+    let answer: ApiResult<unknown> = unreachable;
+    const client = queueClient(() => answer);
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+    expect(result.current.confirmedRevision).toBe(0);
+
+    await act(async () => {
+      result.current.enqueue(completion('c1'));
+    });
+    await waitFor(() => expect(result.current.pending).toBe(1));
+    expect(result.current.confirmedRevision).toBe(0);
+
+    answer = refused;
+    await act(async () => {
+      result.current.flush();
+    });
+    await waitFor(() => expect(result.current.entries[0]?.attempts).toBe(1));
+    expect(result.current.pending).toBe(1);
+    expect(result.current.confirmedRevision).toBe(0);
+  });
+
   it('leaves nothing behind for another household under its own key', async () => {
     const client = queueClient(() => unreachable);
     const { result } = await renderHook(() => useWriteQueue('hh-1', client));

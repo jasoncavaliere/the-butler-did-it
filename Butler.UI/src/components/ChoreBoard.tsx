@@ -84,8 +84,13 @@ import { colors } from './Screen';
  *   not; a write that ultimately cannot sync is surfaced instead (O4).
  * - and because a redraw would otherwise show the server's pre-sync truth, every
  *   load overlays the queue's pending writes over what it just fetched
- *   ({@link applyQueuedWrites}) - so the reconnect refetch, which races the
- *   drain, can never make a queued tap flicker back to `Open`.
+ *   ({@link applyQueuedWrites}), which covers a write that is still queued.
+ * - the overlay alone cannot cover a write the drain has already *confirmed*:
+ *   it has left the queue, yet the reconnect refetch that raced the drain may
+ *   still resolve with the server's pre-sync snapshot. So a drain run that
+ *   confirms anything bumps the queue's `confirmedRevision`, and the board
+ *   refetches once on it - the stale load is discarded and the fresh one shows
+ *   the post-sync server state, whichever request the network answered first.
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -174,9 +179,6 @@ export function ChoreBoard({
   onLastKnown?: (cachedAtIso: string | null) => void;
 }) {
   const client = useApiClient();
-  // The durable offline write queue (O3). It hydrates from storage on mount, so
-  // taps taken before a reload of the wall tablet are already here and replaying.
-  const { enqueue } = useWriteQueue(householdId, client);
   const [phase, setPhase] = useState<Phase>('loading');
   const [message, setMessage] = useState('');
   const [weekIso, setWeekIso] = useState('');
@@ -199,6 +201,11 @@ export function ChoreBoard({
   // counter is a load dependency, so the network coming back refetches the week.
   const degraded = fromCache || phase === 'error';
   const reconnectSignal = useReconnectSignal(degraded);
+
+  // The durable offline write queue (O3). It hydrates from storage on mount, so
+  // taps taken before a reload of the wall tablet are already here and replaying.
+  // It has to be called above the load effect, which lists `confirmedRevision`.
+  const { enqueue, confirmedRevision } = useWriteQueue(householdId, client);
 
   useEffect(() => {
     let active = true;
@@ -272,8 +279,11 @@ export function ChoreBoard({
       // Anything still queued (O3) is layered over the server's answer, because
       // this load races the drain: the API has not seen those writes yet, and
       // redrawing them as undone would make a tap that *is* still on its way look
-      // lost. The queue is read from storage rather than from the hook's state so
-      // this effect does not re-run every time the queue changes.
+      // lost. A write the drain confirms mid-load has already left the queue, so
+      // the overlay cannot cover it; the `confirmedRevision` dependency below
+      // re-runs this load instead. The queue is read from storage rather than
+      // from the hook's state so this effect does not re-run every time the queue
+      // changes.
       setItems(applyQueuedWrites(built, week, readWriteQueue(householdId)));
       // Live data: the week on screen is the server's again and no longer
       // last-known, which is how a reconnect retires the cached week (and with it
@@ -291,8 +301,11 @@ export function ChoreBoard({
     };
     // `reconnectSignal` bumps when the network returns while degraded; listing it
     // here is what makes the reconnect refetch (AC-4/AC-5) rather than waiting for
-    // someone to reload a tablet nobody touches.
-  }, [client, householdId, reconnectSignal]);
+    // someone to reload a tablet nobody touches. `confirmedRevision` bumps once
+    // per drain run that confirmed a queued write, so the board refetches the
+    // post-sync week (#88): the cleanup discards a load that raced the drain and
+    // may hold the pre-sync snapshot. Both are triggers only, never read here.
+  }, [client, householdId, reconnectSignal, confirmedRevision]);
 
   // A cached board whose week has rolled over is the one thing an offline tap
   // must never touch: its rows carry the *cached* week, and C4 resolves a

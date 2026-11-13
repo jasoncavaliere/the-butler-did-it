@@ -26,6 +26,12 @@
  * `entries`, `pending`, and `failed` are the state O4 renders (the indicator's
  * pending count and its failed-write surface). This stays a hook rather than a
  * provider because O3 has exactly one consumer - the chore board; O4 lifts it.
+ *
+ * `confirmedRevision` is for the surface that loads the data these writes change.
+ * A load that raced the drain may have read the server's pre-sync answer, and once
+ * a write is confirmed it has also left the queue - so no overlay of queued writes
+ * can cover for that stale answer any more. Bumping once per drain run that
+ * confirmed something is what lets the surface refetch the post-sync truth (#88).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -55,6 +61,15 @@ export type WriteQueueState = {
   enqueue: (request: WriteRequest) => void;
   /** Attempt a drain now (used on an explicit retry). */
   flush: () => void;
+  /**
+   * A counter that increments once per drain run that confirmed at least one
+   * write, however many writes or passes that took. Starts at 0, and is stable
+   * while nothing is confirmed (an empty queue, an unreachable API, a refusal) -
+   * so listing it in a load effect's dependencies refetches the post-sync server
+   * state after a sync and never otherwise, the same contract as
+   * {@link useReconnectSignal}.
+   */
+  confirmedRevision: number;
 };
 
 /**
@@ -70,6 +85,8 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
   // Bumped whenever something should cause a drain that is not a reconnect: the
   // first mount, a fresh enqueue, an explicit flush, or a backoff timer firing.
   const [revision, setRevision] = useState(0);
+  // Bumped once at the end of a drain run that confirmed anything (see the type).
+  const [confirmedRevision, setConfirmedRevision] = useState(0);
 
   // The client is held in a ref so `send` is stable: rebuilding it on every
   // client identity change would restart the drain effect, and the bearer is
@@ -110,6 +127,7 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
     cancelRetry();
     try {
       let outcome: DrainOutcome;
+      let confirmedTotal = 0;
       do {
         drainAgain.current = false;
         outcome = await drainWriteQueue(householdId, (write) =>
@@ -119,7 +137,15 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
           return;
         }
         setEntries(outcome.queue);
+        confirmedTotal += outcome.confirmed;
       } while (drainAgain.current);
+
+      // One bump for the whole run, not one per write or per pass, so a surface
+      // listening to it refetches once after a sync. A run that confirmed nothing
+      // (including the empty-queue drain on mount) leaves it alone.
+      if (confirmedTotal > 0) {
+        setConfirmedRevision((previous) => previous + 1);
+      }
 
       if (outcome.retryDelayMs !== null) {
         retryTimer.current = setTimeout(() => {
@@ -155,5 +181,5 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
 
   const flush = useCallback(() => setRevision((previous) => previous + 1), []);
 
-  return { entries, pending, failed, enqueue, flush };
+  return { entries, pending, failed, enqueue, flush, confirmedRevision };
 }
