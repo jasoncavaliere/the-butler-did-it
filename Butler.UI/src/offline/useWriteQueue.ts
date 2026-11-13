@@ -23,9 +23,12 @@
  * drain repeats once rather than running a second pass concurrently, which is
  * what keeps replay order a single sequence even when a tap lands during a sync.
  *
- * `entries`, `pending`, and `failed` are the state O4 renders (the indicator's
- * pending count and its failed-write surface). This stays a hook rather than a
- * provider because O3 has exactly one consumer - the chore board; O4 lifts it.
+ * `entries`, `pending`, `failed`, and `unreachable` are the state O4 renders (the
+ * sync indicator's pending count, its failed-write surface, and its connection
+ * state). O4 lifted the hook into {@link WriteQueueProvider}, which calls it once
+ * per household and shares the result with the chore board and the indicator -
+ * call it exactly once per household, never per consumer: two instances would be
+ * two drains over one storage record, breaking the no-overlap rule above.
  *
  * `confirmedRevision` is for the surface that loads the data these writes change.
  * A load that raced the drain may have read the server's pre-sync answer, and once
@@ -70,6 +73,13 @@ export type WriteQueueState = {
    * {@link useReconnectSignal}.
    */
   confirmedRevision: number;
+  /**
+   * Whether the most recent drain run ended because the API did not answer (a
+   * network failure, not a refusal). Starts `false`, and is reset by the next run
+   * that reaches the API - so a browser that reports `online` while the API is
+   * still down keeps reading as offline until a drain actually gets through (O4).
+   */
+  unreachable: boolean;
 };
 
 /**
@@ -87,6 +97,8 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
   const [revision, setRevision] = useState(0);
   // Bumped once at the end of a drain run that confirmed anything (see the type).
   const [confirmedRevision, setConfirmedRevision] = useState(0);
+  // Whether the last drain run ended on a network failure (see the type).
+  const [unreachable, setUnreachable] = useState(false);
 
   // The client is held in a ref so `send` is stable: rebuilding it on every
   // client identity change would restart the drain effect, and the bearer is
@@ -143,6 +155,10 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
         confirmedTotal += outcome.confirmed;
       } while (drainAgain.current);
 
+      // Only the run's final pass decides it: an earlier unreachable pass that a
+      // repeated pass got past is not a current outage.
+      setUnreachable(outcome.offline);
+
       // One bump for the whole run, not one per write or per pass, so a surface
       // listening to it refetches once after a sync. A run that confirmed nothing
       // (including the empty-queue drain on mount) leaves it alone.
@@ -184,5 +200,5 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
 
   const flush = useCallback(() => setRevision((previous) => previous + 1), []);
 
-  return { entries, pending, failed, enqueue, flush, confirmedRevision };
+  return { entries, pending, failed, enqueue, flush, confirmedRevision, unreachable };
 }

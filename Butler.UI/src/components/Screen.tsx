@@ -9,6 +9,10 @@ export const colors = {
   brass: '#D9B25A',
   muted: '#A7ADA2',
   border: 'rgba(236,235,224,0.12)',
+  // Status colours from design-tokens.json `colors_dark` (the shell is dark).
+  // Never the only signal: every use carries a glyph and text too (ADR-0010).
+  success: '#69C08A',
+  danger: '#E0796E',
 } as const;
 
 /**

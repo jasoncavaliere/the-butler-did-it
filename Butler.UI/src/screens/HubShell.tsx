@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiClient, ApiError } from '../api/client';
@@ -15,10 +15,12 @@ import { ChoreBoard } from '../components/ChoreBoard';
 import { FairnessView } from '../components/FairnessView';
 import { GroceryCart } from '../components/GroceryCart';
 import { LastKnownBanner } from '../components/LastKnownBanner';
+import { SyncIndicator } from '../components/SyncIndicator';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useReconnectSignal } from '../offline/useReconnect';
+import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { useHousehold } from '../state/HouseholdContext';
 
 /**
@@ -74,6 +76,22 @@ export function isClaimableMember(person: RosterEntryResponse): boolean {
  * load succeeds again. While degraded the shell listens for a reconnect
  * ({@link useReconnectSignal}) and reloads itself when the network returns, so
  * the wall recovers on its own - nobody reloads a tablet in a kitchen.
+ *
+ * The sync state (Epic 60 O4) lives in the header: the shell mounts the one
+ * {@link WriteQueueProvider} for the household, so the board's queued taps and
+ * the header's {@link SyncIndicator} read the same queue, and the indicator
+ * says whether the hub is online, how many writes are waiting, when they have
+ * synced, and which ones never went through. It sits in the header's normal
+ * flow - no absolute positioning - so it can never cover the name tiles or the
+ * board. Any region served from the last-known cache also marks it offline,
+ * since that cache only ever stands in when the API did not answer.
+ *
+ * "Wifi up, API down" never fires the browser's `online` event, so a reconnect
+ * alone cannot revive a degraded shell after an API-only outage. A drain that
+ * confirms a queued write proves the API answers again, so while degraded the
+ * shell also reloads on each such confirmation ({@link QueueRevival}) - the
+ * board already refetches on it - and the indicator returns to Online without
+ * anyone reloading the tablet.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -138,6 +156,11 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
   const shellDegraded =
     state.phase === 'error' || (state.phase === 'ready' && state.cachedAtIso !== null);
   const reconnectSignal = useReconnectSignal(shellDegraded);
+  // The same revival when a queued write gets through instead (an API-only
+  // outage, where no `online` event ever fires). Bumped only while degraded, so
+  // a live hub does no extra reads after a sync.
+  const [queueSignal, setQueueSignal] = useState(0);
+  const handleQueueConfirmed = useCallback(() => setQueueSignal((previous) => previous + 1), []);
 
   useEffect(() => {
     // Without a selected household there is nothing to load; the "no household"
@@ -179,9 +202,10 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
     return () => {
       active = false;
     };
-    // `reconnectSignal` bumps when the network returns while degraded, which is
+    // `reconnectSignal` bumps when the network returns while degraded, and
+    // `queueSignal` when a queued write is confirmed while degraded - either is
     // what makes the hub reload itself rather than sitting on last-known data.
-  }, [client, householdId, reconnectSignal]);
+  }, [client, householdId, reconnectSignal, queueSignal]);
 
   // Tapping a name claims that person through T1 and makes them active. There is
   // no password/PIN step: a successful claim sets the session, a switch (tapping
@@ -233,17 +257,23 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
   const lastKnownAtIso: string | null =
     view.phase === 'ready' ? view.cachedAtIso ?? boardCachedAtIso : null;
 
-  return (
+  const content = (
     <View style={styles.hub} testID="hub-shell">
+      {householdId !== null ? (
+        <QueueRevival enabled={shellDegraded} onConfirmed={handleQueueConfirmed} />
+      ) : null}
       <OrganizerBar />
       <HubPairing />
-      <View style={styles.header}>
+      <View style={styles.header} testID="hub-header">
         <Text style={styles.householdName} accessibilityRole="header" testID="hub-household-name">
           {householdName}
         </Text>
-        <Text style={styles.date} testID="hub-date">
-          {todayLabel()}
-        </Text>
+        <View style={styles.headerStatus}>
+          <Text style={styles.date} testID="hub-date">
+            {todayLabel()}
+          </Text>
+          {householdId !== null ? <SyncIndicator apiUnreachable={lastKnownAtIso !== null} /> : null}
+        </View>
       </View>
 
       {lastKnownAtIso !== null ? <LastKnownBanner cachedAtIso={lastKnownAtIso} /> : null}
@@ -308,6 +338,39 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
       ) : null}
     </View>
   );
+
+  // One queue per household, shared by the board and the header indicator. With
+  // no household there is nothing to queue, so there is no provider either.
+  return householdId === null ? (
+    content
+  ) : (
+    <WriteQueueProvider householdId={householdId} client={client}>
+      {content}
+    </WriteQueueProvider>
+  );
+}
+
+/**
+ * Reports each drain run that confirmed a queued write, while `enabled` (the
+ * shell is degraded). A confirmation is proof the API answers again, which the
+ * browser's `online` event cannot give when only the API was down. It renders
+ * nothing; it exists because the shell mounts the {@link WriteQueueProvider} and
+ * so cannot read the queue itself. Starting from the current revision means a
+ * mount (or a switch into the degraded state) never reports an old confirmation.
+ */
+function QueueRevival({ enabled, onConfirmed }: { enabled: boolean; onConfirmed: () => void }) {
+  const { confirmedRevision } = useWriteQueueContext();
+  const seen = useRef(confirmedRevision);
+  useEffect(() => {
+    if (confirmedRevision === seen.current) {
+      return;
+    }
+    seen.current = confirmedRevision;
+    if (enabled) {
+      onConfirmed();
+    }
+  }, [confirmedRevision, enabled, onConfirmed]);
+  return null;
 }
 
 /**
@@ -374,6 +437,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   householdName: { color: colors.ink, fontSize: 40, fontWeight: '700' },
+  // The date and the sync indicator share the header's right-hand side, in flow.
+  headerStatus: { alignItems: 'flex-end', gap: 8 },
   date: { color: colors.muted, fontSize: 22 },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, minHeight: 96 },
   centeredRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
