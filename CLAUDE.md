@@ -134,6 +134,12 @@ reciprocal edges, `generated:` on meaningful changes). The rules are in `HOW-TO-
 `knowledge-base` skill for any non-trivial change. Plain ASCII only - no em dashes, curly quotes, or
 ellipsis (the usability scorer hard-fails them).
 
+**Demo push (temporary; decided in #143 on 2026-11-13).** Until the demo ships, a ticket updates only the
+code-adjacent docs its change touches (READMEs, `ARCHITECTURE.md`) and skips full knowledge-graph edits:
+no writes to `docs/`, no new or amended decision records in `adr/`, and no `knowledge-base` skill run.
+The exception is a docs ticket (an issue labeled `area:docs`), which follows the full process above.
+**Ends when the demo ships:** delete this paragraph, and the full process applies to every ticket again.
+
 ## Test workspace
 
 `/local-workspace` brings up both services from `.workspace/workspace.yaml` (source of truth): API on
