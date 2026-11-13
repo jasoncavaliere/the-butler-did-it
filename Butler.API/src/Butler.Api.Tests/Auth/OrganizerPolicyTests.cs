@@ -62,6 +62,18 @@ public sealed class OrganizerPolicyTests
     }
 
     [Fact]
+    public void Staging_host_still_fails_closed_when_authentication_is_disabled()
+    {
+        // The bypass is permitted only in Development or Demo; any other
+        // environment (here Staging) still refuses to start.
+        using var factory = CreateFactory(Environments.Staging, builder =>
+            builder.UseSetting("Authentication:DisableAuthentication", "true"));
+
+        var exception = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+        Assert.Contains("Development", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Host_fails_closed_when_authentication_is_enabled_but_misconfigured()
     {
         using var factory = CreateFactory(Environments.Production, builder =>

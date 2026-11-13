@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Container suite for Butler.API/Dockerfile (issue #95). It drives the real
+    Docker CLI: builds the image from the Butler.API/ context, runs it, and talks
+    to it over HTTP on the port Docker maps to container port 8080. It also
+    exports the filtered build context to prove .dockerignore keeps host build
+    output, test projects, and Azurite data out of it.
+
+    Deliberately NOT in Butler.API.sln and NOT under the coverage gate: plain
+    `dotnet test` (the CI unit step and the dev inner loop) must keep running only
+    the unit suite with no Docker daemon. Run it explicitly with
+    `dotnet test src/Butler.Api.ContainerTests` - see Butler.API/README.md
+    "Container tests". A missing Docker daemon fails the run; nothing is skipped.
+
+    Target framework, nullable, implicit usings, and analyzers are inherited from
+    ../../Directory.Build.props; package versions come from
+    ../../Directory.Packages.props (central package management).
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      Analyzer relaxations scoped to this test project only:
+        NETSDK1188 - Microsoft.TestPlatform.TestHost ships satellite resources
+                     with locale names .NET does not recognize (package issue).
+        CA1707     - underscored test method names are the xUnit convention and
+                     read as sentences (Given_When_Then).
+    -->
+    <NoWarn>$(NoWarn);NETSDK1188;CA1707</NoWarn>
+  </PropertyGroup>
+
+  <!-- xUnit types (Fact, Theory, Assert, ...) available without a per-file using. -->
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+</Project>

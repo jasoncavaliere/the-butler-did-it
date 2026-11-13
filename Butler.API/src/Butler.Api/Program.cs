@@ -10,6 +10,7 @@ using Butler.Api.Application.People;
 using Butler.Api.Application.Rooms;
 using Butler.Api.Application.System;
 using Butler.Api.Infrastructure.Auth;
+using Butler.Api.Infrastructure.Hosting;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Mediation;
 
@@ -38,8 +39,9 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddStorage(builder.Configuration);
 
 // Organizer authentication seam (Engineering Contract 7.4): JWT bearer against
-// Entra External ID + the Organizer authorization policy, with a Development-only
-// bypass that fails closed in every other environment.
+// Entra External ID + the Organizer authorization policy. The bypass defaults on
+// only in Development, is permitted in Demo when set explicitly
+// (appsettings.Demo.json), and fails closed in every other environment.
 builder.Services.AddOrganizerAuthentication(builder.Configuration, builder.Environment);
 
 // Features.
@@ -79,7 +81,9 @@ var app = builder.Build();
 // All errors become RFC 7807 problem details via the shared handler.
 app.UseExceptionHandler();
 
-if (app.Environment.IsDevelopment())
+// Swagger is served in Development and Demo (the local demo stack, for live
+// troubleshooting); never in other environments.
+if (app.Environment.IsDevelopmentOrDemo())
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
@@ -87,7 +91,7 @@ if (app.Environment.IsDevelopment())
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "Butler API v1");
         options.RoutePrefix = "swagger";
     });
-    // Convenience: send the site root to the Swagger UI in development.
+    // Convenience: send the site root to the Swagger UI in Development and Demo.
     app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 }
 

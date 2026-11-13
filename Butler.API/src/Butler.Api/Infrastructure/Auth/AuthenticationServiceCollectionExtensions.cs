@@ -1,4 +1,5 @@
 using Butler.Api.Application.Auth;
+using Butler.Api.Infrastructure.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
@@ -11,8 +12,9 @@ namespace Butler.Api.Infrastructure.Auth;
 /// <summary>
 /// Composition entry point for the organizer authentication seam (Engineering
 /// Contract 7.4). Wires JWT bearer validation against Entra External ID plus the
-/// <c>Organizer</c> authorization policy, with a Development-only bypass that
-/// fails closed everywhere else.
+/// <c>Organizer</c> authorization policy, with a bypass that defaults on only in
+/// Development, is permitted in Demo when set explicitly, and fails closed
+/// everywhere else.
 /// </summary>
 public static class AuthenticationServiceCollectionExtensions
 {
@@ -22,14 +24,16 @@ public static class AuthenticationServiceCollectionExtensions
     /// <remarks>
     /// <para>
     /// <c>Authentication:DisableAuthentication</c> resolves to its configured
-    /// value, or - when unset - to <c>true</c> only in Development. When disabled,
+    /// value, or - when unset - to <c>true</c> only in Development. The Demo
+    /// environment (the local demo stack) may also disable it, but only when set
+    /// explicitly (<c>appsettings.Demo.json</c> does). When disabled,
     /// a dev-organizer scheme is registered so the policy is permissive. When
     /// enabled, JWT bearer validation is wired against the configured authority.
     /// </para>
     /// <para>
-    /// Fail-closed (mitigates BRD risk R-1): a non-Development host refuses to
-    /// start if authentication is disabled, or if it is enabled but no authority
-    /// is configured. Either way the app never serves organizer endpoints open.
+    /// Fail-closed (mitigates BRD risk R-1): a host outside Development and Demo
+    /// refuses to start if authentication is disabled, and any host refuses to
+    /// start if authentication is enabled but no authority is configured. Either way the app never serves organizer endpoints open.
     /// </para>
     /// </remarks>
     public static IServiceCollection AddOrganizerAuthentication(
@@ -49,15 +53,16 @@ public static class AuthenticationServiceCollectionExtensions
         var explicitDisable = section.GetValue<bool?>(nameof(ButlerAuthenticationOptions.DisableAuthentication));
         var disableAuthentication = explicitDisable ?? isDevelopment;
 
-        if (disableAuthentication && !isDevelopment)
+        if (disableAuthentication && !environment.IsDevelopmentOrDemo())
         {
             throw new InvalidOperationException(
-                "Authentication:DisableAuthentication is only permitted in the Development environment. " +
+                "Authentication:DisableAuthentication is only permitted in the Development or Demo environment. " +
                 $"Refusing to start in '{environment.EnvironmentName}' with authentication disabled (fail closed).");
         }
 
         // The scheme that satisfies the Organizer policy: the dev-organizer bypass
-        // in Development, JWT bearer against Entra External ID otherwise.
+        // in Development (or Demo, when set explicitly), JWT bearer against Entra
+        // External ID otherwise.
         var organizerScheme = disableAuthentication
             ? OrganizerAuthorization.DevScheme
             : JwtBearerDefaults.AuthenticationScheme;
