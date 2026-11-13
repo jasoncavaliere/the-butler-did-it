@@ -12,9 +12,10 @@ import type {
 import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { readGlance, writeGlance } from '../offline/glanceCache';
+import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueue } from '../offline/useWriteQueue';
-import { isCurrentWeek } from '../offline/weekIso';
+import { currentWeekIso, isCurrentWeek } from '../offline/weekIso';
 import { assignmentDedupeKey, readWriteQueue, type QueuedWrite } from '../offline/writeQueue';
 import { colors } from './Screen';
 
@@ -58,20 +59,34 @@ import { colors } from './Screen';
  * HTTP/problem/parse error is a real answer from a reachable service and still
  * shows as an error.
  *
- * A board served from cache is still a control (Epic 60 O3), and it comes back
- * to life by itself:
- * - **tappable while its week still is this week.** A cached row carries the
- *   *cached* `weekIso`, and the API resolves a completion by
- *   `(householdId, weekIso, choreId)` with no current-week check - so a tap taken
- *   after an outage that spanned a week boundary would land a completion in the
- *   stale week and *succeed*, marking last week done while this week's chore
- *   stays open. That is the one case the board still refuses
- *   ({@link isCurrentWeek}); within the current week an offline tap is queued
- *   ({@link useWriteQueue}) and shown as done immediately.
+ * A board - live or served from cache - is a control (Epic 60 O3), and it comes
+ * back to life by itself:
+ * - **tappable while its week still is this week.** Every row carries the
+ *   `weekIso` the board was loaded with, and the API resolves a completion by
+ *   `(householdId, weekIso, choreId)` with no current-week check - so a tap on a
+ *   board that has outlived its week would land a completion in the stale week
+ *   and *succeed*, marking last week done while this week's chore stays open.
+ *   That happens to a cached board after an outage that spanned a boundary, and
+ *   just as easily to a live board loaded on Sunday night and tapped on Monday
+ *   morning (#89). It is the one case the board refuses ({@link isCurrentWeek}),
+ *   whichever way the board was loaded; within the current week an offline tap
+ *   is queued ({@link useWriteQueue}) and shown as done immediately, and a queued
+ *   write whose week ends before it syncs is flagged at drain time rather than
+ *   replayed into the ended week.
  * - self-reviving, because the hub lives on a wall and nobody reloads it. While
  *   degraded the board listens for a reconnect ({@link useReconnectSignal}) and
  *   refetches when the network returns, which is what turns the cached board back
- *   into a live one and drains whatever the outage queued.
+ *   into a live one and drains whatever the outage queued. And at the week
+ *   boundary ({@link useCurrentWeekIso}) it redraws its rows as read-only and
+ *   reloads the new week, so a healthy hub is not left read-only every Monday.
+ *   The tablet and the API each read their own clock, so that boundary reload
+ *   can reach a server that has not turned the week yet and be handed the week
+ *   that just ended. A live load whose week disagrees with the tablet's is
+ *   therefore retried on a short backoff ({@link LIVE_WEEK_RETRY_DELAYS_MS}), and
+ *   a refused tap forces a reload too, so the board is never left read-only for
+ *   the rest of the week by a few milliseconds of clock skew. If the two still
+ *   disagree after a retry, the tablet's clock is the likelier culprit, and the
+ *   board says so ({@link CLOCK_NOTICE_AFTER}) rather than going silently inert.
  *
  * Offline writes (Epic 60 O3) are the same tap, taken twice over:
  * - a tap on a cached board has no live network to try, so it goes straight to
@@ -103,6 +118,32 @@ export type BoardItem = {
 };
 
 type Phase = 'loading' | 'ready' | 'error';
+
+/**
+ * How long a live board waits before reloading when the server named a week
+ * other than the tablet's (#89), indexed by how many live loads in a row have
+ * disagreed; past the end the last delay repeats.
+ *
+ * The usual cause is the boundary reload racing the server's clock: the tablet
+ * turns the week a few milliseconds before the API does, so `generate` still
+ * answers with the week that just ended. Nothing else would reload the board
+ * for a week - it is healthy, so it is not listening for a reconnect, and with
+ * every row read-only no tap confirms a write - so the board retries by itself.
+ * The first retry is soon, because that race clears in well under a second; the
+ * delays then grow so a tablet whose clock is simply wrong polls gently rather
+ * than hammering the API.
+ */
+export const LIVE_WEEK_RETRY_DELAYS_MS: readonly number[] = [5_000, 15_000, 60_000, 300_000];
+
+/**
+ * How many live loads in a row must disagree with the tablet about the week
+ * before the board says the tablet's clock looks wrong. One disagreement is the
+ * ordinary boundary race above and clears on the first retry, so it is not worth
+ * a message; a second, after that retry, means the clocks really are apart (a
+ * reset RTC or a hand-set time), and a board that is read-only for that reason
+ * must say why rather than just stop answering taps.
+ */
+export const CLOCK_NOTICE_AFTER = 2;
 
 /** The two day buckets the panel presents, in order. */
 const DAY_BUCKETS = [
@@ -184,8 +225,10 @@ export function ChoreBoard({
   const [weekIso, setWeekIso] = useState('');
   const [items, setItems] = useState<BoardItem[]>([]);
   // Whether what is on screen came from the offline cache rather than the API.
-  // This is what makes the board read-only (see the module docstring): a cached
-  // row carries the cached week, so a tap on it could complete the wrong week.
+  // A cached board has no live network to try, so its taps go straight to the
+  // durable queue. It no longer decides whether the board is read-only: any
+  // board whose week has rolled over is, cached or live (see the module
+  // docstring).
   const [fromCache, setFromCache] = useState(false);
 
   // Held in a ref so an inline callback from the parent cannot re-trigger the
@@ -206,6 +249,21 @@ export function ChoreBoard({
   // taps taken before a reload of the wall tablet are already here and replaying.
   // It has to be called above the load effect, which lists `confirmedRevision`.
   const { enqueue, confirmedRevision } = useWriteQueue(householdId, client);
+
+  // The week the hub is in, as state that changes at the boundary (#89). It is
+  // what the render compares the board's week against, and - listed in the load
+  // effect's dependencies - it reloads the new week once when the week turns.
+  const { currentWeek, recheck: recheckWeek } = useCurrentWeekIso();
+
+  // How many live loads in a row named a week other than the tablet's, and a
+  // counter that forces a reload. The first arms the backoff retry below and
+  // decides the clock notice; the second is bumped by that retry and by a
+  // refused tap. Both exist because `currentWeek` alone cannot recover a board
+  // whose boundary reload reached the API before the API's week turned: the
+  // hook already holds the new week, so re-reading it changes nothing and
+  // nothing would load again until next Monday.
+  const [weekMismatches, setWeekMismatches] = useState(0);
+  const [reloadRevision, setReloadRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -243,12 +301,16 @@ export function ChoreBoard({
           );
           setFromCache(true);
           setPhase('ready');
+          // A cached week is not the server's answer, so it says nothing about
+          // the clocks; the reconnect, not the backoff, is what reloads it.
+          setWeekMismatches(0);
           reportRef.current?.(cached.cachedAtIso);
           return;
         }
         setMessage(failure.message);
         setFromCache(false);
         setPhase('error');
+        setWeekMismatches(0);
         reportRef.current?.(null);
       };
 
@@ -290,6 +352,14 @@ export function ChoreBoard({
       // the rolled-over-week guard that could have made the board read-only).
       setFromCache(false);
       setPhase('ready');
+      // Does the server's week agree with the tablet's? The clock is re-read here
+      // rather than taken from `currentWeek`, and the render's copy is brought up
+      // to date with it, so a tablet whose clock was corrected (or whose boundary
+      // timer slept through Monday) draws against the right week. A disagreement
+      // arms the backoff retry below.
+      const deviceWeek = currentWeekIso();
+      recheckWeek();
+      setWeekMismatches((previous) => (week === deviceWeek ? 0 : previous + 1));
       // Refresh the cache (and its freshness stamp) on every successful load, so
       // the next outage falls back to this week rather than an older one.
       writeGlance(householdId, { board: { weekIso: week, items: built } });
@@ -304,23 +374,49 @@ export function ChoreBoard({
     // someone to reload a tablet nobody touches. `confirmedRevision` bumps once
     // per drain run that confirmed a queued write, so the board refetches the
     // post-sync week (#88): the cleanup discards a load that raced the drain and
-    // may hold the pre-sync snapshot. Both are triggers only, never read here.
-  }, [client, householdId, reconnectSignal, confirmedRevision]);
+    // may hold the pre-sync snapshot. `currentWeek` changes once at the week
+    // boundary, so a hub nobody reloads picks up the new week by itself (#89)
+    // instead of sitting read-only until someone refreshes it; if that reload
+    // finds the network gone it falls back to the cache like any other load.
+    // `reloadRevision` bumps when a live load's week disagreed with the tablet's
+    // and the backoff has elapsed, or when a tap was refused, so a board whose
+    // boundary reload beat the server's clock loads again. All four are triggers
+    // only, never read here.
+  }, [client, householdId, reconnectSignal, confirmedRevision, currentWeek, reloadRevision, recheckWeek]);
 
-  // A cached board whose week has rolled over is the one thing an offline tap
-  // must never touch: its rows carry the *cached* week, and C4 resolves a
-  // completion by `(householdId, weekIso, choreId)` with no current-week check,
-  // so replaying that write would mark last week done and succeed. Live data is
-  // never stale in this sense - the server just named the week - so the guard is
-  // only ever applied to a board served from cache. This is the *render*-time
-  // answer, which decides whether a row reads as a control; `toggle` asks the
-  // same question again at the moment of the tap, which is what actually guards
-  // the write.
-  const staleCachedWeek = fromCache && !isCurrentWeek(weekIso);
+  // The backoff retry for a live load whose week disagreed with the tablet's.
+  // Keyed on the count, which every disagreeing load bumps and every agreeing
+  // (or failed) load resets, so each disagreement arms exactly one timer and the
+  // first agreement disarms it.
+  useEffect(() => {
+    if (weekMismatches === 0) {
+      return undefined;
+    }
+    const delays = LIVE_WEEK_RETRY_DELAYS_MS;
+    const timer = setTimeout(
+      () => setReloadRevision((previous) => previous + 1),
+      delays[Math.min(weekMismatches, delays.length) - 1],
+    );
+    return () => clearTimeout(timer);
+  }, [weekMismatches]);
+
+  // A board whose week has rolled over must never write, however it was loaded:
+  // its rows carry the week they were loaded with, and C4 resolves a completion
+  // by `(householdId, weekIso, choreId)` with no current-week check, so a write
+  // from it would mark last week done and succeed. That is as true of a cached
+  // board after an outage as of a live one - live data is only current at the
+  // moment it was loaded, and the wall hub can hold it across Sunday midnight.
+  // This is the *render*-time answer, which decides whether a row reads as a
+  // control; `toggle` asks the same question again against the real clock at
+  // the moment of the tap, which is what actually guards the write.
+  const staleWeek = weekIso !== currentWeek;
+  // A live board that is read-only because the server and the tablet still
+  // disagree about the week after a retry: say so, rather than go silently inert.
+  const clockLooksWrong = staleWeek && weekMismatches >= CLOCK_NOTICE_AFTER;
 
   // Tapping an item toggles its completion, attributed to the active participant
   // (T3): an `Open` item completes through C4, a `Done` item undoes that
-  // completion. With no active participant - or on a cached board whose week has
+  // completion. With no active participant - or on any board whose week has
   // rolled over - the board is read-only, so the tap does nothing.
   //
   // The flip is optimistic in every case: it shows immediately, and it survives
@@ -341,8 +437,20 @@ export function ChoreBoard({
     async (choreId: string) => {
       // Re-checked here rather than reused from render: a wall hub can sit
       // untouched for days, so the week must be judged at the moment of the tap,
-      // not at the moment the board last drew itself.
-      if (activePersonId === null || (fromCache && !isCurrentWeek(weekIso))) {
+      // not at the moment the board last drew itself. The refusal comes before
+      // the optimistic flip, so the row never pretends the tap landed.
+      if (activePersonId === null) {
+        return;
+      }
+      if (!isCurrentWeek(weekIso)) {
+        // The week turned but the render has not caught up (a sleeping tablet can
+        // fire the boundary timer late), so bring it up to date: the row goes
+        // read-only and the new week reloads. The reload is forced as well,
+        // because the render may already hold the new week - the boundary reload
+        // came back with the ended one - and re-reading an unchanged week would
+        // not load anything.
+        recheckWeek();
+        setReloadRevision((previous) => previous + 1);
         return;
       }
       const target = items.find((item) => item.choreId === choreId);
@@ -395,7 +503,7 @@ export function ChoreBoard({
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );
     },
-    [client, householdId, weekIso, activePersonId, items, fromCache, enqueue],
+    [client, householdId, weekIso, activePersonId, items, fromCache, enqueue, recheckWeek],
   );
 
   if (phase === 'loading') {
@@ -441,6 +549,12 @@ export function ChoreBoard({
 
   return (
     <View style={styles.board} testID="chore-board">
+      {clockLooksWrong ? (
+        <Text style={styles.status} testID="chore-board-clock-notice">
+          This tablet&apos;s clock does not match the server&apos;s week, so chores cannot be
+          marked until the clock is set right.
+        </Text>
+      ) : null}
       {DAY_BUCKETS.map((bucket) => {
         const dayItems = visibleItems.filter((item) => isDaily(item.cadence) === bucket.daily);
         if (dayItems.length === 0) {
@@ -477,13 +591,13 @@ export function ChoreBoard({
                       item={item}
                       accent={accent}
                       glow={isActive}
-                      // Read-only when no participant is active, or when the board
-                      // is a last-known one whose week has since rolled over (that
-                      // row must never write - see `toggle`). Otherwise both an
-                      // Open item (tap to complete) and a Done item (tap to undo)
-                      // are actionable, online or off - offline the tap is queued.
+                      // Read-only when no participant is active, or when the board's
+                      // week has since rolled over, live or cached (that row must
+                      // never write - see `toggle`). Otherwise both an Open item
+                      // (tap to complete) and a Done item (tap to undo) are
+                      // actionable, online or off - offline the tap is queued.
                       // The tap handler still makes a read-only press a safe no-op.
-                      inert={staleCachedWeek || activePersonId === null}
+                      inert={staleWeek || activePersonId === null}
                       onPress={() => toggle(item.choreId)}
                     />
                   ))}

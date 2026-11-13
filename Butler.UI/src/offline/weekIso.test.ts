@@ -1,4 +1,4 @@
-import { currentWeekIso, isCurrentWeek, weekIsoFor } from './weekIso';
+import { currentWeekIso, isCurrentWeek, msUntilNextWeekIso, weekIsoFor } from './weekIso';
 
 /**
  * These cases are deliberately the same ones the API's own `WeekIsoHelperTests`
@@ -86,5 +86,39 @@ describe('isCurrentWeek', () => {
 
   it('uses the ambient clock when none is supplied', () => {
     expect(isCurrentWeek(currentWeekIso())).toBe(true);
+  });
+});
+
+describe('msUntilNextWeekIso', () => {
+  const DAY = 86_400_000;
+  const at = (iso: string) => new Date(iso);
+
+  it('counts down to the Monday midnight that starts the next ISO week', () => {
+    // The last millisecond of Sunday is one millisecond from the boundary.
+    expect(msUntilNextWeekIso(at('2026-07-19T23:59:59.999Z'))).toBe(1);
+    // A mid-week instant: Wednesday 12:00 is four and a half days out.
+    expect(msUntilNextWeekIso(at('2026-07-15T12:00:00.000Z'))).toBe(4.5 * DAY);
+  });
+
+  it('answers a whole week at exactly Monday midnight, never 0', () => {
+    // That instant is already the new week; a zero delay would re-fire a timer
+    // in a tight loop.
+    expect(msUntilNextWeekIso(at('2026-07-20T00:00:00.000Z'))).toBe(7 * DAY);
+  });
+
+  it('lands on the instant the week actually changes, across a year boundary', () => {
+    // 2020-12-31 is in 2020-W53; the next week (2021-W01) starts Monday 2021-01-04.
+    const now = at('2020-12-31T12:00:00.000Z');
+    const gap = msUntilNextWeekIso(now);
+
+    expect(gap).toBe(Date.parse('2021-01-04T00:00:00.000Z') - now.getTime());
+    expect(weekIsoFor(new Date(now.getTime() + gap - 1))).toBe('2020-W53');
+    expect(weekIsoFor(new Date(now.getTime() + gap))).toBe('2021-W01');
+  });
+
+  it('uses the ambient clock when none is supplied', () => {
+    const gap = msUntilNextWeekIso();
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThanOrEqual(7 * DAY);
   });
 });
