@@ -1,3 +1,11 @@
+---
+type: Decision Log
+title: Architectural Decision Log
+description: Index of Butler's architectural decision records. Read the accepted ADRs before proposing design or process changes.
+tags: [adr, decisions, index]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
+---
+
 # Architectural Decision Log
 
 This is Butler's design decision memory. Each Architectural Decision Record (ADR)
@@ -21,6 +29,7 @@ conventions.
 
 | id | title | status | date | tags |
 | --- | --- | --- | --- | --- |
+| [ADR-0011](0011-knowledge-base-okf-format.md) | The knowledge base is an OKF v0.2 bundle with one concept per file | accepted | 2026-11-13 | knowledge-base, okf, token-cost, process |
 | [ADR-0010](0010-accessibility-baseline-wcag-aa.md) | WCAG 2.1 AA is the hard accessibility floor for every artifact | accepted | 2026-07-19 | accessibility, color, stack |
 | [ADR-0009](0009-fairness-balance-visualization.md) | Fairness is a calm balance bar, not a leaderboard | accepted | 2026-07-19 | state, brand, accessibility |
 | [ADR-0008](0008-two-contexts-adaptive-density.md) | One token system, two densities for the hub and organizer contexts | accepted | 2026-07-19 | layout, typography, stack |

@@ -1,13 +1,14 @@
 ---
-name:          brd-00-master
-title:         Butler v1 Business Requirements Document (Master)
-category:      Product & Strategy
-lifecycle:     Living
-owner:         product
-last-reviewed: 2026-07-14
-audience:      Product, engineering, reviewers, and the agents that implement these tickets
-source:        Butler.KnowledgeBase/docs/10-product-vision.md
-keywords:      [brd, v1, requirements, household model, chores, fair assignment, grocery, store connector, hub, tap-to-claim, offline, pwa, table storage, mediatr, entra external id, acceptance criteria]
+type: Requirements
+title: Butler v1 Business Requirements Document (Master)
+description: "The v1 business requirements: problem, objectives, scope decisions, personas, journeys, functional requirements, and success metrics. Not needed for implementation."
+tags: [brd, v1, requirements, household model, chores, fair assignment, grocery, store connector]
+category: Product & Strategy
+lifecycle: Living
+owner: product
+sources:
+  - { id: vision, resource: ../docs/10-product-vision.md, title: Product Vision }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-07-14T00:00:00Z }
 ---
 
 # Butler v1 - Business Requirements Document (Master)
@@ -23,9 +24,9 @@ This document is downstream of the [Product Vision](../docs/10-product-vision.md
 | You are... | Read |
 | --- | --- |
 | **Product / leadership** | Sections 1-6 (problem, objectives, scope, personas, journeys, metrics). |
-| **Engineer / implementing agent** | [07-engineering-contract.md](07-engineering-contract.md) (Section 7) then your epic file. Section 7 is what keeps a ticket from halting. |
+| **Engineer / implementing agent** | [07-engineering-contract.md](07-engineering-contract.md) (Section 7) then your ticket file in `tickets/`. Section 7 is what keeps a ticket from halting. |
 | **Reviewer** | [Section 7](07-engineering-contract.md) (the conventions you are reviewing against) and Section 8 (traceability - does this ticket serve a real requirement). |
-| **Filing tickets into GitHub** | `brd/README.md` - the label taxonomy, the dependency order, and the `gh issue create` recipe. |
+| **Filing tickets into GitHub** | [filing-guide.md](filing-guide.md) - the label taxonomy, the dependency order, and the `gh issue create` recipe. |
 
 ---
 
@@ -104,7 +105,7 @@ Straight from the vision's non-goals. Naming these is the point; a ticket that d
 
 `/implement-issue` halts the moment a ticket forces the engineer to guess about scope, behavior, data, or side-effects. These decisions are pre-made here so the tickets do not have to be:
 
-- **D-1 Persistence:** Azure Table Storage (partition key `householdId`) + Blob + Queues, behind repository interfaces. No EF Core, no relational DB. Rationale in `brd/README.md` (cost + fit).
+- **D-1 Persistence:** Azure Table Storage (partition key `householdId`) + Blob + Queues, behind repository interfaces. No EF Core, no relational DB. Rationale in [filing-guide.md](filing-guide.md) (cost + fit).
 - **D-2 Organizer auth:** Microsoft Entra External ID (CIAM), validated as JWT bearer. A `DisableAuthentication` dev mode (mirroring QControl) lets local + CI run without a live tenant.
 - **D-3 Participant identity:** tap-to-claim, no password. Never behind auth. Sensitive actions (billing, teardown, order confirmation over a configurable amount) require the organizer's JWT.
 - **D-4 Grocery connector:** real `IStoreConnector` interface; v1 implementation is a deterministic `SimulatedHebConnector` backed by a checked-in fixture catalog. No network dependency in tests.
@@ -155,7 +156,7 @@ Straight from the vision's non-goals. Naming these is the point; a ticket that d
 
 Every epic exists to satisfy business objectives; every ticket in an epic cites the requirement it serves. This is the upward trace a reviewer uses to reject scope creep.
 
-| Requirement (what v1 must do) | Serves | Epic | Tickets (see epic file) |
+| Requirement (what v1 must do) | Serves | Epic | Tickets (see the epic file list) |
 | --- | --- | --- | --- |
 | FR-1 Architecture skeleton, storage, auth seam, tests, CI exist | BO-6, all | 10 Foundations | F1-F7 |
 | FR-2 Model a household: rooms, people, chores | BO-2 | 20 Household Model | H1-H5 |
@@ -190,12 +191,12 @@ The north star is **weekly active households**. v1 target: 50 percent of onboard
 - **R-1** Tap-to-claim trusts whoever is at the hub. Mitigation: D-8 (no money moves) + organizer JWT on sensitive actions.
 - **R-2** Offline sync conflicts (two devices, same chore). Mitigation: completions are append-only; assignment status is last-writer-wins per `(householdId, week, chore)` with optimistic concurrency.
 - **R-3** Simulated grocery is not a real integration. Mitigation: it is honest by design (D-4) and swappable behind `IStoreConnector`; the demo is real even if the store is not.
-- **Dep-1** Every epic depends on Foundations (Epic 10) landing first. The dependency order is in `brd/README.md`.
+- **Dep-1** Every epic depends on Foundations (Epic 10) landing first. The dependency order is in [filing-guide.md](filing-guide.md).
 
 ## Related
 
 - [Product Vision](../docs/10-product-vision.md) - the why, quantified.
 - [Glossary](../docs/90-glossary.md) - every term defined once.
 - [07-engineering-contract.md](07-engineering-contract.md) - Section 7, the binding Engineering Contract.
-- [brd/README.md](README.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
+- [brd/filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the `gh issue create` recipe.
 - Epic files: [10 Foundations](10-epic-foundations.md), [20 Household Model](20-epic-household-model.md), [30 Tap-to-Claim & Hub](30-epic-tap-to-claim-hub.md), [40 Chores & Fair Assignment](40-epic-chores-fair-assignment.md), [50 Grocery Assisted Cart](50-epic-grocery-assisted-cart.md), [60 Offline PWA](60-epic-offline-pwa.md).

@@ -1,12 +1,13 @@
 ---
-name:          HOW-TO-MAINTAIN
-title:         How to Maintain the Butler Knowledge Base
-category:      Start Here
-lifecycle:     Living
-owner:         agent-managed
-last-reviewed: 2026-07-13
-audience:      Wiki maintainers - humans and agents
-related:       []
+type: Guide
+title: How to Maintain the Butler Knowledge Base
+description: "The rules for changing this knowledge base: OKF frontmatter, the graph-edit checklist, categories, and where each kind of file lives."
+tags: [maintenance, okf, frontmatter, knowledge-graph]
+category: Start Here
+lifecycle: Living
+owner: agent-managed
+related: []
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
 ---
 
 # How to Maintain the Butler Knowledge Base
@@ -19,13 +20,13 @@ How this knowledge base stays correct and navigable as Butler grows, one capabil
 
 ## Every write is a graph edit
 
-The docs are a hub-and-spoke knowledge graph (see the [README](README.md) map). A correct article that is unreachable or unlinked is a defect, not a deliverable. So adding, renaming, or removing an article is never just a file write - in the same change you must:
+The docs are a hub-and-spoke knowledge graph (the [index](index.md) lists every node). A correct article that is unreachable or unlinked is a defect, not a deliverable. So adding, renaming, or removing an article is never just a file write - in the same change you must:
 
-1. Write or edit the `.md` file under `docs/` (or `README.md` / this file at the root).
-2. Add the article to the [README](README.md) catalog under its category, and to the right row of the by-role table.
+1. Write or edit the `.md` file under `docs/` (or this file at the root).
+2. Add the article to the [index](index.md) under its category heading, as `* [Title](path) - <its description>`, and to the right row of the by-role table in the [Overview](docs/00-overview.md).
 3. Add the reciprocal `related:` edge on every neighbor. Edges are bidirectional: if A lists B, B must list A. The current seed edges are overview <-> vision, overview <-> glossary, and vision <-> glossary.
-4. Make sure the article is reachable - linked from the README catalog and from at least one sibling's `## Related` section.
-5. Bump `last-reviewed:` on every article whose content you touched.
+4. Make sure the article is reachable - linked from the index and from at least one sibling's `## Related` section.
+5. Set `generated:` to `{ by: <actor>, at: <now> }` on every article whose content you meaningfully changed (not for a link or typo fix).
 
 Do not leave a new page orphaned or an edge one-directional. Those are the two most common defects.
 
@@ -50,24 +51,48 @@ The Product Vision (`10`) is intentionally one article because it is one idea. A
 | Purpose | Current reference, kept true to reality | A point-in-time snapshot of a decision or state |
 | When it is wrong | **Fix it in place** | **Do not edit** - supersede it with a new dated article and link forward |
 
-Every article's `lifecycle:` frontmatter says which it is. If unsure, it is Living. All four seed articles are Living, including the Product Vision - as decisions evolve, revise the vision in place rather than freezing it.
+Every article's `lifecycle:` frontmatter says which it is. A superseded Record article also gets OKF `status: deprecated`. If unsure, it is Living. All four seed articles are Living, including the Product Vision - as decisions evolve, revise the vision in place rather than freezing it.
 
-## Frontmatter convention
+## Frontmatter convention (OKF v0.2)
 
-Every article under `docs/` carries this YAML header:
+This knowledge base is an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) v0.2 bundle (see [ADR-0011](adr/0011-knowledge-base-okf-format.md)). Every `.md` file except `index.md` is a concept and starts with YAML frontmatter. `type` is required; `title`, `description`, and `tags` are expected on every file. Articles under `docs/` also carry this skill's graph keys:
 
 ```yaml
-name:          <file slug, matches the filename without .md>
-title:         <human title>
-category:      <one of: Start Here | Product & Strategy | Architecture | Operations | Reference>
-lifecycle:     Living | Record
-owner:         agent-managed
-last-reviewed: YYYY-MM-DD
-audience:      <who this is for>
-keywords:      [term, term, ...]   # search/findability terms
-related:       [slug, slug, ...]   # bidirectional edges
-published-to:                       # filled in only after a first publish to a mirror; leave blank until then
+type:        <Guide | Product Vision | Architecture | Glossary | ...>   # OKF, required
+title:       <human title>
+description: <one sentence; it is copied into index.md and read by agents to pick a file>
+tags:        [term, term, ...]          # up to about 8
+category:    <Start Here | Product & Strategy | Architecture | Operations | Reference>
+lifecycle:   Living | Record
+owner:       agent-managed
+related:     [slug, slug, ...]          # bidirectional edges
+sources:                                # optional; what this was derived from
+  - { id: <key>, resource: <url or relative path>, title: <label> }
+generated:   { by: <actor>, at: YYYY-MM-DDTHH:MM:SSZ }   # last meaningful change
+verified:    { by: human:<id>, at: YYYY-MM-DDTHH:MM:SSZ } # only when a person has reviewed it
 ```
+
+Actors follow OKF: `claude-code/<model>` for an agent, `human:<github-login>` for a person, `process:<name>` for a script. Use `verified` only for a real human or automated check, never as a default. Links are relative paths (not OKF's `/`-rooted form) so they also resolve on GitHub.
+
+The `description` is the most important field for cost: an agent can run `grep -rh "^description:" Butler.KnowledgeBase` to choose a file without opening any. Write it as one plain sentence that says what the file answers.
+
+## Bundle layout (one concept per file)
+
+| Path | `type` | Rule |
+| --- | --- | --- |
+| `index.md`, `brd/index.md` | (index) | OKF index: no frontmatter except `okf_version` at the root; `# Heading` sections of `* [Title](path) - description` lines. |
+| `docs/NN-*.md` | per article | The knowledge graph. Scored by `kb_score.py` (overrides in `kb_score.json`). |
+| `brd/07-engineering-contract.md` | Engineering Contract | A short overview that lists the clauses. |
+| `brd/engineering-contract/7N-*.md` | Contract Clause | One clause per file. A ticket links the clause it relies on, never the whole contract. |
+| `brd/NN-epic-*.md` | Epic | Goal, what it serves, and a list of its tickets. No ticket bodies. |
+| `brd/tickets/<ID>-<slug>.md` | Ticket | One ticket per file. `resource:` is its GitHub issue; `tags:` are its labels. |
+| `brd/ticket-issue-map.md` | Crosswalk | Generated by `brd/tools/generate_issue_map.py`. Never hand-edit. |
+| `adr/NNNN-*.md`, `adr/README.md` | Decision Record, Decision Log | Owned by the design-studio skill. ADRs keep their own `status` values (proposed, accepted, superseded, deprecated) because that skill's scorer requires them. |
+| `intake/*.md` | Source | Provenance. Never edit the body; never read it for implementation work. |
+
+Only `docs/` is the knowledge graph. `brd/`, `adr/`, and `intake/` link into it but are not graph nodes, so they need no reciprocal `related:` edges from `docs/`.
+
+When a file grows past one idea, split it and link the parts. Do not copy content between files.
 
 This is hub-and-spoke, not a pipeline, so articles do NOT carry a `<!-- pipeline-nav -->` prev/next line. Do not add one.
 
@@ -80,4 +105,5 @@ The raw source vision and the build brief live in `intake/`. They are the proven
 - Every internal link resolves and points at a real heading anchor.
 - Every article has its H1, its `> **In one line:**` TL;DR callout, and a `## Related` section whose links match its `related:` frontmatter.
 - Plain ASCII prose only: no em dashes, curly quotes, ellipsis characters, or non-breaking spaces. A usability scorer hard-fails these.
+- Every non-index `.md` file has parseable frontmatter with a non-empty `type` (OKF conformance).
 - If a `tools/kb_score.py` is available, run it against this directory to catch link rot, orphans, one-directional edges, and character-hygiene failures before they accumulate.

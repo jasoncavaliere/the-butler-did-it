@@ -1,3 +1,11 @@
+---
+type: Source
+title: Knowledge base build brief (seed)
+description: Settled brief for the first knowledge base build. Provenance only; do not read for implementation work.
+tags: [intake, provenance]
+generated: { by: human:jasoncavaliere, at: 2026-07-13T00:00:00Z }
+---
+
 # Build Brief — Butler Knowledge Base (seed)
 
 This brief is the source of truth for the first build of the Butler knowledge base. The

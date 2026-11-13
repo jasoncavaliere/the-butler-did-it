@@ -1,14 +1,13 @@
 ---
-name:          90-glossary
-title:         Glossary
-category:      Reference
-lifecycle:     Living
-owner:         agent-managed
-last-reviewed: 2026-07-21
-audience:      Anyone reading or writing Butler docs
-keywords:      [glossary, terms, definitions, vocabulary, hub, household model, tap-to-claim, store connector, assisted cart, novelty cliff, north star, BYO-tablet, participant, organizer, engineering contract]
-related:       [00-overview, 10-product-vision, 20-architecture-overview]
-published-to:
+type: Glossary
+title: Glossary
+description: "Every Butler term defined once: hub, tap-to-claim, store connector, organizer, participant, and the rest."
+tags: [glossary, terms, definitions, vocabulary, hub, household model, tap-to-claim, store connector]
+category: Reference
+lifecycle: Living
+owner: agent-managed
+related: [00-overview, 10-product-vision, 20-architecture-overview]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-07-21T00:00:00Z }
 ---
 
 # Glossary

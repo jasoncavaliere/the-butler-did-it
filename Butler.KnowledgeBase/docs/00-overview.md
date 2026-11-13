@@ -1,14 +1,13 @@
 ---
-name:          00-overview
-title:         Overview - What Butler Is and How This Knowledge Base Works
-category:      Start Here
-lifecycle:     Living
-owner:         agent-managed
-last-reviewed: 2026-07-21
-audience:      Anyone new to Butler - humans and future agents
-keywords:      [overview, start here, butler, knowledge base, wiki, navigation, categories, build in public, hub and spoke]
-related:       [10-product-vision, 90-glossary]
-published-to:
+type: Guide
+title: Overview - What Butler Is and How This Knowledge Base Works
+description: What Butler is, how this knowledge base is organized, and where each kind of reader should start.
+tags: [overview, start here, butler, knowledge base, wiki, navigation, categories, build in public]
+category: Start Here
+lifecycle: Living
+owner: agent-managed
+related: [10-product-vision, 90-glossary]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
 ---
 
 # Overview - What Butler Is and How This Knowledge Base Works
@@ -27,7 +26,7 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 
 ## How this knowledge base is organized
 
-The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [README](../README.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - four articles, with the first Architecture spoke now in place - and it keeps growing along the reserved ranges below.
+The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [index](../index.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - four articles, with the first Architecture spoke now in place - and it keeps growing along the reserved ranges below.
 
 **The five categories (fixed):**
 
@@ -42,6 +41,13 @@ The docs are a **knowledge graph**, not a folder of files. Each article is a nod
 **Reserved numeric ranges** (the filename prefix encodes reading order and category). New articles claim the next free number in their range: `10-19` Product & Strategy, `20-39` Architecture, `40-59` Operations, `90+` Reference. The full ranges and the rules for adding an article are in [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md).
 
 ## Where to go next
+
+| You are... | Read first |
+| --- | --- |
+| **New to Butler** | This overview, then the [Glossary](90-glossary.md). |
+| **Product / leadership** | The [Product Vision](10-product-vision.md), especially What winning looks like and What we are NOT building in v1. |
+| **Engineer / agent** | The [Architecture Overview](20-architecture-overview.md), then only the Engineering Contract clause and ticket file your work needs (see the [BRD index](../brd/index.md)). Read [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md) before you edit these docs. |
+| **Investor / partner** | The [Product Vision](10-product-vision.md): the problem, the moat, why now, and the business model, all sourced. |
 
 - To understand the product and the strategy: read the [Product Vision](10-product-vision.md). It is the centerpiece and every other article hangs off it.
 - To look up a term: the [Glossary](90-glossary.md) defines the shared vocabulary (the Hub, tap-to-claim, store connector, north star, and the rest) so no article has to re-explain them.

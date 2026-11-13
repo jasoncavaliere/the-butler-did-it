@@ -1,6 +1,8 @@
 ---
 id: ADR-0010
 title: WCAG 2.1 AA is the hard accessibility floor for every artifact
+type: Decision Record
+description: We will hold WCAG 2.1 AA as a hard floor for every design artifact.
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [accessibility, color, stack]
 supersedes: none
 superseded-by: none
 related: [ADR-0002, ADR-0003, ADR-0004, ADR-0006, ADR-0009]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0010: WCAG 2.1 AA is the hard accessibility floor for every artifact

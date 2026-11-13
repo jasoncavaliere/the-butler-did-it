@@ -13,7 +13,7 @@ Start with the **[Product Vision](Butler.KnowledgeBase/docs/10-product-vision.md
 | --- | --- | --- |
 | [`Butler.UI/`](Butler.UI/) | The hub front end | Expo (React Native + web), web-first -> Azure Static Web App, Bicep |
 | [`Butler.API/`](Butler.API/) | The backend service | .NET 10 Web API -> Azure App Service, Bicep |
-| [`Butler.KnowledgeBase/`](Butler.KnowledgeBase/) | Agent-managed wiki (canonical Markdown) | see its [README](Butler.KnowledgeBase/README.md) |
+| [`Butler.KnowledgeBase/`](Butler.KnowledgeBase/) | Agent-managed wiki (canonical Markdown) | see its [index](Butler.KnowledgeBase/index.md) |
 
 Each sub-service is independent (its own build, deploy, and `infra/`). See [`CLAUDE.md`](CLAUDE.md) for
 how to work in this repo.

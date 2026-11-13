@@ -1,6 +1,8 @@
 ---
 id: ADR-0004
 title: One warm humanist sans on a 1.25 scale with an 18px body floor
+type: Decision Record
+description: One warm humanist sans in weights 400, 600, and 700 on a 1.25-based scale with an 18px body floor, readable across a room.
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [typography, accessibility, brand]
 supersedes: none
 superseded-by: none
 related: [ADR-0001, ADR-0005, ADR-0008, ADR-0010]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0004: One warm humanist sans on a 1.25 scale with an 18px body floor

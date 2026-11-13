@@ -1,6 +1,8 @@
 ---
 id: ADR-0007
 title: Every state is first class, and offline is calm not alarming
+type: Decision Record
+description: We will design every state as a first-class, calm answer.
 status: accepted
 date: 2026-07-19
 spike: 42
@@ -8,6 +10,11 @@ tags: [state, interaction, brand]
 supersedes: none
 superseded-by: none
 related: [ADR-0001, ADR-0005, ADR-0006, ADR-0009]
+sources:
+  - { id: spike-42, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/42, title: Design spike issue 42 }
+  - { id: decision-record, resource: ../../Butler.UI/design/design-decision-record.md, title: Design decision record }
+generated: { by: claude-code/claude-opus-4-8, at: 2026-07-19T00:00:00Z }
+verified: { by: human:jasoncavaliere, at: 2026-07-19T00:00:00Z }
 ---
 
 # ADR-0007: Every state is first class, and offline is calm not alarming
