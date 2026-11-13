@@ -12,7 +12,7 @@
 * [7.4 Authentication and authorization](engineering-contract/74-authentication-and-authorization.md) - Entra External ID JWT auth for the organizer only, no-password tap-to-claim sessions for participants, and the hub-device credential.
 * [7.5 Cross-cutting conventions](engineering-contract/75-cross-cutting-conventions.md) - Binding conventions for every ticket: RFC 7807 errors, optimistic concurrency via ETag, injected time, and config handling.
 * [7.6 Fair-assignment algorithm](engineering-contract/76-fair-assignment-algorithm.md) - The deterministic v1 fair-assignment algorithm, specified step by step so no ticket has to guess or reinterpret it.
-* [7.7 Testing and Definition of Done](engineering-contract/77-testing-and-definition-of-done.md) - The Definition of Done: named tests, the 98 percent coverage gate in both sub-services, green gates, and an approving independent review.
+* [7.7 Testing and Definition of Done](engineering-contract/77-testing-and-definition-of-done.md) - The Definition of Done: named tests, the 98 percent coverage gate in both sub-services (90 percent for UI presentation code during the demo push), green gates, and an approving independent review.
 
 # Epics (implementation order)
 

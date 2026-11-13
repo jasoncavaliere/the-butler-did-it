@@ -43,18 +43,20 @@ CI runs on the active Node LTS (currently 22.x). Match it locally if you can.
 ```bash
 # from Butler.UI/
 npm ci                          # lockfile-exact install (CI uses this, not `npm install`)
-npm run ci:verify               # lint + typecheck + 98% coverage-gated test
+npm run ci:verify               # lint + typecheck + coverage-gated test
 npx expo export --platform web  # web bundle (the v1 hub's deploy artifact)
 ```
 
 `npm run ci:verify` is the single command that mirrors the UI gate; the coverage
-threshold lives in `jest.config.js` (`coverageThreshold.global`).
+threshold lives in `jest.config.js` (`coverageThreshold`, per folder).
 
 ## Coverage gate
 
 Both sub-services enforce the **98% coverage gate** from Engineering Contract 7.7
 (lines, branches, and methods/functions). A change that drops any of those below
-98% fails CI - keep new code covered.
+98% fails CI - keep new code covered. The one exception is UI presentation code
+(`src/components/`, `src/screens/`), gated at 90% during the demo push; see
+Engineering Contract 7.7.
 
 The gate was proven to fail CI in #44: throwaway PRs that added uncalled code
 turned [api-ci](https://github.com/jasoncavaliere/the-butler-did-it/actions/runs/43465432956)

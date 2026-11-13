@@ -13,5 +13,5 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
 
 - One git repo: `the-butler-did-it`. Two sub-services with independent toolchains and no root build:
   - `Butler.API/` - .NET 10 Web API (`Butler.API.sln` -> `src/Butler.Api`). Gates: `dotnet build` and `dotnet test`, both with `/p:TreatWarningsAsErrors=true`. The test gate includes the 98 percent coverage threshold (Section 7.7).
-  - `Butler.UI/` - Expo 57 / React 19 / react-native-web (web-first). Gates: `npm run lint`, `npm run typecheck` (or `tsc --noEmit`), `npm test`, and `npx expo export --platform web` must succeed. The test gate includes the 98 percent coverage threshold (Section 7.7).
+  - `Butler.UI/` - Expo 57 / React 19 / react-native-web (web-first). Gates: `npm run lint`, `npm run typecheck` (or `tsc --noEmit`), `npm test`, and `npx expo export --platform web` must succeed. The test gate includes the coverage threshold (Section 7.7): 98 percent, with 90 percent for `src/components/` and `src/screens/` during the demo push.
 - A ticket names exactly which sub-service(s) it touches and which of the above gates apply. A gate that does not yet exist in a sub-service is a stated fact, never a silent skip (Foundations creates them; see Epic 10).

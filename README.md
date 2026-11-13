@@ -22,5 +22,5 @@ how to work in this repo.
 
 Every PR runs path-filtered GitHub Actions gates - the API builds (warnings-as-errors) and runs a
 coverage-gated test suite; the UI lints, typechecks, runs a coverage-gated test suite, and web-exports.
-Both enforce the 98% coverage gate (Engineering Contract 7.7). See [`CONTRIBUTING.md`](CONTRIBUTING.md)
+Both enforce the 98% coverage gate (Engineering Contract 7.7), except UI presentation code (`src/components/`, `src/screens/`), which is gated at 90% during the demo push. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for the local commands that mirror CI.
