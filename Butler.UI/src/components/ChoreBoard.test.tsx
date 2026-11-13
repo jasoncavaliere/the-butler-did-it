@@ -5,9 +5,12 @@ import {
   CLOCK_NOTICE_AFTER,
   ChoreBoard,
   LIVE_WEEK_RETRY_DELAYS_MS,
+  applyLiveTaps,
   applyQueuedWrites,
   describeFailure,
+  pruneLiveTaps,
   type BoardItem,
+  type LiveTap,
 } from './ChoreBoard';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type {
@@ -1799,23 +1802,41 @@ describe('ChoreBoard offline write queue', () => {
    *
    * - `holdFirstOnlineGenerate` parks the first online generate until
    *   `releaseGenerate()`, so a drain can confirm before the load resolves.
+   *   `holdOnlineGenerate: n` parks the nth instead (the first is `1`); either
+   *   way the snapshot is still taken when the request is made.
    * - `holdComplete` parks the first complete until `releaseComplete()`, and the
    *   server only records it on release, so the load can resolve first.
+   * - `extra` seeds more chores, Open and assigned to p1, after c1/c4 in every
+   *   snapshot - a row the cached board never had, for a live tap to land on.
+   * - `holdLiveComplete` parks that chore's complete until
+   *   `releaseLiveComplete()`, recorded only on release (#147).
    *
    * A complete that is not held still lands a tick after it is sent (network
    * latency), so a generate sent in the same effect flush sees the pre-sync week.
    */
   function serverClient(
-    opts: { holdFirstOnlineGenerate?: boolean; holdComplete?: boolean } = {},
+    opts: {
+      holdFirstOnlineGenerate?: boolean;
+      holdOnlineGenerate?: number;
+      holdComplete?: boolean;
+      extra?: string[];
+      holdLiveComplete?: string;
+    } = {},
   ) {
+    const extra = opts.extra ?? [];
     const server = {
       offline: true,
-      status: { c1: 'Open', c4: 'Done' } as Record<string, 'Open' | 'Done'>,
+      status: {
+        c1: 'Open',
+        c4: 'Done',
+        ...Object.fromEntries(extra.map((choreId) => [choreId, 'Open'])),
+      } as Record<string, 'Open' | 'Done'>,
       onlineGenerates: 0,
     };
+    const holdGenerateAt = opts.holdOnlineGenerate ?? (opts.holdFirstOnlineGenerate ? 1 : 0);
     let releaseGenerate: () => void = () => {};
     let releaseComplete: () => void = () => {};
-    let generateHeld = false;
+    let releaseLiveComplete: () => void = () => {};
     let completeHeld = false;
 
     const snapshot = (): ApiResult<unknown> =>
@@ -1824,6 +1845,12 @@ describe('ChoreBoard offline write queue', () => {
         assignments: [
           { choreId: 'c1', assignedPersonId: 'p1', effort: 1, status: server.status.c1 },
           { choreId: 'c4', assignedPersonId: 'p1', effort: 3, status: server.status.c4 },
+          ...extra.map((choreId) => ({
+            choreId,
+            assignedPersonId: 'p1',
+            effort: 2,
+            status: server.status[choreId],
+          })),
         ],
         unassigned: [],
       });
@@ -1843,8 +1870,7 @@ describe('ChoreBoard offline write queue', () => {
         if (path.endsWith('/generate')) {
           server.onlineGenerates += 1;
           const answer = snapshot();
-          if (opts.holdFirstOnlineGenerate && !generateHeld) {
-            generateHeld = true;
+          if (server.onlineGenerates === holdGenerateAt) {
             return new Promise((resolve) => {
               releaseGenerate = () => resolve(answer);
             });
@@ -1863,6 +1889,11 @@ describe('ChoreBoard offline write queue', () => {
           server.status[choreId] = 'Done';
           return ok({ weekIso: thisWeek, choreId, assignedPersonId: 'p1', status: 'Done' });
         };
+        if (opts.holdLiveComplete !== undefined && choreId === opts.holdLiveComplete) {
+          return new Promise((resolve) => {
+            releaseLiveComplete = () => resolve(land());
+          });
+        }
         if (opts.holdComplete && !completeHeld) {
           completeHeld = true;
           return new Promise((resolve) => {
@@ -1878,6 +1909,7 @@ describe('ChoreBoard offline write queue', () => {
       server,
       releaseGenerate: () => releaseGenerate(),
       releaseComplete: () => releaseComplete(),
+      releaseLiveComplete: () => releaseLiveComplete(),
     };
   }
 
@@ -1988,6 +2020,82 @@ describe('ChoreBoard offline write queue', () => {
     expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
   });
 
+  /**
+   * Online with c2 on the live board, the drain confirmed, and the confirm
+   * refetch (the second online generate) parked with c2 still Open in its
+   * snapshot - the window a live tap can land in (#147).
+   */
+  async function liveBoardWithParkedRefetch(fake: ReturnType<typeof serverClient>) {
+    await goOnlineWithQueuedTap(fake);
+    await waitFor(() => expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen());
+    await waitFor(() => expect(fake.server.onlineGenerates).toBe(1));
+
+    await act(async () => {
+      fake.releaseComplete();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await waitFor(() => expect(fake.server.onlineGenerates).toBe(2));
+  }
+
+  it('live-tap-race: a live tap that settles while the confirm-triggered refetch is in flight still reads as done after it resolves', async () => {
+    // #147: the refetch snapshots c2 as Open, the family taps c2 on the live
+    // board and the server records it, and only then does the stale snapshot
+    // resolve. The tap never entered the queue, so the queue overlay cannot
+    // cover it, and the live board would never refetch to correct it.
+    const fake = serverClient({ holdComplete: true, holdOnlineGenerate: 2, extra: ['c2'] });
+    await liveBoardWithParkedRefetch(fake);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c2'));
+    });
+    await flush();
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+
+    await act(async () => {
+      fake.releaseGenerate();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent('✓');
+    expect(screen.getByTestId('chore-item-c2').props.accessibilityState.checked).toBe(true);
+    expect(fake.server.onlineGenerates).toBe(2);
+  });
+
+  it('live-tap-race: a live tap still in flight when the confirm-triggered refetch resolves keeps its tapped state', async () => {
+    // The other resolution order: the stale snapshot resolves while the tap's
+    // POST is still on its way, then the POST lands.
+    const fake = serverClient({
+      holdComplete: true,
+      holdOnlineGenerate: 2,
+      extra: ['c2'],
+      holdLiveComplete: 'c2',
+    });
+    await liveBoardWithParkedRefetch(fake);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c2'));
+    });
+    expect(fake.server.status.c2).toBe('Open');
+
+    await act(async () => {
+      fake.releaseGenerate();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent('✓');
+    expect(screen.getByTestId('chore-item-c2').props.accessibilityState.checked).toBe(true);
+
+    await act(async () => {
+      fake.releaseLiveComplete();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent('✓');
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(fake.server.onlineGenerates).toBe(2);
+  });
+
   it('sync-refetch: a drain that confirms nothing does not refetch', async () => {
     // A refetch per drain would double every board load (the mount drain runs on
     // an empty queue) and hammer the API while a replay keeps failing.
@@ -2075,6 +2183,74 @@ describe('applyQueuedWrites', () => {
 
   it('ignores a queued write for a chore that is not on the board', () => {
     expect(applyQueuedWrites(items, WEEK, [queued('c9', 'chore-complete')])).toEqual(items);
+  });
+});
+
+describe('applyLiveTaps', () => {
+  const items: BoardItem[] = [
+    { choreId: 'c1', title: 'Dishes', cadence: 'Daily', assignedPersonId: 'p1', status: 'Open' },
+    { choreId: 'c2', title: 'Vacuum', cadence: 'Weekly', assignedPersonId: 'p2', status: 'Done' },
+  ];
+
+  const taps = (...entries: [string, LiveTap, string?][]) =>
+    new Map(entries.map(([choreId, tap, week = WEEK]) => [assignmentDedupeKey(week, choreId), tap]));
+
+  it('returns the loaded week untouched when no live tap is remembered', () => {
+    expect(applyLiveTaps(items, WEEK, new Map())).toBe(items);
+  });
+
+  it('shows an in-flight and a settled tap over the loaded status, in either direction', () => {
+    const overlaid = applyLiveTaps(
+      items,
+      WEEK,
+      taps(['c1', { status: 'Done', settledAtLoad: null }], ['c2', { status: 'Open', settledAtLoad: 3 }]),
+    );
+
+    expect(overlaid.map((item) => item.status)).toEqual(['Done', 'Open']);
+  });
+
+  it('ignores a tap made against a different week', () => {
+    expect(
+      applyLiveTaps(items, WEEK, taps(['c1', { status: 'Done', settledAtLoad: null }, '2019-W01'])),
+    ).toEqual(items);
+  });
+
+  it('ignores a tap on a chore that is not on the board', () => {
+    expect(applyLiveTaps(items, WEEK, taps(['c9', { status: 'Done', settledAtLoad: 1 }]))).toEqual(
+      items,
+    );
+  });
+});
+
+describe('pruneLiveTaps', () => {
+  const remembered = (): Map<string, LiveTap> =>
+    new Map<string, LiveTap>([
+      ['in-flight', { status: 'Done', settledAtLoad: null }],
+      ['before', { status: 'Done', settledAtLoad: 4 }],
+      ['during', { status: 'Open', settledAtLoad: 5 }],
+      ['later', { status: 'Done', settledAtLoad: 6 }],
+    ]);
+
+  it('forgets only the taps that settled before the load started', () => {
+    // A tap that settled during load 5 (settledAtLoad 5) may be missing from
+    // load 5's snapshot, so only the one that settled before it is dropped.
+    expect(Array.from(pruneLiveTaps(remembered(), 5).keys())).toEqual([
+      'in-flight',
+      'during',
+      'later',
+    ]);
+  });
+
+  it('keeps a tap that is still in flight however many loads have landed', () => {
+    expect(Array.from(pruneLiveTaps(remembered(), 100).keys())).toEqual(['in-flight']);
+  });
+
+  it('returns a new map and leaves its input unchanged', () => {
+    const input = remembered();
+    const pruned = pruneLiveTaps(input, 5);
+
+    expect(pruned).not.toBe(input);
+    expect(input.size).toBe(4);
   });
 });
 
