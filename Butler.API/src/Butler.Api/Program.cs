@@ -2,6 +2,7 @@ using Butler.Api.Application.Assignments;
 using Butler.Api.Application.Capture;
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Chores;
+using Butler.Api.Application.Demo;
 using Butler.Api.Application.Fairness;
 using Butler.Api.Application.Grocery;
 using Butler.Api.Application.Households;
@@ -14,7 +15,10 @@ using Butler.Api.Infrastructure.Hosting;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Mediation;
 
-var builder = WebApplication.CreateBuilder(args);
+// `--seed-demo` is rewritten to `--Demo:SeedOnStartup=true` before the
+// command-line configuration provider sees it (a bare switch would swallow the
+// next argument as its value).
+var builder = WebApplication.CreateBuilder(DemoCommandLine.Normalize(args));
 
 // --- Composition root ----------------------------------------------------
 // Program.cs wires each feature via its Add<Feature>Feature() extension. To add
@@ -56,6 +60,8 @@ builder.Services.AddFairnessFeature();
 builder.Services.AddStoreConnectorFeature();
 builder.Services.AddCartsFeature();
 builder.Services.AddCaptureFeature();
+// Demo seeder (#97): Development and Demo only; composes the features above.
+builder.Services.AddDemoFeature();
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();
@@ -108,6 +114,9 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
     .WithTags("System");
 
 app.MapControllers();
+
+// `--seed-demo` / Demo__SeedOnStartup=true: seed the demo household, then serve.
+await app.SeedDemoIfRequestedAsync();
 
 app.Run();
 

@@ -16,6 +16,12 @@ internal static class SmokeCategories
     /// <summary>Mutating round trips through the storage seam; Azurite only.</summary>
     public const string Storage = "Storage";
 
+    /// <summary>
+    /// Seeds the demo household through a running API (Development or Demo) backed
+    /// by Azurite; mutating, so never point it at a deployed environment.
+    /// </summary>
+    public const string Demo = "Demo";
+
     /// <summary>Offline checks of how the suite resolves its own settings.</summary>
     public const string Settings = "Settings";
 }

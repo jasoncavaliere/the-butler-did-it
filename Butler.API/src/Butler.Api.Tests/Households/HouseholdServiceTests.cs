@@ -127,6 +127,85 @@ public sealed class HouseholdServiceTests
     }
 
     [Fact]
+    public async Task CreateWithIdAsync_uses_the_supplied_id_and_seeds_the_organizer()
+    {
+        var households = Substitute.For<IHouseholdRepository>();
+        var people = Substitute.For<IEntityRepository<PersonEntity>>();
+
+        HouseholdEntity? addedHousehold = null;
+        households
+            .When(r => r.AddAsync(Arg.Any<HouseholdEntity>(), Arg.Any<CancellationToken>()))
+            .Do(ci => addedHousehold = ci.Arg<HouseholdEntity>());
+        households
+            .GetAsync("demo-household", Arg.Any<CancellationToken>())
+            .Returns(_ => addedHousehold);
+
+        string? personHousehold = null;
+        PersonEntity? addedPerson = null;
+        people
+            .When(r => r.AddAsync(Arg.Any<string>(), Arg.Any<PersonEntity>(), Arg.Any<CancellationToken>()))
+            .Do(ci =>
+            {
+                personHousehold = ci.Arg<string>();
+                addedPerson = ci.Arg<PersonEntity>();
+            });
+
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(FixedNow);
+
+        var service = new HouseholdService(households, people, clock);
+
+        var result = await service.CreateWithIdAsync(
+            "demo-household", "The Parker Household", "org-object-id", "Organizer Name", CancellationToken.None);
+
+        Assert.Equal("demo-household", result.HouseholdId);
+        Assert.Equal("demo-household", addedHousehold!.PartitionKey);
+        Assert.Equal("demo-household", addedHousehold.RowKey);
+        Assert.Equal("demo-household", personHousehold);
+        Assert.Equal(OrganizerAuthorization.OrganizerRole, addedPerson!.Role);
+        Assert.Equal("org-object-id", addedPerson.OrganizerObjectId);
+        Assert.Equal("Organizer Name", addedPerson.DisplayName);
+        Assert.NotEqual("demo-household", addedPerson.RowKey);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task CreateWithIdAsync_rejects_a_blank_id(string householdId)
+    {
+        var households = Substitute.For<IHouseholdRepository>();
+        var service = new HouseholdService(households, Substitute.For<IEntityRepository<PersonEntity>>(), TimeProvider.System);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.CreateWithIdAsync(householdId, "House", "org-object-id", null, CancellationToken.None));
+        Assert.Empty(households.ReceivedCalls());
+    }
+
+    [Fact]
+    public async Task CreateAsync_still_generates_an_id()
+    {
+        var households = Substitute.For<IHouseholdRepository>();
+        var people = Substitute.For<IEntityRepository<PersonEntity>>();
+        var ids = new List<string>();
+        households
+            .When(r => r.AddAsync(Arg.Any<HouseholdEntity>(), Arg.Any<CancellationToken>()))
+            .Do(ci => ids.Add(ci.Arg<HouseholdEntity>().RowKey));
+        households
+            .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new HouseholdEntity { RowKey = ci.Arg<string>() });
+
+        var service = new HouseholdService(households, people, TimeProvider.System);
+
+        var first = await service.CreateAsync("House", "org-object-id", null, CancellationToken.None);
+        var second = await service.CreateAsync("House", "org-object-id", null, CancellationToken.None);
+
+        Assert.Equal(2, ids.Count);
+        Assert.All(ids, id => Assert.Equal(32, id.Length));
+        Assert.NotEqual(first.HouseholdId, second.HouseholdId);
+        Assert.Equal(ids, [first.HouseholdId, second.HouseholdId]);
+    }
+
+    [Fact]
     public async Task GetAsync_returns_null_when_the_household_does_not_exist()
     {
         var households = Substitute.For<IHouseholdRepository>();

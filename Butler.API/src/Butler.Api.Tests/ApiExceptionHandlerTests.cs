@@ -73,6 +73,18 @@ public sealed class ApiExceptionHandlerTests : IClassFixture<ButlerApiFactory>
         await AssertProblemDetailsAsync(response, expectedStatus: 412, expectedTitle: "The resource was modified by another request.");
     }
 
+    [Fact]
+    public async Task Demo_seeding_not_allowed_maps_to_404_problem_details()
+    {
+        using var client = _factory.CreateClient();
+
+        using var response = await client.GetAsync(new Uri("/test/demo-seeding-not-allowed", UriKind.Relative));
+
+        // 404, not 403: outside Development and Demo the seeder looks absent.
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await AssertProblemDetailsAsync(response, expectedStatus: 404, expectedTitle: "Demo seeding is not available in this environment.");
+    }
+
     private static async Task AssertProblemDetailsAsync(
         HttpResponseMessage response,
         int expectedStatus,
