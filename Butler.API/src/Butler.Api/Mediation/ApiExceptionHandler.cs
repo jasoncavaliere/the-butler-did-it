@@ -1,5 +1,6 @@
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Concurrency;
+using Butler.Api.Application.Demo;
 using Butler.Api.Application.People;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
@@ -74,6 +75,10 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
         // A household must always retain at least one organizer (issue #12).
         LastOrganizerException
             => (StatusCodes.Status400BadRequest, "A household must retain an organizer."),
+        // The demo seeder only exists in Development and Demo; elsewhere it looks
+        // absent (404), not forbidden (#97, #106).
+        DemoSeedingNotAllowedException
+            => (StatusCodes.Status404NotFound, "Demo seeding is not available in this environment."),
         DataAnnotationsValidationException => (StatusCodes.Status400BadRequest, "Validation failed."),
         // Validators that ship with later features (for example FluentValidation)
         // are surfaced by matching on the type name, so this handler does not

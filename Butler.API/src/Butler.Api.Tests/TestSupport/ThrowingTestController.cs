@@ -1,4 +1,5 @@
 using Butler.Api.Application.Concurrency;
+using Butler.Api.Application.Demo;
 using Microsoft.AspNetCore.Mvc;
 using DataAnnotationsValidationException = System.ComponentModel.DataAnnotations.ValidationException;
 
@@ -50,4 +51,12 @@ public sealed class ThrowingTestController : ControllerBase
     [HttpGet("/test/precondition-failed")]
     public IActionResult PreconditionFailed() =>
         throw new PreconditionFailedException();
+
+    /// <summary>
+    /// Throws <see cref="DemoSeedingNotAllowedException"/>, which the handler maps
+    /// to <c>404</c> (the demo seeder asked to run outside Development and Demo).
+    /// </summary>
+    [HttpGet("/test/demo-seeding-not-allowed")]
+    public IActionResult DemoSeedingNotAllowed() =>
+        throw DemoSeedingNotAllowedException.ForEnvironment("Production");
 }

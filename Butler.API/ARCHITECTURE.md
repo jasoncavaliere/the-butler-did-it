@@ -287,3 +287,43 @@ view (C6, above); Epic 50 groceries has its store-connector seam (G1), its weekl
 seam (G3), and its organizer-gated confirm (G4, above) - so the API side of "add oat milk -> review ->
 confirm" is complete end to end against the simulated connector, with the hub screen for it (G5) still to
 come - and calendar has not been built yet.
+
+### Demo seeder (sample household)
+
+`Demo` (`Application/Demo/`, `Infrastructure/Demo/`, `Controllers/DemoController`) seeds one demo
+household for a live demo (#97). The script is static data in `DemoHousehold`; `DemoSeeder` turns it
+into rows. The household always lives at the fixed id `demo-household`
+(`IHouseholdService.CreateWithIdAsync`, which `CreateAsync` now delegates to with a generated id).
+
+The seed runs in this order:
+
+1. Refuse with `DemoSeedingNotAllowedException` unless the host is Development or Demo, before any
+   I/O. `ApiExceptionHandler` maps it to `404`, so the endpoint looks absent rather than forbidden.
+2. Read the injected clock once. Its ISO week is the current week; the three weeks before it hold
+   the history.
+3. Purge the old household (`IDemoHouseholdPurger`), then create the household, rooms, people and
+   chores through `IHouseholdService`, `IRoomService`, `IPersonService` and `IChoreService`. All four
+   family members are participants; the organizer is the hidden roster row the household creates,
+   because organizers never get chores and never count in fairness. That row carries the caller's
+   object id so the caller can confirm the demo cart.
+4. Write the history straight to `IChoreCompletionRepository`, because `ChoreCompletionService`
+   stamps "now" and history must be back-dated. Each row is `StartOfWeekUtc(week)` plus a day per
+   chore plus 18 hours, with the usual `{ticks}_{choreId}` row key. The history goes in before the
+   current week is generated, so the engine's trailing loads include it.
+5. Generate the current week through `IAssignmentGenerationService`, then complete three chores
+   through `IChoreCompletionService` as whoever the engine assigned.
+6. Add four exact catalog names to the cart through `ICaptureHandler`. Anything but `Added` throws.
+
+**Replace, and the R-2 exception.** `DemoHouseholdPurger` lists and deletes the household's partition
+(wildcard `If-Match`) in eight tables through the shared `IEntityRepository<T>` seam: Households,
+People, Rooms, Chores, Assignments, ChoreCompletions, Carts and CartItems. Deleting completions breaks
+the append-only ledger rule (BRD R-2) on purpose; it is a demo-only exception, and the services cannot
+do this wipe anyway (the last organizer cannot be removed, chores only deactivate, and the ledger has
+no delete). `HubDevices` is not purged, so a paired tablet survives a re-seed.
+
+**Triggers.** `POST /demo/seed` (organizer-only) sends `SeedDemoHouseholdCommand`. For start-up,
+`DemoCommandLine.Normalize` rewrites `--seed-demo` to `--Demo:SeedOnStartup=true` before
+`WebApplication.CreateBuilder`, because the command-line provider would otherwise read the next
+argument as the switch's value. `app.SeedDemoIfRequestedAsync()` runs just before `app.Run()` and
+seeds as the dev organizer when `Demo:SeedOnStartup` is true. `DemoClockGuardTests` scans the
+feature's IL for direct `DateTime.Now` / `UtcNow` reads.

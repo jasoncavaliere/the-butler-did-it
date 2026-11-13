@@ -33,16 +33,25 @@ public sealed class HouseholdService : IHouseholdService
     }
 
     /// <inheritdoc />
-    public async Task<HouseholdResponse> CreateAsync(
+    public Task<HouseholdResponse> CreateAsync(
+        string name,
+        string organizerObjectId,
+        string? organizerDisplayName,
+        CancellationToken cancellationToken = default) =>
+        CreateWithIdAsync(NewId(), name, organizerObjectId, organizerDisplayName, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<HouseholdResponse> CreateWithIdAsync(
+        string householdId,
         string name,
         string organizerObjectId,
         string? organizerDisplayName,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(organizerObjectId);
 
-        var householdId = NewId();
         var household = new HouseholdEntity
         {
             PartitionKey = householdId,

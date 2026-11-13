@@ -123,6 +123,38 @@ dotnet test src/Butler.Api.ContainerTests
 Each run builds a uniquely tagged image, runs it on a free loopback port with no storage settings
 (in-memory store), and removes the container and image afterwards.
 
+## Demo data
+
+The demo seeder fills one household, `The Parker Household`, with believable data for a demo: six
+rooms, four family members (Maria and Dan, adults; Ava and Leo, children), fifteen chores with
+cadences and effort, three weeks of completion history that gets fairer week over week, this week's
+assignments (three already done), and a four-item grocery cart. It writes through the same
+application services the API uses.
+
+There are two ways to run it, both **Development and Demo only**:
+
+```bash
+# from Butler.API/ - seed on startup, then keep serving
+dotnet run --project src/Butler.Api -- --seed-demo --urls http://localhost:5108
+
+# or ask a running API (organizer only; the dev bypass counts in Development and Demo)
+curl -X POST http://localhost:5108/demo/seed
+```
+
+- `--seed-demo` is the same as setting `Demo__SeedOnStartup=true` (handy for a container). The
+  household is seeded as the dev organizer just before the app starts serving, and the id is logged.
+- `POST /demo/seed` returns `200` with a summary: `householdId`, `currentWeekIso`, the history weeks,
+  and the room, person, chore, completion, assignment, and cart-item counts. A non-organizer gets
+  `403`. The caller becomes the household's hidden organizer, so they can confirm the demo cart.
+- The household id is always `demo-household`.
+- **Running it again replaces the household.** Every row the household owns is deleted first
+  (household, people, rooms, chores, assignments, completions, carts, cart items), then it is seeded
+  again, so there are never duplicates. Paired hub devices are kept, so a tablet stays paired.
+- All dates come from the clock: the current ISO week gets the assignments, and the three weeks
+  before it get the history.
+- Outside Development and Demo the seeder refuses: `POST /demo/seed` is a `404`, and `--seed-demo`
+  stops the host from starting.
+
 ## Smoke tests
 
 `src/Butler.Api.SmokeTests` is a separate xUnit suite that checks a **running** API end to end,
@@ -187,6 +219,7 @@ dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
 | --- | --- | --- | --- |
 | `Liveness` | `GET /health` returns `200 {"status":"ok"}`; `GET /api/system/ping` returns `200` with `status`, `service` (`Butler.API`), and `timestampUtc`. | A running API at the base URL | Yes - read-only |
 | `Storage` | Create, read, then update with `If-Match` through `IEntityRepository<T>`; a missing `If-Match` is rejected (`428`) and a stale ETag is rejected (`412`); the seam resolves the Table-backed repository, not the in-memory fallback. Each test creates and drops its own `Smoke<guid>` table. | Azurite | No - writes data; Azurite only |
+| `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. Creates the API's tables first if they are missing. | A running API (Development or Demo) and Azurite | No - replaces the demo household; Azurite only |
 | `Settings` | How the suite resolves the variables above. | Nothing | Yes - offline |
 
 In CI, the `smoke (booted API + Azurite)` job in `.github/workflows/api-ci.yml` starts Azurite, boots
@@ -272,4 +305,4 @@ az deployment group create \
 
 ## Architecture notes
 
-Layered + MediatR: `Program.cs` composition root -> `Controllers/` (thin) -> `Application/<Feature>/` (command/query + handler + service + `Add<Feature>Feature()`) -> `Infrastructure/<Feature>/` (Table Storage repository). Per-feature notes (Households, Rooms, People, Chores, Assignments, Fairness, Grocery, Carts, Capture) are in [ARCHITECTURE.md](ARCHITECTURE.md).
+Layered + MediatR: `Program.cs` composition root -> `Controllers/` (thin) -> `Application/<Feature>/` (command/query + handler + service + `Add<Feature>Feature()`) -> `Infrastructure/<Feature>/` (Table Storage repository). Per-feature notes (Households, Rooms, People, Chores, Assignments, Fairness, Grocery, Carts, Capture, Demo seeder) are in [ARCHITECTURE.md](ARCHITECTURE.md).
