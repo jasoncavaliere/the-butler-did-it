@@ -26,7 +26,7 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 
 ## How this knowledge base is organized
 
-The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [index](../index.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - four articles, with the first Architecture spoke now in place - and it keeps growing along the reserved ranges below.
+The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [index](../index.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - five articles, with the first Architecture spoke now in place - and it keeps growing along the reserved ranges below.
 
 **The five categories (fixed):**
 
@@ -45,7 +45,7 @@ The docs are a **knowledge graph**, not a folder of files. Each article is a nod
 | You are... | Read first |
 | --- | --- |
 | **New to Butler** | This overview, then the [Glossary](90-glossary.md). |
-| **Product / leadership** | The [Product Vision](10-product-vision.md), especially What winning looks like and What we are NOT building in v1. |
+| **Product / leadership** | The [Product Vision](10-product-vision.md), especially What winning looks like and What we are NOT building in v1. For the hub hardware question, the [Hub Hardware Findings](11-hub-hardware-findings.md). |
 | **Engineer / agent** | The [Architecture Overview](20-architecture-overview.md), then only the Engineering Contract clause and ticket file your work needs (see the [BRD index](../brd/index.md)). Read [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md) before you edit these docs. Check the [decision log](../adr/README.md) before proposing design work. |
 | **Investor / partner** | The [Product Vision](10-product-vision.md): the problem, the moat, why now, and the business model, all sourced. |
 
