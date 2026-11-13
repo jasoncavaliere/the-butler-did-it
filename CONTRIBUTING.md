@@ -55,3 +55,9 @@ threshold lives in `jest.config.js` (`coverageThreshold.global`).
 Both sub-services enforce the **98% coverage gate** from Engineering Contract 7.7
 (lines, branches, and methods/functions). A change that drops any of those below
 98% fails CI - keep new code covered.
+
+The gate was proven to fail CI in #44: throwaway PRs that added uncalled code
+turned [api-ci](https://github.com/jasoncavaliere/the-butler-did-it/actions/runs/43465432956)
+and [ui-ci](https://github.com/jasoncavaliere/the-butler-did-it/actions/runs/43465444008)
+red on the coverage step while every test still passed. Both PRs were closed
+unmerged.
