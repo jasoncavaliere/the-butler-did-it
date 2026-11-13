@@ -6,15 +6,20 @@
  * `Butler.Api.Domain.Scheduling.WeekIso`). The hub normally never computes one -
  * it reads the week off the C3 assignment set and echoes it back on a write.
  *
- * Offline it has to, for exactly one reason. A board served from the O2 read
- * cache carries the *cached* `weekIso`, and the API resolves a completion by
- * `(householdId, weekIso, choreId)` with no current-week check. If an outage
- * spans a week boundary, a tap on that cached row would queue - and then
- * successfully replay - a completion into last week: last week's chore goes
- * `Done` while this week's stays `Open`, silently. So before the queue will
- * accept a write from a cached board, the board's week is checked against this
- * helper, and a cached board whose week has rolled over stays the read-only
- * display O2 made it.
+ * It has to, for exactly one reason. Any board carries the `weekIso` it was
+ * loaded with - a cached one the *cached* week, a live one the week the server
+ * named at load time - and the API resolves a completion by
+ * `(householdId, weekIso, choreId)` with no current-week check. The wall tablet
+ * is never reloaded, so a board can easily outlive its week, whether it came
+ * from the O2 read cache after an outage or straight from the API on Sunday
+ * night. A tap on such a row would write - or queue, and then successfully
+ * replay - a completion into last week: last week's chore goes `Done` while
+ * this week's stays `Open`, silently. So the board's week is checked against
+ * this helper before any write is taken (#89), a board whose week has rolled
+ * over is a read-only display until it reloads, and a queued write whose week
+ * ended before it could sync is flagged rather than replayed at drain time.
+ * {@link msUntilNextWeekIso} tells the board when that boundary is, so it can
+ * redraw (and reload) at the moment the week turns rather than at the next tap.
  *
  * It mirrors the API's semantics deliberately, because the two values are
  * compared for equality:
@@ -76,11 +81,29 @@ export function currentWeekIso(now: Date = new Date()): string {
 }
 
 /**
- * Whether `weekIso` is still the week the hub is in. This is the guard on an
- * offline write taken from a cached board: `true` means a queued completion will
- * replay into the week it was meant for, `false` means the outage outlived the
- * week and the board must not be a control at all.
+ * Whether `weekIso` is still the week the hub is in. This is the guard on every
+ * write taken from a board, live or cached, and on every queued assignment write
+ * at the moment it is replayed: `true` means the completion lands in the week it
+ * was meant for, `false` means the board (or the outage) outlived the week and
+ * the write must not reach the API at all.
  */
 export function isCurrentWeek(weekIso: string, now: Date = new Date()): boolean {
   return weekIso === currentWeekIso(now);
+}
+
+/**
+ * Milliseconds from `now` until the next ISO week starts - the next Monday at
+ * 00:00:00.000 UTC, the same instant the API's week flips.
+ *
+ * A board uses it to arm a single timer for the boundary, so a wall hub that is
+ * never reloaded still notices the week turning without polling the clock. At
+ * exactly Monday midnight it answers a whole week, never 0: that instant is
+ * already the new week, and a zero delay would fire the timer in a tight loop.
+ */
+export function msUntilNextWeekIso(now: Date = new Date()): number {
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  // `getUTCDay()` is Sunday-first (0..6); ISO counts Monday..Sunday as 1..7, so
+  // the next Monday is 8 - isoDay days after today's midnight (7 on a Monday).
+  const isoDay = now.getUTCDay() || 7;
+  return midnight + (8 - isoDay) * MS_PER_DAY - now.getTime();
 }

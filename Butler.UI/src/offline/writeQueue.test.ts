@@ -1,11 +1,14 @@
 import type { ApiResult } from '../api/client';
 import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
+import { currentWeekIso } from './weekIso';
 import {
   MAX_WRITE_ATTEMPTS,
   OFFLINE_RETRY_MS,
   RETRY_MAX_MS,
+  STALE_WEEK_ERROR,
   WRITE_QUEUE_PREFIX,
   assignmentDedupeKey,
+  assignmentWeekIso,
   backoffDelayMs,
   countFailed,
   countPending,
@@ -18,7 +21,9 @@ import {
   type WriteRequest,
 } from './writeQueue';
 
-const WEEK = '2026-W29';
+// The week the hub is actually in: the drain refuses to replay a write whose
+// week has ended (#89), so a fixed week would flag every fixture write stale.
+const WEEK = currentWeekIso();
 
 /** An in-memory stand-in for Web Storage, with the raw map exposed to assert on. */
 function fakeStorage(seed: Record<string, string> = {}): LocalStorageLike & {
@@ -119,6 +124,22 @@ describe('assignmentDedupeKey', () => {
     // The week is part of the identity, so the same chore in a different week is
     // a different write - which is what the stale-week guard depends on.
     expect(assignmentDedupeKey('2026-W28', 'c1')).not.toBe(assignmentDedupeKey(WEEK, 'c1'));
+  });
+});
+
+describe('assignmentWeekIso', () => {
+  it('reads the week back out of an assignment key', () => {
+    expect(assignmentWeekIso(assignmentDedupeKey('2026-W29', 'c1'))).toBe('2026-W29');
+    expect(assignmentWeekIso(assignmentDedupeKey('2020-W53', 'chore|with|pipes'))).toBe('2020-W53');
+  });
+
+  it.each([
+    ['a cart add, which is not bucketed by week', 'cart|2026-W29|oat-milk'],
+    ['an assignment key with no week segment', 'assignment||c1'],
+    ['an assignment key with no chore segment', 'assignment|2026-W29'],
+    ['a key that only contains the prefix later on', 'x-assignment|2026-W29|c1'],
+  ])('answers null for %s', (_label, key) => {
+    expect(assignmentWeekIso(key)).toBeNull();
   });
 });
 
@@ -624,6 +645,129 @@ describe('drainWriteQueue', () => {
     expect(paths).toEqual([completion('c2').path]);
     expect(outcome.retryDelayMs).toBeNull();
     expect(readWriteQueue('hh-1', storage).map((entry) => entry.status)).toEqual(['failed']);
+  });
+
+  describe('a write whose week has ended (#89)', () => {
+    // The clock the drain runs against: Monday of 2026-W30, so anything queued
+    // for 2026-W29 was tapped on a board that has since rolled over.
+    const MONDAY = () => new Date('2026-07-20T00:00:30.000Z');
+    const ENDED = '2026-W29';
+    const CURRENT = '2026-W30';
+
+    const write = (week: string, choreId: string, kind: 'chore-complete' | 'chore-undo' = 'chore-complete'): WriteRequest => ({
+      kind,
+      dedupeKey: assignmentDedupeKey(week, choreId),
+      method: 'POST',
+      path: `/households/hh-1/assignments/${week}/${choreId}/${kind === 'chore-complete' ? 'complete' : 'undo'}`,
+      body: { personId: 'p1' },
+    });
+
+    it('stale-week-drain: a queued completion whose week has ended is flagged, not replayed', async () => {
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', write(ENDED, 'c1'), storage, 1);
+      const { send } = recordingSend([confirmed]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage, MONDAY);
+
+      // Never sent: the API would resolve it by the week it names and mark last
+      // week's chore done.
+      expect(send).not.toHaveBeenCalled();
+      expect(outcome).toMatchObject({ confirmed: 0, retryDelayMs: null, offline: false });
+      // Flagged and kept - never silently dropped - with no retry spent on it,
+      // because the API never answered it.
+      expect(readWriteQueue('hh-1', storage)).toEqual([
+        expect.objectContaining({
+          dedupeKey: assignmentDedupeKey(ENDED, 'c1'),
+          status: 'failed',
+          attempts: 0,
+          lastError: STALE_WEEK_ERROR,
+        }),
+      ]);
+      expect(outcome.queue).toEqual(readWriteQueue('hh-1', storage));
+
+      // ...and it stays put on every later pass.
+      await drainWriteQueue('hh-1', send, storage, MONDAY);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('an undo for an ended week is not replayed either', async () => {
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', write(ENDED, 'c4', 'chore-undo'), storage, 1);
+      const { send } = recordingSend([confirmed]);
+
+      await drainWriteQueue('hh-1', send, storage, MONDAY);
+
+      expect(send).not.toHaveBeenCalled();
+      expect(readWriteQueue('hh-1', storage)[0]).toMatchObject({ kind: 'chore-undo', status: 'failed' });
+    });
+
+    it('steps over the stale write and still replays current-week writes behind it, in order', async () => {
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', write(CURRENT, 'c2'), storage, 1);
+      enqueueWrite('hh-1', write(ENDED, 'c1'), storage, 2);
+      enqueueWrite('hh-1', write(CURRENT, 'c3'), storage, 3);
+      const { send, paths } = recordingSend([confirmed]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage, MONDAY);
+
+      expect(paths).toEqual([write(CURRENT, 'c2').path, write(CURRENT, 'c3').path]);
+      expect(outcome.confirmed).toBe(2);
+      expect(readWriteQueue('hh-1', storage).map((entry) => [entry.dedupeKey, entry.status])).toEqual([
+        [assignmentDedupeKey(ENDED, 'c1'), 'failed'],
+      ]);
+    });
+
+    it('judges the week at the moment of each send, not once per pass', async () => {
+      // A drain can itself straddle the boundary: the first write goes out on
+      // Sunday night, and by the time the second is due the week has turned.
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', write(ENDED, 'c1'), storage, 1);
+      enqueueWrite('hh-1', write(ENDED, 'c2'), storage, 2);
+      const clock = [new Date('2026-07-19T23:59:59.000Z'), new Date('2026-07-20T00:00:01.000Z')];
+      let reads = 0;
+      const { send, paths } = recordingSend([confirmed]);
+
+      await drainWriteQueue('hh-1', send, storage, () => clock[Math.min(reads++, clock.length - 1)]);
+
+      expect(paths).toEqual([write(ENDED, 'c1').path]);
+      expect(readWriteQueue('hh-1', storage)).toEqual([
+        expect.objectContaining({ dedupeKey: assignmentDedupeKey(ENDED, 'c2'), status: 'failed' }),
+      ]);
+    });
+
+    it('a cart add is still replayed: it is not bucketed by week', async () => {
+      const storage = fakeStorage();
+      enqueueWrite(
+        'hh-1',
+        {
+          kind: 'cart-add',
+          dedupeKey: 'cart|2019-W01|oat-milk',
+          method: 'POST',
+          path: '/households/hh-1/carts/items',
+          body: { sku: 'oat-milk' },
+        },
+        storage,
+        1,
+      );
+      const { send, paths } = recordingSend([confirmed]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage, MONDAY);
+
+      expect(paths).toEqual(['/households/hh-1/carts/items']);
+      expect(outcome.confirmed).toBe(1);
+    });
+
+    it('a fresh tap in the current week is unaffected by the guard', async () => {
+      // The default clock is the real one, and WEEK is the real current week.
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', completion('c1'), storage, 1);
+      const { send } = recordingSend([confirmed]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage);
+
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(outcome.confirmed).toBe(1);
+    });
   });
 
   it('an empty queue is a no-op that asks for no retry', async () => {

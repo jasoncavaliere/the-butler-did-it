@@ -1,6 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 
-import { ChoreBoard, applyQueuedWrites, describeFailure, type BoardItem } from './ChoreBoard';
+import {
+  CLOCK_NOTICE_AFTER,
+  ChoreBoard,
+  LIVE_WEEK_RETRY_DELAYS_MS,
+  applyQueuedWrites,
+  describeFailure,
+  type BoardItem,
+} from './ChoreBoard';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type {
   AssignmentView,
@@ -12,6 +19,7 @@ import { readGlance, writeGlance, type GlanceStorage } from '../offline/glanceCa
 import { currentWeekIso } from '../offline/weekIso';
 import {
   MAX_WRITE_ATTEMPTS,
+  STALE_WEEK_ERROR,
   assignmentDedupeKey,
   readWriteQueue,
   saveWriteQueue,
@@ -21,7 +29,11 @@ jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
 const useApiClientMock = useApiClient as jest.MockedFunction<typeof useApiClient>;
 
-const WEEK = '2026-W29';
+// The week the hub is actually in. A live board whose week has rolled over is
+// read-only (#89), so a fixed week here would turn every tap test red the day
+// the calendar moved past it; the boundary itself is pinned with fake timers in
+// its own block below.
+const WEEK = currentWeekIso();
 
 const roster: RosterEntryResponse[] = [
   { personId: 'p1', displayName: 'Alex', claimColor: '#B0206F', isChild: false },
@@ -245,7 +257,7 @@ describe('ChoreBoard', () => {
     // The C4 endpoint was called for this week + chore, attributed to the active
     // participant.
     expect(client.update).toHaveBeenCalledWith(
-      '/households/hh-1/assignments/2026-W29/c1/complete',
+      `/households/hh-1/assignments/${WEEK}/c1/complete`,
       { personId: 'p1' },
       { method: 'POST' },
     );
@@ -378,7 +390,7 @@ describe('ChoreBoard', () => {
     ).length;
     expect(completesAfter).toBe(completesBefore);
     expect(client.update).toHaveBeenCalledWith(
-      '/households/hh-1/assignments/2026-W29/c1/undo',
+      `/households/hh-1/assignments/${WEEK}/c1/undo`,
       { personId: 'p1' },
       { method: 'POST' },
     );
@@ -400,12 +412,12 @@ describe('ChoreBoard', () => {
     // The undo endpoint was called for this week + chore, attributed to the active
     // participant - never the complete endpoint.
     expect(client.update).toHaveBeenCalledWith(
-      '/households/hh-1/assignments/2026-W29/c4/undo',
+      `/households/hh-1/assignments/${WEEK}/c4/undo`,
       { personId: 'p1' },
       { method: 'POST' },
     );
     expect(client.update).not.toHaveBeenCalledWith(
-      '/households/hh-1/assignments/2026-W29/c4/complete',
+      `/households/hh-1/assignments/${WEEK}/c4/complete`,
       expect.anything(),
       expect.anything(),
     );
@@ -1014,6 +1026,398 @@ describe('ChoreBoard cached board across a week boundary', () => {
     // A healthy board subscribes to nothing, so a stray reconnect cannot start a
     // refetch storm on the wall.
     expect((client.update as jest.Mock).mock.calls.length).toBe(readsBefore);
+  });
+});
+
+/**
+ * #89: a board loaded *live* outlives its week just as easily as a cached one -
+ * the wall tablet is loaded on Sunday night and tapped on Monday morning, and
+ * nobody reloads it in between. Its rows still carry the week the server named at
+ * load time, and the API resolves a completion by that week with no current-week
+ * check, so the guard has to hold for a live board too.
+ *
+ * The clock is pinned to one minute before the 2026-W29 -> 2026-W30 boundary
+ * (Sunday 2026-07-19 23:59 UTC) and the board is handed 2026-W29 explicitly, so
+ * these cases do not depend on the real calendar the way the module `WEEK` does.
+ */
+describe('ChoreBoard live board across a week boundary (#89)', () => {
+  let restore: (() => void)[] = [];
+
+  const SUNDAY_NIGHT = new Date('2026-07-19T23:59:00.000Z');
+  const MONDAY_MORNING = new Date('2026-07-20T00:00:30.000Z');
+  const ENDED = '2026-W29';
+  const NEXT = '2026-W30';
+
+  function installStorage(): void {
+    const map = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (key: string) => map.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          map.set(key, value);
+        },
+      } satisfies GlanceStorage,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  /** See the sibling blocks: stands in for the browser's `online` event. */
+  function installReconnect(): () => void {
+    const listeners = new Set<() => void>();
+    const original = {
+      add: (globalThis as { addEventListener?: unknown }).addEventListener,
+      remove: (globalThis as { removeEventListener?: unknown }).removeEventListener,
+    };
+    const define = (name: string, value: unknown) =>
+      Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+
+    define('addEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.add(listener);
+      }
+    });
+    define('removeEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.delete(listener);
+      }
+    });
+    restore.push(() => {
+      define('addEventListener', original.add);
+      define('removeEventListener', original.remove);
+    });
+
+    return () => {
+      for (const listener of Array.from(listeners)) {
+        listener();
+      }
+    };
+  }
+
+  beforeEach(() => {
+    restore = [];
+    installStorage();
+    jest.useFakeTimers({ now: SUNDAY_NIGHT });
+  });
+
+  afterEach(() => {
+    // The top-level afterEach does not restore timers, and every other block
+    // runs on the real clock.
+    jest.useRealTimers();
+    for (const cleanup of restore) {
+      cleanup();
+    }
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  const completePath = (week: string, choreId: string) =>
+    `/households/hh-1/assignments/${week}/${choreId}/complete`;
+
+  /** Every write the board could make, whatever the week or the direction. */
+  const writesFrom = (client: ApiClient) =>
+    (client.update as jest.Mock).mock.calls.filter(([path]) => {
+      const p = String(path);
+      return p.endsWith('/complete') || p.endsWith('/undo');
+    });
+
+  const generateCalls = (client: ApiClient) =>
+    (client.update as jest.Mock).mock.calls.filter(([path]) => String(path).endsWith('/generate'))
+      .length;
+
+  /** A live client whose generate always names the week that is ending. */
+  const endingWeekClient = () =>
+    boardClient({ generate: ok({ weekIso: ENDED, assignments, unassigned: [] }) });
+
+  async function renderLiveBoard(client: ApiClient) {
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    // Live, current, and a control - the starting point every case shares.
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false);
+  }
+
+  it('live-rollover-current-week: before the boundary a live tap still writes to its week', async () => {
+    const client = endingWeekClient();
+    await renderLiveBoard(client);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    expect(client.update).toHaveBeenCalledWith(completePath(ENDED, 'c1'), { personId: 'p1' }, { method: 'POST' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓'));
+  });
+
+  it('live-rollover-guard: a live board that outlived its week refuses the tap - no write, nothing queued', async () => {
+    const client = endingWeekClient();
+    await renderLiveBoard(client);
+
+    // The week turns while the board sits on the wall. Only the clock moves - no
+    // timer fires - so this is the tap racing the boundary timer (or a sleeping
+    // tablet whose timer is late): the tap itself has to catch it.
+    jest.setSystemTime(MONDAY_MORNING);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    // Nothing reaches the API: a complete for 2026-W29 would succeed and mark
+    // last week's chore done while this week's stays open.
+    expect(writesFrom(client)).toHaveLength(0);
+    // Nor is it queued to be replayed into the ended week later.
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    // The row does not pretend the tap landed...
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+    // ...and the refusal brings the render up to date, so it reads as a display.
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true),
+    );
+    expect(writesFrom(client)).toHaveLength(0);
+  });
+
+  it('live-rollover-inert: rows go non-interactive at the boundary, before any tap', async () => {
+    const client = endingWeekClient();
+    await renderLiveBoard(client);
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.disabled).toBe(false);
+
+    // Nobody touches the tablet; the boundary passes on its own.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+
+    // This server keeps naming the ended week, so the board stays read-only.
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true),
+    );
+    expect(screen.getByTestId('chore-item-c4').props.accessibilityState.disabled).toBe(true);
+    expect(writesFrom(client)).toHaveLength(0);
+  });
+
+  it('live-rollover-reload: the board reloads the new week at the boundary and is tappable again', async () => {
+    // A server that names whichever week it is when the request arrives.
+    const client = boardClient();
+    (client.update as jest.Mock).mockImplementation(async (path: string) => {
+      if (path.endsWith('/generate')) {
+        return ok({ weekIso: currentWeekIso(), assignments, unassigned: [] });
+      }
+      const choreId = /assignments\/[^/]+\/([^/]+)\/complete$/.exec(path)?.[1] ?? '';
+      return ok({ weekIso: currentWeekIso(), choreId, assignedPersonId: '', status: 'Done' });
+    });
+    await renderLiveBoard(client);
+    expect(generateCalls(client)).toBe(1);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+
+    // One extra load at the boundary - a healthy hub is not left read-only every
+    // Monday until someone reloads it - and only one.
+    await waitFor(() => expect(generateCalls(client)).toBe(2));
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false),
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    // The tap lands in the new week, not the ended one.
+    expect(client.update).toHaveBeenCalledWith(completePath(NEXT, 'c1'), { personId: 'p1' }, { method: 'POST' });
+    expect(client.update).not.toHaveBeenCalledWith(
+      completePath(ENDED, 'c1'),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(generateCalls(client)).toBe(2);
+  });
+
+  it('live-rollover-drain: a tap queued just before the boundary is not replayed into the ended week', async () => {
+    const emitOnline = installReconnect();
+    const state = { offline: false };
+    const live = endingWeekClient();
+    const client: ApiClient = {
+      baseUrl: live.baseUrl,
+      get: jest.fn(async (path: string) =>
+        state.offline ? unreachable : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
+      update: jest.fn(async (path: string, body: unknown, options?: UpdateOptions) =>
+        state.offline ? unreachable : live.update<unknown>(path, body, options),
+      ) as unknown as ApiClient['update'],
+    };
+    await renderLiveBoard(client);
+
+    // Sunday 23:59: the network drops between the load and the tap, so the tap
+    // is queued (still the week it was tapped in, so the queue accepts it).
+    state.offline = true;
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
+    expect(readWriteQueue('hh-1')[0]).toMatchObject({
+      path: completePath(ENDED, 'c1'),
+      status: 'pending',
+    });
+
+    // The outage outlasts the week; then the network returns.
+    jest.setSystemTime(MONDAY_MORNING);
+    const beforeReconnect = (client.update as jest.Mock).mock.calls.length;
+    state.offline = false;
+    await act(async () => {
+      emitOnline();
+    });
+
+    // The drain flags it instead of replaying it into 2026-W29...
+    await waitFor(() => expect(readWriteQueue('hh-1')[0]?.status).toBe('failed'));
+    expect(readWriteQueue('hh-1')[0]).toMatchObject({
+      dedupeKey: assignmentDedupeKey(ENDED, 'c1'),
+      lastError: STALE_WEEK_ERROR,
+    });
+    // ...so nothing reached the API for the ended week after the reconnect.
+    const replayed = (client.update as jest.Mock).mock.calls
+      .slice(beforeReconnect)
+      .map(([path]) => String(path));
+    expect(replayed).not.toContain(completePath(ENDED, 'c1'));
+  });
+
+  /**
+   * A live client whose server clock lags the tablet's: its generate names the
+   * ended week for the first `lagging` loads, then the new one. Completions
+   * confirm `Done` for whatever week they were posted to.
+   */
+  function laggingServerClient(lagging: number) {
+    const client = boardClient();
+    let loads = 0;
+    (client.update as jest.Mock).mockImplementation(async (path: string) => {
+      if (path.endsWith('/generate')) {
+        loads += 1;
+        const week = loads <= lagging ? ENDED : NEXT;
+        return ok({ weekIso: week, assignments, unassigned: [] });
+      }
+      const match = /assignments\/([^/]+)\/([^/]+)\/complete$/.exec(path);
+      return ok({ weekIso: match?.[1] ?? '', choreId: match?.[2] ?? '', assignedPersonId: '', status: 'Done' });
+    });
+    return client;
+  }
+
+  it('live-rollover-skew: a boundary reload that beats the server clock retries and comes back to life', async () => {
+    // The mount and the boundary reload both reach a server still on Sunday.
+    const client = laggingServerClient(2);
+    await renderLiveBoard(client);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+    await waitFor(() => expect(generateCalls(client)).toBe(2));
+    // The tablet has turned the week, the server has not: read-only for now...
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true),
+    );
+    // ...and a single disagreement is the ordinary race, not worth a message.
+    expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
+
+    // The first backoff retry reaches a server that has turned the week too.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[0]);
+    });
+    await waitFor(() => expect(generateCalls(client)).toBe(3));
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false),
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    expect(client.update).toHaveBeenCalledWith(completePath(NEXT, 'c1'), { personId: 'p1' }, { method: 'POST' });
+
+    // Once the weeks agree the retry is disarmed: no more loads, however long it sits.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[LIVE_WEEK_RETRY_DELAYS_MS.length - 1] * 2);
+    });
+    expect(generateCalls(client)).toBe(3);
+    expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
+  });
+
+  it('live-rollover-skew: a refused tap forces a reload even when the render already holds the new week', async () => {
+    const client = laggingServerClient(2);
+    await renderLiveBoard(client);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+    await waitFor(() => expect(generateCalls(client)).toBe(2));
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true),
+    );
+
+    // Someone taps before the backoff elapses. The hook already holds 2026-W30,
+    // so re-reading the week alone would change nothing; the tap must reload.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    expect(writesFrom(client)).toHaveLength(0);
+    await waitFor(() => expect(generateCalls(client)).toBe(3));
+    await waitFor(() =>
+      expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false),
+    );
+  });
+
+  it('clock-notice: a tablet whose clock disagrees with the server says so instead of going silently inert', async () => {
+    // The server is in a different week altogether: the tablet's clock is wrong.
+    const client = boardClient({ generate: ok({ weekIso: '2026-W40', assignments, unassigned: [] }) });
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
+    expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
+
+    // The retries keep disagreeing, so after the first one the board explains itself.
+    let expectedLoads = 1;
+    for (const delay of LIVE_WEEK_RETRY_DELAYS_MS) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(delay);
+      });
+      expectedLoads += 1;
+      await waitFor(() => expect(generateCalls(client)).toBe(expectedLoads));
+    }
+    expect(expectedLoads).toBeGreaterThan(CLOCK_NOTICE_AFTER);
+    expect(screen.getByTestId('chore-board-clock-notice')).toHaveTextContent(/clock/);
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
+
+    // Past the last step the delay holds at the cap rather than growing or stopping.
+    const cap = LIVE_WEEK_RETRY_DELAYS_MS[LIVE_WEEK_RETRY_DELAYS_MS.length - 1];
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(cap - 1);
+    });
+    expect(generateCalls(client)).toBe(expectedLoads);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    await waitFor(() => expect(generateCalls(client)).toBe(expectedLoads + 1));
+
+    // A tap is still refused and writes nothing.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+    expect(writesFrom(client)).toHaveLength(0);
+  });
+
+  it('clock-notice: the notice clears once the server and the tablet agree again', async () => {
+    const client = laggingServerClient(CLOCK_NOTICE_AFTER + 1);
+    await renderLiveBoard(client);
+    // Cross the boundary: the reload and the first retry both still name the ended week.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[0]);
+    });
+    await waitFor(() => expect(screen.getByTestId('chore-board-clock-notice')).toBeOnTheScreen());
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[1]);
+    });
+    await waitFor(() => expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull());
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false);
   });
 });
 

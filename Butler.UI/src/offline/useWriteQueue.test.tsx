@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
 import { useWriteQueue } from './useWriteQueue';
+import { currentWeekIso } from './weekIso';
 import {
   MAX_WRITE_ATTEMPTS,
   OFFLINE_RETRY_MS,
@@ -14,7 +15,9 @@ import {
   type WriteRequest,
 } from './writeQueue';
 
-const WEEK = '2026-W29';
+// The week the hub is actually in: the drain refuses to replay a write whose
+// week has ended (#89), so a fixed week would flag every fixture write stale.
+const WEEK = currentWeekIso();
 
 const confirmed: ApiResult<unknown> = { ok: true, status: 200, data: {}, etag: null };
 

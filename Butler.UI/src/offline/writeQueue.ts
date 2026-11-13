@@ -29,6 +29,11 @@
  *   that exhausts its retries is **flagged, kept, and stepped over** - bounded
  *   retries then flag-and-continue, so one poison write cannot block everything
  *   behind it forever, and O4 has something real to surface.
+ * - *Never replayed into an ended week.* An assignment write is addressed by the
+ *   week it was tapped in, and the API resolves it by that week with no
+ *   current-week check. A write whose week ended before it could sync would
+ *   mark *last* week's chore done and succeed, so the drain flags it instead of
+ *   sending it (#89) - the same flag-and-continue, kept for O4, never dropped.
  *
  * **Not hard-wired to completions.** An entry stores the request itself - a
  * `{ method, path, body }` triple plus a descriptive `kind` - so any write type
@@ -49,6 +54,7 @@
 import type { ApiError, ApiResult } from '../api/client';
 import { describeApiError } from '../api/errors';
 import { isRecord, sessionFallbackStorage, type LocalStorageLike } from './storage';
+import { isCurrentWeek } from './weekIso';
 
 /** HTTP methods a queued write may replay with (reads are never queued). */
 export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -148,6 +154,28 @@ export function backoffDelayMs(attempts: number): number {
 export function assignmentDedupeKey(weekIso: string, choreId: string): string {
   return `assignment|${weekIso}|${choreId}`;
 }
+
+/**
+ * The week a queued write targets, read back out of an
+ * {@link assignmentDedupeKey}, or `null` for a key that is not an assignment's
+ * (a cart add, say, which is not bucketed by week).
+ *
+ * The drain needs the week to refuse a write whose week has ended. It is parsed
+ * from the key rather than stored as its own field on purpose: the key has
+ * always carried it, so writes queued by an older build are covered too, and
+ * the persisted schema (and its `v1` prefix, whose bump would discard queued
+ * writes) stays exactly as it was.
+ */
+export function assignmentWeekIso(dedupeKey: string): string | null {
+  const match = /^assignment\|([^|]+)\|/.exec(dedupeKey);
+  return match === null ? null : match[1];
+}
+
+/**
+ * The `lastError` on a write the drain refused to replay because its week had
+ * ended. Worded for the family, since O4 surfaces it as-is.
+ */
+export const STALE_WEEK_ERROR = 'The week ended before this could sync, so it was not applied.';
 
 /** Whether a persisted value is one of the methods a queued write may use. */
 function isWriteMethod(value: unknown): value is WriteMethod {
@@ -362,13 +390,29 @@ export type SendWrite = (write: QueuedWrite) => Promise<ApiResult<unknown>>;
  *   it. It stays in storage - never dropped, never auto-cleared - which is what
  *   O4 surfaces; and it stops holding the rest of the queue hostage.
  *
+ * - **A write whose week has ended is never sent.** An assignment write is
+ *   addressed by its week, and the API resolves it by that week with no
+ *   current-week check - so a completion queued on Sunday night and replayed on
+ *   Monday would mark *last* week's chore done and succeed (#89). Before each
+ *   send the entry's week ({@link assignmentWeekIso}) is checked against `now`;
+ *   a stale one is flagged `failed` with {@link STALE_WEEK_ERROR} and stepped
+ *   over, exactly like an exhausted retry, and its `attempts` are left alone
+ *   because the API never answered it. A write with no week in its key (a cart
+ *   add) is not week-bound and replays as before.
+ *
  * A `failed` entry is skipped on every later pass. Only a fresh tap on the same
  * target revives it, which {@link enqueueWrite} does by resetting the entry.
+ *
+ * `now` is read per entry rather than once per pass, because a long drain can
+ * itself straddle the boundary. It is a parameter for the same reason the week
+ * math takes its instant as one: so the boundary can be tested without waiting
+ * for it.
  */
 export async function drainWriteQueue(
   householdId: string,
   send: SendWrite,
   storage: LocalStorageLike = sessionFallbackStorage(),
+  now: () => Date = () => new Date(),
 ): Promise<DrainOutcome> {
   let queue = readWriteQueue(householdId, storage);
   let confirmed = 0;
@@ -378,6 +422,16 @@ export async function drainWriteQueue(
     const write = queue[index];
 
     if (write.status === 'failed') {
+      index += 1;
+      continue;
+    }
+
+    const week = assignmentWeekIso(write.dedupeKey);
+    if (week !== null && !isCurrentWeek(week, now())) {
+      // Never sent, so never confirmed: flagged and kept for O4, and the writes
+      // behind it - which may well be this week's - still get their turn.
+      queue = withStaleWeek(queue, write.dedupeKey);
+      saveWriteQueue(householdId, queue, storage);
       index += 1;
       continue;
     }
@@ -440,6 +494,18 @@ function withAttempt(
           status: attempts >= MAX_WRITE_ATTEMPTS ? ('failed' as const) : ('pending' as const),
           lastError: describeApiError(error),
         }
+      : entry,
+  );
+}
+
+/**
+ * Flag a queued write whose week ended before it could sync. `attempts` is kept
+ * as it was: the API never answered this write, so it spent no retries.
+ */
+function withStaleWeek(queue: QueuedWrite[], dedupeKey: string): QueuedWrite[] {
+  return queue.map((entry) =>
+    entry.dedupeKey === dedupeKey
+      ? { ...entry, status: 'failed' as const, lastError: STALE_WEEK_ERROR }
       : entry,
   );
 }

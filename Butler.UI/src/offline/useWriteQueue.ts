@@ -130,6 +130,9 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
       let confirmedTotal = 0;
       do {
         drainAgain.current = false;
+        // The drain judges each assignment write's week against the real clock
+        // as it goes, so a write whose week ended during the outage is flagged
+        // rather than replayed into last week (#89).
         outcome = await drainWriteQueue(householdId, (write) =>
           clientRef.current.update(write.path, write.body, { method: write.method }),
         );

@@ -89,10 +89,10 @@ common double-send from even happening.
 | Storage seam | `src/offline/storage.ts` | The one feature-detected, `SecurityError`-guarded Web Storage accessor (`defaultLocalStorage`) both O2 and O3 persist through, plus the shared `isRecord` validator. It also holds `sessionFallbackStorage()`, the write-only-as-far-as-this-session stand-in the queue (and only the queue) falls back to - see "never dropped, even with nowhere to persist" below. |
 | Queue | `src/offline/writeQueue.ts` | One record per household under `butler.writeq.v1.<householdId>`: an ordered list of `{ method, path, body, kind, dedupeKey, attempts, status }` entries. `enqueueWrite`/`readWriteQueue`/`saveWriteQueue` plus `drainWriteQueue`, which replays head-first, persists after every step, and stops (never reorders) at the first write it cannot confirm. |
 | React seam | `src/offline/useWriteQueue.ts` | `useWriteQueue(householdId, client)` hydrates the queue from storage on mount, drains on mount/reconnect/backoff-timer, coalesces concurrent drain requests into one pass, and hands a surface `{ entries, pending, failed, enqueue, flush, confirmedRevision }`. `confirmedRevision` is a counter that bumps once per drain run that confirmed at least one write (never on an empty, unreachable, or refused run), for a load effect to list in its dependencies. |
-| Week guard | `src/offline/weekIso.ts` | `isCurrentWeek(weekIso)` - the client-side mirror of the API's ISO year-week bucketing, used to refuse a write from a cached board whose week has rolled over (the one case queuing would still be unsafe). |
+| Week guard | `src/offline/weekIso.ts`, `src/offline/useCurrentWeek.ts` | `isCurrentWeek(weekIso)` - the client-side mirror of the API's ISO year-week bucketing, used to refuse a write from any board, live or cached, whose week has rolled over, and to refuse to replay a queued assignment write whose week ended before it could sync (#89). `msUntilNextWeekIso()` gives the time to the next Monday 00:00 UTC, and `useCurrentWeekIso()` holds the current week as React state on a timer armed for that instant, so a wall hub nobody reloads redraws (and reloads) at the boundary. |
 | Board | `src/components/ChoreBoard.tsx` | Calls `enqueue()` from `toggle()` when offline (a cached board) or when a live request answers `network`; the optimistic flip stays either way. `applyQueuedWrites()` overlays not-yet-synced entries onto every fresh load, so a reconnect refetch racing the drain cannot flicker a still-queued tap back to `Open`. A write the drain has already confirmed is no longer in the queue to overlay, so the board also lists `confirmedRevision` in its load dependencies: it refetches once when a drain confirms a write, discarding any load that raced the drain with a pre-sync snapshot, and renders the post-sync server state (#88). |
 
-Five rules keep replay honest:
+Six rules keep replay honest:
 
 - **An outage costs a write nothing.** A `network` answer means the outage is still on, not that the
   write is bad - it does not consume the retry budget, so an outage of any length can never mark a
@@ -113,10 +113,28 @@ Five rules keep replay honest:
   drain reads back through the same seam, so the queue stays complete, ordered, and replayable for the
   rest of the session, and only *durability across a relaunch* is given up. `saveWriteQueue` returns
   whether the queue landed durably, so the distinction is reported rather than assumed.
-- **A cached board that has rolled into a new week stays read-only.** `isCurrentWeek` is checked both
-  at render (whether the row is tappable) and again inside `toggle` (a wall tablet can sit untouched
-  for days, so the week is judged at the moment of the tap, not the moment the board last drew
-  itself) - the one case where queuing the tap would still land a completion in the wrong week.
+- **Any board that has rolled into a new week stays read-only until it reloads.** A live board is
+  only current at the moment it was loaded, and the wall tablet can hold it across Sunday midnight
+  just as a cached board outlives an outage, so the guard no longer cares how the board was loaded
+  (#89). The week is checked at render (`useCurrentWeekIso`, whether the row is tappable) and again
+  inside `toggle` against the real clock (a wall tablet can sit untouched for days, so the week is
+  judged at the moment of the tap, not the moment the board last drew itself) - the one case where
+  writing or queuing the tap would land a completion in the wrong week. The board lists the current
+  week in its load dependencies, so it reloads the new week once at the boundary and a healthy hub is
+  tappable again on Monday without anyone touching it. The tablet and the API read different clocks,
+  so that reload can reach a server that has not turned the week yet; a live load whose week
+  disagrees with the tablet's is retried on a backoff (`LIVE_WEEK_RETRY_DELAYS_MS`: 5s, 15s, 60s,
+  then every 5 minutes), and a refused tap forces a reload, so a few milliseconds of skew cannot
+  leave the board read-only for the week. If the weeks still disagree after a retry
+  (`CLOCK_NOTICE_AFTER`), the tablet's clock is likely wrong and the board says so instead of going
+  silently inert.
+- **A queued write whose week has ended is flagged, not replayed.** The drain reads the week back out
+  of each assignment entry's `dedupeKey` (`assignmentWeekIso`) before sending it; if that week is no
+  longer current the entry is flagged `failed` with a "the week ended" error and stepped over, like an
+  exhausted retry, so a tap queued on Sunday night cannot mark last week done on Monday. Its
+  `attempts` are untouched (the API never answered it), it stays in storage for O4, and writes with no
+  week in their key (a cart add) are not week-bound. The key is parsed rather than a field added, so
+  writes queued before this rule existed are covered and the `v1` schema is unchanged.
 
 ## Project structure
 
