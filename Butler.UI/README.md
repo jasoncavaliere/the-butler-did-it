@@ -96,11 +96,13 @@ touching anything under `public/` or `scripts/`.
   contribution balance (`FairnessView`, Epic 40 C6) render below it.
 - Organizer sign-in (`OrganizerBar`, `OrganizerContext`, `IAuthProvider`) is wired up (T4): the hub
   always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
-  client attaches the organizer bearer automatically.
+  client attaches the organizer bearer automatically. `OrganizerBar` renders a sensitive action only
+  when `HubShell` supplies its handler. Confirm order is wired: it scrolls the hub to `GroceryCart` and
+  focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). Edit roster
+  is #167 and Household teardown is #168; until they land, those buttons are not rendered.
 - Hub device pairing (`HubPairing`, `HubDeviceContext`, T5) is wired up: a signed-in organizer can pair
   the tablet and the resulting device token is held in memory for the process lifetime. Presenting that
-  token on later reads/completion writes, and the actual roster-edit/order-confirm/teardown screens the
-  `OrganizerBar` callbacks wire into, are later tickets.
+  token on later reads/completion writes is a later ticket.
 - The web export is an installable PWA (O1): manifest, icons, and a service worker that precaches the
   app shell, so a second load of the hub works with the network off. Caching API data (O2, the
   last-known glance) and queuing writes while offline (O3, the durable write queue) both build on top

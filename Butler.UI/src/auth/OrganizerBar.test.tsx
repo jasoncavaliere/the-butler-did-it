@@ -43,7 +43,11 @@ describe('OrganizerBar', () => {
   it('gated-affordance-shown-with-organizer: sensitive actions appear once signed in', async () => {
     await render(
       <OrganizerProvider authProvider={fakeProvider()}>
-        <OrganizerBar />
+        <OrganizerBar
+          onEditRoster={jest.fn()}
+          onConfirmOrder={jest.fn()}
+          onHouseholdTeardown={jest.fn()}
+        />
       </OrganizerProvider>,
     );
 
@@ -63,7 +67,11 @@ describe('OrganizerBar', () => {
   it('sign-out-clears-organizer: affordances disappear after signing out', async () => {
     await render(
       <OrganizerProvider authProvider={fakeProvider()}>
-        <OrganizerBar />
+        <OrganizerBar
+          onEditRoster={jest.fn()}
+          onConfirmOrder={jest.fn()}
+          onHouseholdTeardown={jest.fn()}
+        />
       </OrganizerProvider>,
     );
 
@@ -103,7 +111,7 @@ describe('OrganizerBar', () => {
     expect(onHouseholdTeardown).toHaveBeenCalledTimes(1);
   });
 
-  it('defaults sensitive-action handlers to a safe no-op', async () => {
+  it('renders no sensitive-action button whose handler is not supplied', async () => {
     await render(
       <OrganizerProvider authProvider={fakeProvider()}>
         <OrganizerBar />
@@ -111,10 +119,48 @@ describe('OrganizerBar', () => {
     );
 
     await press('organizer-sign-in');
-    // Pressing with no handlers wired must not throw (the default no-op runs).
+
+    // Signed in, but no handler wired: no button that would do nothing.
     for (const id of SENSITIVE) {
-      await press(id);
+      expect(screen.queryByTestId(id)).toBeNull();
     }
     expect(screen.getByTestId('organizer-actions')).toBeOnTheScreen();
+    expect(screen.getByTestId('organizer-sign-out')).toBeOnTheScreen();
+  });
+
+  it('renders only the sensitive actions whose handlers are supplied', async () => {
+    const onConfirmOrder = jest.fn();
+
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onConfirmOrder={onConfirmOrder} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
+    expect(screen.queryByTestId('affordance-household-teardown')).toBeNull();
+
+    await press('affordance-confirm-order');
+    expect(onConfirmOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders each sensitive action independently of the others', async () => {
+    const onEditRoster = jest.fn();
+    const onHouseholdTeardown = jest.fn();
+
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onEditRoster={onEditRoster} onHouseholdTeardown={onHouseholdTeardown} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-edit-roster')).toBeOnTheScreen();
+    expect(screen.getByTestId('affordance-household-teardown')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-confirm-order')).toBeNull();
   });
 });

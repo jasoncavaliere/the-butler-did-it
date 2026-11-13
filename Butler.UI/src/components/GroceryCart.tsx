@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ComponentRef, type Ref } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ApiError } from '../api/client';
@@ -31,7 +31,9 @@ import { colors } from './Screen';
  *   one, matching the {@link OrganizerBar} convention. It posts to
  *   `/carts/{weekIso}/confirm` with the cart's `eTag` as `If-Match`
  *   (Engineering Contract 7.3). This gate is convenience: the API independently
- *   enforces `403` for a participant or the paired hub device.
+ *   enforces `403` for a participant or the paired hub device. The
+ *   {@link OrganizerBar}'s Confirm order only jumps here (through `confirmRef`);
+ *   it never confirms on its own.
  *
  * Nothing here places a real order and no money moves (BRD decision D-8) - the
  * backing connector is the simulated G1 one, so the demo runs fully offline of
@@ -80,10 +82,17 @@ export function readSuggestions(error: ApiError): StoreProductView[] {
 export function GroceryCart({
   householdId,
   activePersonId,
+  confirmRef,
 }: {
   householdId: string;
   /** The hub's active tap-to-claim participant, whom an added line is attributed to. */
   activePersonId: string | null;
+  /**
+   * Attached to the Confirm order button, so the hub can move focus to it from
+   * the {@link OrganizerBar}'s Confirm order while the cart still owns the
+   * confirm itself (the final tap stays here, G4).
+   */
+  confirmRef?: Ref<ComponentRef<typeof View>>;
 }) {
   const client = useApiClient();
   const { isSignedIn } = useOrganizer();
@@ -288,6 +297,7 @@ export function GroceryCart({
           participant is never presented it. The API enforces the same rule. */}
       {cart !== null && !isConfirmed && isSignedIn ? (
         <Pressable
+          ref={confirmRef}
           testID="grocery-confirm"
           accessibilityRole="button"
           accessibilityState={{ disabled: busy }}

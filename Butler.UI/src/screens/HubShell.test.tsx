@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { HubShell } from './HubShell';
+import { HubShell, revealAndFocus } from './HubShell';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type { ParticipantSessionResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
@@ -584,6 +584,157 @@ describe('HubShell', () => {
       });
       expect(screen.getByText("Alex's day")).toBeOnTheScreen();
     });
+
+    /**
+     * #57: the hub wires only the Confirm order affordance, and it never confirms
+     * anything itself - it moves the organizer to the cart's own Confirm button,
+     * which keeps the final tap (G4). Edit roster (#167) and Household teardown
+     * (#168) have no screen yet, so they are not rendered at all.
+     */
+    describe('organizer actions (#57)', () => {
+      const SENSITIVE = [
+        'affordance-edit-roster',
+        'affordance-confirm-order',
+        'affordance-household-teardown',
+      ];
+
+      // The mocked native View shares one `focus` jest.fn across every instance,
+      // so each test spies afresh and identifies the target through the call's
+      // `this` (mock.contexts).
+      let focusSpy: jest.SpyInstance;
+      beforeEach(() => {
+        focusSpy = jest.spyOn(View.prototype as unknown as { focus: () => void }, 'focus');
+        focusSpy.mockClear();
+      });
+      afterEach(() => {
+        focusSpy.mockRestore();
+      });
+
+      /** Every POST the hub sent to a cart's confirm endpoint. */
+      function confirmCalls(client: ApiClient) {
+        return (client.update as jest.Mock).mock.calls.filter(
+          ([path]) => typeof path === 'string' && path.endsWith('/confirm'),
+        );
+      }
+
+      async function signIn() {
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('organizer-sign-in'));
+        });
+      }
+
+      it('a signed-in organizer sees Confirm order but no Edit roster or Household teardown', async () => {
+        useApiClientMock.mockReturnValue(interactiveClient());
+
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await signIn();
+
+        expect(screen.getByTestId('organizer-actions')).toBeOnTheScreen();
+        expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen();
+        expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
+        expect(screen.queryByTestId('affordance-household-teardown')).toBeNull();
+        expect(screen.queryByText('Edit roster')).toBeNull();
+        expect(screen.queryByText('Delete household')).toBeNull();
+      });
+
+      it('a non-organizer sees no OrganizerBar actions', async () => {
+        useApiClientMock.mockReturnValue(interactiveClient());
+
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+        expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+        expect(screen.queryByTestId('organizer-actions')).toBeNull();
+        for (const id of SENSITIVE) {
+          expect(screen.queryByTestId(id)).toBeNull();
+        }
+      });
+
+      it("Confirm order focuses the cart's own Confirm without confirming the order", async () => {
+        const client = interactiveClient();
+        useApiClientMock.mockReturnValue(client);
+
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await signIn();
+        await waitFor(() => expect(screen.getByTestId('grocery-confirm')).toBeOnTheScreen());
+        focusSpy.mockClear();
+
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('affordance-confirm-order'));
+        });
+
+        expect(focusSpy).toHaveBeenCalledTimes(1);
+        const target = focusSpy.mock.contexts[0] as { props: { testID?: string } };
+        expect(target.props.testID).toBe('grocery-confirm');
+        expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+        // Moving focus is all it does: no confirm is sent and the cart's own
+        // Confirm button is still there, waiting for the organizer's tap.
+        expect(confirmCalls(client)).toHaveLength(0);
+        expect(screen.getByTestId('grocery-confirm')).toBeOnTheScreen();
+      });
+
+      it('Confirm order only reveals the cart when it has no Confirm to focus', async () => {
+        const base = interactiveClient();
+        const confirmedWeek: ApiResult<unknown> = {
+          ok: false,
+          error: { kind: 'http', status: 409, title: 'Confirmed' },
+        };
+        const client: ApiClient = {
+          ...base,
+          get: jest.fn(async (path: string, ...rest: unknown[]) =>
+            path.includes('/carts/')
+              ? confirmedWeek
+              : (base.get as unknown as (p: string, ...r: unknown[]) => Promise<ApiResult<unknown>>)(
+                  path,
+                  ...rest,
+                ),
+          ) as unknown as ApiClient['get'],
+        };
+        useApiClientMock.mockReturnValue(client);
+
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() =>
+          expect(screen.getByTestId('grocery-cart-week-confirmed')).toBeOnTheScreen(),
+        );
+        await signIn();
+        expect(screen.queryByTestId('grocery-confirm')).toBeNull();
+        focusSpy.mockClear();
+
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('affordance-confirm-order'));
+        });
+
+        expect(focusSpy).not.toHaveBeenCalled();
+        expect(confirmCalls(client)).toHaveLength(0);
+        expect(screen.getByTestId('hub-groceries')).toBeOnTheScreen();
+      });
+    });
+  });
+});
+
+describe('revealAndFocus', () => {
+  it('scrolls the node into view, then focuses it without a second scroll', () => {
+    const order: string[] = [];
+    const node = {
+      scrollIntoView: jest.fn(() => order.push('scroll')),
+      focus: jest.fn(() => order.push('focus')),
+    };
+
+    revealAndFocus(node);
+
+    expect(node.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+    expect(node.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(order).toEqual(['scroll', 'focus']);
+  });
+
+  it('tolerates a host with no scrollIntoView or focus', () => {
+    expect(() => revealAndFocus(null)).not.toThrow();
+    expect(() => revealAndFocus({})).not.toThrow();
+    const onlyFocus = { focus: jest.fn() };
+    revealAndFocus(onlyFocus);
+    expect(onlyFocus.focus).toHaveBeenCalledTimes(1);
   });
 });
 
