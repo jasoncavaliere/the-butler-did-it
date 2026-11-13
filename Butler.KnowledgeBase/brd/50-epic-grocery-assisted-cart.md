@@ -26,6 +26,6 @@ Each ticket is its own file under `tickets/` and is a ready-to-file GitHub issue
 ## Related
 
 - [00-brd-master.md](00-brd-master.md) - the master BRD; Section 7 Engineering Contract, Section 6.4 grocery journey, and decisions D-4/D-5/D-8 that bind this epic.
-- [filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
+- [filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the `gh issue create` recipe.
 - [40-epic-chores-fair-assignment.md](40-epic-chores-fair-assignment.md) - the wedge epic; shares the household spine and the organizer/participant authorization boundary.
 - [60-epic-offline-pwa.md](60-epic-offline-pwa.md) - offline PWA; the cart is one of the writes that must queue and sync.

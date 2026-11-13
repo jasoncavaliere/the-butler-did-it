@@ -11,6 +11,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
 
 The [BRD](index.md) turns the [Product Vision](../docs/10-product-vision.md) into an implementable v1: a master BRD, the binding Engineering Contract, one overview file per epic, and one file per ticket under `tickets/`. Each ticket file is a ready-to-file GitHub issue written to pass the `/implement-issue` and `/merge-issue` workflows unattended - clear scope, acceptance criteria as `- [ ]` checkboxes, named gates, and no material assumptions left to guess.
 
+The BRD is a delivery artifact derived from the vision, not a node in the `docs/` knowledge graph. It links into `docs/` but needs no reciprocal edges from the wiki.
+
 ## Why these decisions (the short rationale)
 
 - **Azure Table Storage, not SQL.** An always-on family hub glances all day, so any option with a compute/idle floor (Azure SQL Serverless stays warm, ~$30-100/mo; Postgres Flexible ~$12-15/mo) costs real money at low scale. Table Storage is ~free at low scale (single-digit dollars/month for ~1000 households, ~$0 idle, $0 local/CI via Azurite). The household model is a natural aggregate keyed by `householdId`, so every product read/write is a single-partition operation - exactly what Table Storage is fastest and cheapest at. The relational features you would pay for (joins, ad-hoc SQL) are the ones the vision defers. Cost + fit + consistency with the proven QControl pattern all point one way.
@@ -65,7 +67,7 @@ done
 
 Each ticket file gives you a title and labels (`title:` and `tags:` in its frontmatter), a body already in issue Markdown with an `## Acceptance Criteria` checklist, and its `Blocked by` links. To file one:
 
-1. Strip the frontmatter into a body file: `awk 'f>=2; /^---$/{f++}' tickets/F1-*.md > /tmp/F1.md`.
+1. Write the issue body (everything from `## Summary` on): `sed -n '/^## Summary/,$p' tickets/F1-*.md > /tmp/F1.md`.
 2. Create the issue:
 
    ```bash

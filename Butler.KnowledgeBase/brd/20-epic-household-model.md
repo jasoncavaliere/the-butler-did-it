@@ -25,6 +25,6 @@ Each ticket is its own file under `tickets/` and is a ready-to-file GitHub issue
 ## Related
 
 - [00-brd-master.md](00-brd-master.md) - the master BRD and its binding [Engineering Contract](07-engineering-contract.md) (Section 7).
-- [brd/filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
+- [brd/filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the `gh issue create` recipe.
 - [10-epic-foundations.md](10-epic-foundations.md) - previous epic; F3, F6, and F7 block this one.
 - [30-epic-tap-to-claim-hub.md](30-epic-tap-to-claim-hub.md) - next epic; adds the no-password tap-to-claim CLAIM action (T1) on top of this roster.

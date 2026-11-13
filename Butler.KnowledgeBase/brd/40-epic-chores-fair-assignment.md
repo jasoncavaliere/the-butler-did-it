@@ -26,6 +26,6 @@ Each ticket is its own file under `tickets/` and is a ready-to-file GitHub issue
 ## Related
 
 - [00-brd-master.md](00-brd-master.md) - the master BRD; this epic implements FR-4 and serves BO-1, with the binding [Engineering Contract 7.6](engineering-contract/76-fair-assignment-algorithm.md) fair-assignment algorithm and the [7.3 data model](engineering-contract/73-data-model.md).
-- [brd/filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
+- [brd/filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the `gh issue create` recipe.
 - [30-epic-tap-to-claim-hub.md](30-epic-tap-to-claim-hub.md) - the hub shell, the tap-to-claim participant identity (T1), the active-participant glow (T3), and the "today" panel (T2) this epic fills in.
 - [60-epic-offline-pwa.md](60-epic-offline-pwa.md) - caches the board and queues the completions this epic writes, so the wedge loop survives no network.

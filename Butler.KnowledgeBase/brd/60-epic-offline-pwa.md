@@ -25,6 +25,6 @@ Each ticket is its own file under `tickets/` and is a ready-to-file GitHub issue
 ## Related
 
 - [00-brd-master.md](00-brd-master.md) - the master BRD: Section 6.5 (offline journey), Section 7 (Engineering Contract), risk R-2 (sync conflicts), BO-5.
-- [filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order, and the filing recipe.
+- [filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the filing recipe.
 - [40-epic-chores-fair-assignment.md](40-epic-chores-fair-assignment.md) - the chores board (C5) and complete-a-chore write path (C4) this epic caches and queues.
 - [50-epic-grocery-assisted-cart.md](50-epic-grocery-assisted-cart.md) - the cart (G5) whose add MAY ride the same offline queue.

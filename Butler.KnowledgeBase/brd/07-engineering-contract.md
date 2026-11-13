@@ -32,5 +32,5 @@ Open only the clause your ticket needs.
 ## Related
 
 - [00-brd-master.md](00-brd-master.md) - the master BRD (problem, scope, journeys, traceability); this file is its Section 7.
-- [brd/filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order.
+- [brd/filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order.
 - [ticket-issue-map.md](ticket-issue-map.md) - ticket ID to GitHub issue crosswalk.

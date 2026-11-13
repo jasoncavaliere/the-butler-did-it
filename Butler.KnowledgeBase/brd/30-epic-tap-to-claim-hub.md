@@ -25,6 +25,6 @@ Each ticket is its own file under `tickets/` and is a ready-to-file GitHub issue
 ## Related
 
 - [00-brd-master.md](00-brd-master.md) - the master BRD: Engineering Contract (Section 7, auth in 7.4, data model in 7.3), personas (Section 4), and traceability (FR-3, BO-4).
-- [filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
+- [filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the `gh issue create` recipe.
 - [20-epic-household-model.md](20-epic-household-model.md) - the spine (rooms, people, chores) this epic reads people from; provides H1 and H3.
 - [40-epic-chores-fair-assignment.md](40-epic-chores-fair-assignment.md) - consumes the participant session (C4) and fills the today panel (C5) this epic scaffolds.

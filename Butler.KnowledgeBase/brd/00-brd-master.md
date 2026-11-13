@@ -198,5 +198,5 @@ The north star is **weekly active households**. v1 target: 50 percent of onboard
 - [Product Vision](../docs/10-product-vision.md) - the why, quantified.
 - [Glossary](../docs/90-glossary.md) - every term defined once.
 - [07-engineering-contract.md](07-engineering-contract.md) - Section 7, the binding Engineering Contract.
-- [brd/filing-guide.md](filing-guide.md) - epic index, label taxonomy, dependency order, and the `gh issue create` recipe.
+- [brd/filing-guide.md](filing-guide.md) - core-decision rationale, label taxonomy, dependency order, and the `gh issue create` recipe.
 - Epic files: [10 Foundations](10-epic-foundations.md), [20 Household Model](20-epic-household-model.md), [30 Tap-to-Claim & Hub](30-epic-tap-to-claim-hub.md), [40 Chores & Fair Assignment](40-epic-chores-fair-assignment.md), [50 Grocery Assisted Cart](50-epic-grocery-assisted-cart.md), [60 Offline PWA](60-epic-offline-pwa.md).
