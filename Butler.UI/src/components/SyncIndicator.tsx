@@ -22,9 +22,11 @@ import { colors } from './Screen';
  *   tablet whose wifi is up but whose API is down reads Offline once a drain
  *   fails or a region is served from cache, until a drain or a reload actually
  *   gets through (a confirming drain also makes the hub reload its cached
- *   regions, which clears `apiUnreachable`). With no cache and an empty queue
- *   neither signal fires, so it reads Online beside the shell's error - a known
- *   gap tracked in #151.
+ *   regions, which clears `apiUnreachable`). The hub also sets `apiUnreachable`
+ *   when its shell load failed with a network-kind error and nothing was
+ *   cached, so a first load with the API down reads Offline too (#151). An
+ *   error from an API that answered (`http`, `problem`, `parse`) leaves it
+ *   Online.
  * - *Pending*, while writes are queued: `2 waiting to sync`. Hidden at zero.
  * - *Synced*, briefly: `All synced.` once a drain confirms the queue empty, for
  *   {@link SYNC_CONFIRMATION_MS}. Nothing to dismiss; it simply goes. While any
@@ -71,7 +73,10 @@ export function SyncIndicator({
   apiUnreachable = false,
   connectivityTarget,
 }: {
-  /** Whether the hub is serving any region from the last-known cache (O2). */
+  /**
+   * Whether the hub could not reach the API: a region is served from the
+   * last-known cache (O2), or a shell load got no response (#151).
+   */
   apiUnreachable?: boolean;
   /** Override the browser event target (tests inject one; default is ambient). */
   connectivityTarget?: ReconnectTarget;

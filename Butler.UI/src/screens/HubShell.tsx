@@ -135,7 +135,11 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * synced, and which ones never went through. It sits in the header's normal
  * flow - no absolute positioning - so it can never cover the name tiles or the
  * board. Any region served from the last-known cache also marks it offline,
- * since that cache only ever stands in when the API did not answer.
+ * since that cache only ever stands in when the API did not answer, and so
+ * does a shell load that could not reach the API with nothing cached (#151).
+ * An error from an API that did answer (an HTTP error, a problem response, a
+ * body that would not parse) does not: the API is reachable, and the shell's
+ * error line says what went wrong.
  *
  * "Wifi up, API down" never fires the browser's `online` event, so a reconnect
  * alone cannot revive a degraded shell after an API-only outage. A drain that
@@ -177,7 +181,16 @@ type LoadState =
       /** The cache's freshness stamp when served offline; `null` when live. */
       cachedAtIso: string | null;
     }
-  | { phase: 'error'; message: string };
+  | {
+      phase: 'error';
+      message: string;
+      /**
+       * True when the read never reached the API (a `network`-kind failure);
+       * the sync indicator reads Offline on it. False for an error from an API
+       * that answered, and for the derived no-household state.
+       */
+      networkFailure: boolean;
+    };
 
 /**
  * Decide what to show when a shell read fails. An unreachable API falls back to
@@ -189,6 +202,10 @@ type LoadState =
  * rather than spliced with the half that arrived: one coherent glance under one
  * freshness stamp is something the "showing last-known" line can describe
  * honestly, and a live name over a cached roster is not.
+ *
+ * The error state carries whether the read reached the API at all: only a
+ * `network`-kind failure sets `networkFailure`, which drives the sync
+ * indicator to Offline (#151), the same test that gates the cache here.
  */
 function resolveShellFailure(householdId: string, error: ApiError): LoadState {
   const cached = error.kind === 'network' ? readGlance(householdId) : null;
@@ -200,7 +217,7 @@ function resolveShellFailure(householdId: string, error: ApiError): LoadState {
       cachedAtIso: cached.cachedAtIso,
     };
   }
-  return { phase: 'error', message: describeApiError(error) };
+  return { phase: 'error', message: describeApiError(error), networkFailure: error.kind === 'network' };
 }
 
 /** Today's date, formatted for a glance ("Monday, July 20"). */
@@ -453,7 +470,7 @@ function HubShellBody({
 
   // A missing household is a calm derived state, not a fetch outcome.
   const view: LoadState =
-    householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
+    householdId === null ? { phase: 'error', message: 'No household is set up yet.', networkFailure: false } : state;
   const householdName = view.phase === 'ready' ? view.householdName : 'Butler';
   // The claimable roster is chore-doing members only: an organizer/admin identity
   // (including the synthetic "Development Organizer") is never a tile, never fed to
@@ -465,6 +482,9 @@ function HubShellBody({
   // clears as soon as both are live again.
   const lastKnownAtIso: string | null =
     view.phase === 'ready' ? view.cachedAtIso ?? boardCachedAtIso : null;
+  // The cache stamp covers an outage served from cache; the network flag covers
+  // one with nothing cached. An error from a reachable API stays Online (#151).
+  const apiUnreachable = lastKnownAtIso !== null || (view.phase === 'error' && view.networkFailure);
 
   const ready = view.phase === 'ready' && householdId !== null;
 
@@ -542,7 +562,7 @@ function HubShellBody({
           <Text style={styles.date} numberOfLines={1} testID="hub-date">
             {todayLabel()}
           </Text>
-          {householdId !== null ? <SyncIndicator apiUnreachable={lastKnownAtIso !== null} /> : null}
+          {householdId !== null ? <SyncIndicator apiUnreachable={apiUnreachable} /> : null}
         </View>
       </View>
 
