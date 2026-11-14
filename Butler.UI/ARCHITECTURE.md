@@ -11,10 +11,11 @@ for a `web.output: single` app:
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| Manifest | `public/manifest.json` | Install metadata: name, `display: standalone`, start URL, theme/background colour, and 192px + 512px icons in both `any` and `maskable` form (`public/icons/`, derived from `assets/icon.png`). |
-| HTML | `public/index.html` | The exporter's HTML template (`npx expo customize public/index.html`), with the `<link rel="manifest">`, `theme-color`, and apple-touch-icon added. |
+| Manifest | `public/manifest.json` | Install metadata: name, `display: standalone` (the fallback; the verifier requires it) with `display_override: ["fullscreen"]` and `orientation: landscape` for the kiosk (#130), start URL, theme/background colour, and 192px + 512px icons in both `any` and `maskable` form (`public/icons/`, derived from `assets/icon.png`). |
+| HTML | `public/index.html` | The exporter's HTML template (`npx expo customize public/index.html`), with the `<link rel="manifest">`, `theme-color`, and apple-touch-icon added. For the kiosk (#130) the viewport disables pinch zoom (`maximum-scale=1, user-scalable=no`), `html, body` set `overscroll-behavior: none` (no pull-to-refresh), and `input`, `textarea` and contenteditable elements reset `user-select: text` so text fields stay usable under the kiosk surface. |
 | Worker | `public/sw.js` | Precaches the app shell on install, serves it cache-first, and answers navigations network-first so a deploy is never pinned. Static assets only. |
 | Registration | `src/pwa/` | `registerServiceWorker()` + the `useServiceWorkerRegistration()` hook `App.tsx` calls on mount. Feature-detected, so it is a no-op on iOS/Android and never throws. |
+| Kiosk surface | `src/pwa/KioskSurface.tsx` | Wraps `HubShell` only (#130): `user-select: none`, `-webkit-touch-callout: none`, and an `onContextMenu` handler that cancels the browser menu except on editable targets. No document or window listener, so the organizer screens keep browser defaults. A plain View on native. |
 | Build step | `scripts/pwa-export.js` | Injects the exported (content-hashed) file list and a build id into `dist/sw.js`, then verifies the export is installable. |
 
 **Offline scope.** This is the app *shell* only: HTML, JS, icons, static assets. API responses are

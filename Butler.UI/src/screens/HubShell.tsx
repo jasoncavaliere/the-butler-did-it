@@ -37,6 +37,7 @@ import { useDatasetGuard } from '../offline/useDatasetGuard';
 import { useHubGlance } from '../offline/useHubGlance';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
+import { KioskSurface } from '../pwa/KioskSurface';
 import { useHousehold } from '../state/HouseholdContext';
 import { useOrganizer } from '../state/OrganizerContext';
 
@@ -161,6 +162,11 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * 8 chores due today without a page scroll. A portrait window keeps the single
  * stack (every region a direct child of the shell) inside a page scroll. Every
  * size and gap is read from the layout, which reads `design-tokens.json`.
+ *
+ * The whole hub, the dataset check included, renders inside one
+ * {@link KioskSurface} (#130): no text selection, no iOS touch callout, and no
+ * context menu on a long-press, except inside text fields. Only the hub is
+ * wrapped; the organizer screens keep the browser defaults.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -242,20 +248,18 @@ export function HubShell({
   // Hold everything - the board, the cached glance, the queue's mount drain -
   // until the startup dataset check has settled, so nothing from a replaced
   // dataset is shown or replayed first.
-  if (guard.checking) {
-    return (
-      <View style={styles.hub} testID="hub-dataset-check">
-        <View style={styles.centeredRow} testID="hub-loading">
-          <ActivityIndicator color={colors.brass} />
-          <Text style={styles.status}>Waking up the hub...</Text>
-        </View>
+  //
+  // Otherwise the body is keyed on the guard's revision: a changed dataset
+  // remounts the whole body, which reloads every household read and re-hydrates
+  // the emptied queue.
+  const inner = guard.checking ? (
+    <View style={styles.hub} testID="hub-dataset-check">
+      <View style={styles.centeredRow} testID="hub-loading">
+        <ActivityIndicator color={colors.brass} />
+        <Text style={styles.status}>Waking up the hub...</Text>
       </View>
-    );
-  }
-
-  // Keyed on the guard's revision: a changed dataset remounts the whole body,
-  // which reloads every household read and re-hydrates the emptied queue.
-  return (
+    </View>
+  ) : (
     <HubShellBody
       key={guard.revision}
       idleTimeoutMs={idleTimeoutMs}
@@ -265,6 +269,10 @@ export function HubShell({
       onShowYourData={onShowYourData}
     />
   );
+
+  // Both states sit inside the one kiosk surface (#130), so a long-press never
+  // selects, callouts, or opens a context menu anywhere on the hub.
+  return <KioskSurface testID="hub-kiosk-surface">{inner}</KioskSurface>;
 }
 
 /** The hub itself, below the dataset guard (see {@link HubShell}). */

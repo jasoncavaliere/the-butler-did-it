@@ -88,6 +88,18 @@ describe('the exported PWA assets', () => {
     expect(manifest.background_color).toBeTruthy();
   });
 
+  it('asks for fullscreen and keeps standalone as the install fallback (#130)', () => {
+    const manifest = readManifest(buildFixtureExport());
+
+    expect(manifest.display_override).toEqual(['fullscreen']);
+    // The verifier requires standalone, and a browser without display_override falls back to it.
+    expect(manifest.display).toBe('standalone');
+  });
+
+  it('locks the kiosk to landscape (#130)', () => {
+    expect(readManifest(buildFixtureExport()).orientation).toBe('landscape');
+  });
+
   it('ships 192px and 512px icons plus a maskable-capable pair', () => {
     const manifest = readManifest(buildFixtureExport());
     const sizesFor = (purpose) =>
@@ -105,6 +117,35 @@ describe('the exported PWA assets', () => {
     // The Expo template placeholders must survive, or the export loses its title and lang.
     expect(html).toContain('%WEB_TITLE%');
     expect(html).toContain('%LANG_ISO_CODE%');
+  });
+
+  it('disables pinch zoom in the viewport (#130)', () => {
+    const html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+    const viewport = html.match(/<meta name="viewport" content="([^"]*)"/);
+
+    expect(viewport).not.toBeNull();
+    const parts = viewport[1].split(',').map((part) => part.trim());
+    expect(parts).toEqual(expect.arrayContaining(['maximum-scale=1', 'user-scalable=no']));
+  });
+
+  it('turns off overscroll on html and body (#130)', () => {
+    const html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+    const rule = html.match(/html,\s*body\s*\{([^}]*)\}/);
+
+    expect(rule).not.toBeNull();
+    expect(rule[1]).toMatch(/overscroll-behavior:\s*none;/);
+  });
+
+  it('keeps text inputs selectable under the hub kiosk style (#130)', () => {
+    const html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+    const rule = html.match(/input,\s*textarea,\s*\[contenteditable="true"\]\s*\{([^}]*)\}/);
+
+    expect(rule).not.toBeNull();
+    expect(rule[1]).toMatch(/-webkit-user-select:\s*text;/);
+    expect(rule[1]).toMatch(/(^|[^-])user-select:\s*text;/);
+    expect(rule[1]).toMatch(/-webkit-touch-callout:\s*default;/);
+    // Selection is only ever turned off on the hub surface, never for the whole page.
+    expect(html).not.toMatch(/user-select:\s*none/);
   });
 
   it('ships a service worker that precaches the app shell before any injection runs', () => {
