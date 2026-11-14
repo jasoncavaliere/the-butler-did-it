@@ -134,6 +134,11 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   ({@link applyLiveTaps}, {@link pruneLiveTaps}, #147). The board does not
  *   refetch again for it - that would cost a request and still redraw a tap
  *   whose POST had not settled yet.
+ * - taps on one chore can overlap, and their POSTs may answer in any order. The
+ *   record and the row belong to the newest tap on the chore: each tap carries
+ *   a token, and a response from a tap that has since been overtaken leaves
+ *   both alone, so the last answer cannot undo what the family last meant
+ *   (#153).
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -244,8 +249,12 @@ export function applyQueuedWrites(
  * A live tap (#147), as the board remembers it until a load is sure to include
  * it: the status the row now shows, and the load sequence number that was
  * current when its POST settled - `null` while the POST is still in flight.
+ * `tap` is the token of the tap that wrote the record (#153): a later tap on
+ * the same chore replaces it, and only the tap whose token is still on the
+ * record may settle it, so an earlier tap's response that answers late cannot
+ * overwrite or delete a newer tap's record.
  */
-export type LiveTap = { status: 'Open' | 'Done'; settledAtLoad: number | null };
+export type LiveTap = { status: 'Open' | 'Done'; settledAtLoad: number | null; tap: number };
 
 /**
  * Forget the live taps that load number `load` already reflects (#147).
@@ -368,6 +377,10 @@ export function ChoreBoard({
   // rather than state or a load dependency, for the same reason the queue is read
   // from storage below: a tap must not refetch the week.
   const liveTapsRef = useRef(new Map<string, LiveTap>());
+  // Hands each live tap its token (#153), so a response can tell whether its tap
+  // is still the newest on the chore. A ref, not state: it is per-tap
+  // bookkeeping that never renders, and a tap must not trigger a load.
+  const tapSeqRef = useRef(0);
 
   // The chores celebrating a completing tap right now (#119), and the timer that
   // ends each one. The timer owns the celebration's lifecycle rather than an
@@ -666,19 +679,37 @@ export function ChoreBoard({
       }
 
       // Remember the tap while its POST is in flight, so a load that resolves
-      // meanwhile cannot redraw it (#147). The record always mirrors the row.
+      // meanwhile cannot redraw it (#147). The record and the row belong to the
+      // newest tap on the chore: this tap's token replaces any earlier tap's, and
+      // a response for a tap that has since been overtaken leaves both alone
+      // (#153).
       const tapKey = assignmentDedupeKey(weekIso, choreId);
-      liveTapsRef.current.set(tapKey, { status: optimistic, settledAtLoad: null });
+      const tap = ++tapSeqRef.current;
+      liveTapsRef.current.set(tapKey, { status: optimistic, settledAtLoad: null, tap });
 
       const result = await client.update<CompleteChoreResponse | UndoChoreResponse>(path, body, {
         method: 'POST',
       });
 
+      // Read fresh after the await: every load replaces the map. A record is never
+      // pruned while its POST is in flight, so a missing one means a later tap
+      // has settled since (and dropped it, or a load pruned it): this tap is
+      // overtaken as well.
+      const latest = liveTapsRef.current.get(tapKey)?.tap === tap;
+
       if (!result || !result.ok) {
         if (result && result.error.kind === 'network') {
-          // The queue overlay takes over from here.
-          liveTapsRef.current.delete(tapKey);
+          // The queue overlay takes over from here. An overtaken tap is still
+          // queued, as any unreachable tap is, but leaves the newer tap's record.
+          if (latest) {
+            liveTapsRef.current.delete(tapKey);
+          }
           queueWrite();
+          return;
+        }
+        if (!latest) {
+          // The row and its celebration already show a newer tap; reverting to
+          // this tap's `previous` would redraw a state the family moved past.
           return;
         }
         liveTapsRef.current.delete(tapKey);
@@ -691,10 +722,18 @@ export function ChoreBoard({
         return;
       }
 
+      if (!latest) {
+        // A newer tap owns the record and the row; its own response settles them.
+        return;
+      }
       const reconciled: 'Open' | 'Done' = result.data?.status === 'Done' ? 'Done' : 'Open';
       // Kept until a load that started after this point has landed: one already
       // in flight may have been sent before the server recorded the tap.
-      liveTapsRef.current.set(tapKey, { status: reconciled, settledAtLoad: loadSeqRef.current });
+      liveTapsRef.current.set(tapKey, {
+        status: reconciled,
+        settledAtLoad: loadSeqRef.current,
+        tap,
+      });
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );
