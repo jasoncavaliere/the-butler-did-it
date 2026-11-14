@@ -46,7 +46,7 @@ After week 4, four numbers on the organizer's Insights screen decide if we build
 This repeats the in-app Your data page, which shows what Butler keeps and how to clear it.
 
 - Butler runs locally, on the organizer's computer.
-- No household data leaves your home. Grocery orders go to a practice store.
+- Butler sends no household data out of your home. Grocery orders go to a practice store.
 - The grocery mic uses the browser's speech recognition, which some browsers run online. Butler keeps only the words added to the cart.
 - A child's profile holds only a first name, a child flag, and a claim color. No last name, birthday, photo, email, or password.
 - Kids tap their name and never sign in.
