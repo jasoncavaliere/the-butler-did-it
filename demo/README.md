@@ -201,6 +201,13 @@ links work. `index.html`, `sw.js` and `manifest.json` are sent with
 `Cache-Control: no-cache`; the content-hashed files under `/_expo/static/` and
 `/assets/` are cached for a year.
 
+demo-ci also runs `node demo/ci/check-precache.cjs <url-or-file>` against the
+served `sw.js`. It passes only when the worker carries the precache list that
+`npm run build:web` injects: a 12-hex build id, the app shell (`/index.html`)
+and at least one `/_expo/**.js` bundle. It rejects the placeholder worker that
+a bare `expo export` copies from `Butler.UI/public/sw.js`. You can point it at
+a local build too, for example `node demo/ci/check-precache.cjs Butler.UI/dist/sw.js`.
+
 To check it end to end, `demo/ci/check-household-flow.cjs` (run by demo-ci)
 opens the hub in a headless browser, creates a household through the setup
 screens and waits for the hub to read it back. It fails if any API call is not
