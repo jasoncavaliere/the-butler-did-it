@@ -1107,14 +1107,32 @@ describe('HubShell', () => {
 
       // The mocked native View shares one `focus` jest.fn across every instance,
       // so each test spies afresh and identifies the target through the call's
-      // `this` (mock.contexts).
+      // `this` (mock.contexts). The mocked View has no `scrollIntoView` at all
+      // (so jest.spyOn cannot wrap it), so the describe installs one for the
+      // Confirm order fallback and restores the prototype afterwards (#172).
+      type ScrollTarget = { scrollIntoView?: (options?: ScrollIntoViewOptions) => void };
+      const viewPrototype = View.prototype as unknown as ScrollTarget;
       let focusSpy: jest.SpyInstance;
+      let scrollSpy: jest.Mock;
+      let savedScrollIntoView: PropertyDescriptor | undefined;
       beforeEach(() => {
         focusSpy = jest.spyOn(View.prototype as unknown as { focus: () => void }, 'focus');
         focusSpy.mockClear();
+        savedScrollIntoView = Object.getOwnPropertyDescriptor(viewPrototype, 'scrollIntoView');
+        scrollSpy = jest.fn();
+        Object.defineProperty(viewPrototype, 'scrollIntoView', {
+          value: scrollSpy,
+          configurable: true,
+          writable: true,
+        });
       });
       afterEach(() => {
         focusSpy.mockRestore();
+        if (savedScrollIntoView) {
+          Object.defineProperty(viewPrototype, 'scrollIntoView', savedScrollIntoView);
+        } else {
+          delete viewPrototype.scrollIntoView;
+        }
       });
 
       /** Every POST the hub sent to a cart's confirm endpoint. */
@@ -1235,6 +1253,7 @@ describe('HubShell', () => {
         await signIn();
         expect(screen.queryByTestId('grocery-confirm')).toBeNull();
         focusSpy.mockClear();
+        scrollSpy.mockClear();
 
         await act(async () => {
           fireEvent.press(screen.getByTestId('affordance-confirm-order'));
@@ -1243,6 +1262,11 @@ describe('HubShell', () => {
         expect(focusSpy).not.toHaveBeenCalled();
         expect(confirmCalls(client)).toHaveLength(0);
         expect(screen.getByTestId('hub-groceries')).toBeOnTheScreen();
+        // #172: with nothing to focus, it scrolls the grocery region into view.
+        expect(scrollSpy).toHaveBeenCalledTimes(1);
+        const scrolled = scrollSpy.mock.contexts[0] as { props: { testID?: string } };
+        expect(scrolled.props.testID).toBe('hub-groceries');
+        expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
       });
 
       // #171: Confirm order targets the grocery region, which mounts only once
