@@ -72,6 +72,22 @@ public sealed class StorageServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void Registering_a_table_adds_one_purger_per_entity_type()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IEntityRepository<FakeEntity>>(new InMemoryEntityRepository<FakeEntity>());
+        services.AddTableRepository<FakeEntity>("People");
+        services.AddTableRepository<FakeEntity>("People");
+        using var provider = services.BuildServiceProvider();
+
+        // The same entity type registered twice still gets exactly one purger,
+        // and it is the generic per-table purger over that type (#124 AC2).
+        var purger = Assert.Single(provider.GetServices<IHouseholdPartitionPurger>());
+        Assert.IsType<HouseholdPartitionPurger<FakeEntity>>(purger);
+        Assert.Equal(typeof(FakeEntity), purger.EntityType);
+    }
+
+    [Fact]
     public void AddStorage_registers_the_provisioning_hosted_service_once()
     {
         var configuration = new ConfigurationBuilder().Build();

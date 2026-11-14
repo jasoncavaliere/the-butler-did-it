@@ -9,8 +9,8 @@ namespace Butler.Api.Application.Households;
 /// <summary>
 /// Composition entry point for the Households feature (Engineering Contract 7.2).
 /// Registers the household aggregate's tables on the shared F3 storage seam, the
-/// repository, the application service, and the clock; <c>Program.cs</c> wires it
-/// with a single <see cref="AddHouseholdFeature"/> call.
+/// repository, the application services (including teardown), and the clock;
+/// <c>Program.cs</c> wires it with a single <see cref="AddHouseholdFeature"/> call.
 /// </summary>
 public static class HouseholdServiceCollectionExtensions
 {
@@ -26,6 +26,10 @@ public static class HouseholdServiceCollectionExtensions
 
         services.TryAddSingleton<IHouseholdRepository, TableHouseholdRepository>();
         services.TryAddScoped<IHouseholdService, HouseholdService>();
+
+        // Teardown enumerates the per-table purgers AddTableRepository registers,
+        // so it needs no table list of its own (#124).
+        services.TryAddScoped<IHouseholdTeardownService, HouseholdTeardownService>();
 
         // Injected clock so CreatedUtc stays deterministically testable (7.5).
         services.TryAddSingleton(TimeProvider.System);

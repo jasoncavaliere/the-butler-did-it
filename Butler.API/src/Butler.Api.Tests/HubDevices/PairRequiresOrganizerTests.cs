@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
+using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.HubDevices;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Hosting;
@@ -42,11 +43,15 @@ public sealed class PairRequiresOrganizerTests
         using var factory = CreateAuthEnabledFactory();
         using var client = factory.CreateClient();
 
-        var participantToken = ParticipantSession.Encode(
-            Guid.NewGuid().ToString("N"),
-            Guid.NewGuid().ToString("N"));
+        // A session authenticates only while its household exists (#124), and this
+        // JWT-mode host cannot POST /households, so seed the household directly.
+        var householdId = Guid.NewGuid().ToString("N");
+        await factory.Services.GetRequiredService<IHouseholdRepository>().AddAsync(
+            new HouseholdEntity { RowKey = householdId, Name = "Home", OrganizerObjectId = "o" });
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, PairUri(Guid.NewGuid().ToString("N")))
+        var participantToken = ParticipantSession.Encode(householdId, Guid.NewGuid().ToString("N"));
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, PairUri(householdId))
         {
             Content = JsonContent.Create(new { deviceName = "Kitchen hub" }),
         };
