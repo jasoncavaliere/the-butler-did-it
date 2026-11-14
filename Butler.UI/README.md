@@ -98,8 +98,8 @@ touching anything under `public/` or `scripts/`.
   always renders the bar, sensitive affordances are hidden without a signed-in organizer, and the API
   client attaches the organizer bearer automatically. `OrganizerBar` renders a sensitive action only
   when `HubShell` supplies its handler. Household is wired: it opens the organizer's room and chore
-  editor (#112). Confirm order is wired: it scrolls the hub to `GroceryCart` and
-  focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). After
+  editor (#112). Your data is wired: it opens the plain-language data page (#125). Confirm order is
+  wired: it scrolls the hub to `GroceryCart` and focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). After
   Confirm order succeeds the hub shows the order receipt (`OrderReceipt`, #115) until it is
   dismissed back to the hub. Edit roster
   is #167 and Household teardown is #168; until they land, those buttons are not rendered.

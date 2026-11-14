@@ -104,9 +104,10 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * or an unreachable service) so the wall never shows a crash or a blank screen.
  * There is no password or sign-in prompt here: participants glance and tap, and
  * organizer sign-in is a separate affordance (T4). Of the organizer's sensitive
- * actions only Confirm order is wired today, and it never confirms anything: it
- * scrolls to the {@link GroceryCart} and focuses the cart's own Confirm button,
- * which keeps the final tap (G4).
+ * actions, Household, Insights and Your data are wired through handlers the
+ * navigator supplies, and Confirm order is wired here. Confirm order never
+ * confirms anything: it scrolls to the {@link GroceryCart} and focuses the
+ * cart's own Confirm button, which keeps the final tap (G4).
  *
  * When that tap succeeds the cart hands the confirm response up, and the shell
  * shows an {@link OrderReceipt} in place of its whole body (#115): the lines,
@@ -207,6 +208,7 @@ export function HubShell({
   idleTimeoutMs = IDLE_TIMEOUT_MS,
   onEditHousehold,
   onShowInsights,
+  onShowYourData,
 }: {
   idleTimeoutMs?: number;
   /**
@@ -221,6 +223,12 @@ export function HubShell({
    * button.
    */
   onShowInsights?: () => void;
+  /**
+   * Opens the organizer's Your data page (#125). Supplied by the navigator, like
+   * {@link onEditHousehold}; when omitted, the organizer bar shows no Your data
+   * button.
+   */
+  onShowYourData?: () => void;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -252,6 +260,7 @@ export function HubShell({
       verifyDataset={householdId === null ? undefined : guard.verify}
       onEditHousehold={onEditHousehold}
       onShowInsights={onShowInsights}
+      onShowYourData={onShowYourData}
     />
   );
 }
@@ -262,11 +271,13 @@ function HubShellBody({
   verifyDataset,
   onEditHousehold,
   onShowInsights,
+  onShowYourData,
 }: {
   idleTimeoutMs: number;
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
   onEditHousehold: (() => void) | undefined;
   onShowInsights: (() => void) | undefined;
+  onShowYourData: (() => void) | undefined;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -471,13 +482,14 @@ function HubShellBody({
           <HubGlanceReporter householdId={householdId} client={client} />
         </>
       ) : null}
-      {/* Household (#112) and Insights (#123), when the navigator supplies them,
-          and Confirm order are wired. Edit roster (#167) and Household teardown
+      {/* Household (#112), Insights (#123) and Your data (#125), when the
+          navigator supplies them, and Confirm order are wired. Edit roster (#167) and Household teardown
           (#168) are deliberately not passed, so OrganizerBar does not render them. */}
       <View style={styles.chrome} testID="hub-chrome">
         <OrganizerBar
           onEditHousehold={onEditHousehold}
           onShowInsights={onShowInsights}
+          onShowYourData={onShowYourData}
           onConfirmOrder={handleConfirmOrder}
         />
         <HubPairing />
