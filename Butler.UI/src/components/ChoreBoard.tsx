@@ -13,6 +13,7 @@ import { useApiClient } from '../api/useApiClient';
 import { DEFAULT_HUB_LAYOUT, type HubLayout } from '../layout/hubLayout';
 import { radii, space, typeScale } from '../layout/tokens';
 import { readGlance, writeGlance } from '../offline/glanceCache';
+import { hubTouchTarget } from '../theme/theme';
 import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext } from '../offline/WriteQueueContext';
@@ -899,7 +900,9 @@ type BoardStyles = ReturnType<typeof makeBoardStyles>;
 /**
  * The board's styles for a hub layout. Every size and gap comes from the layout
  * (or the tokens), and the only spacing between measured boxes is `gap`, so the
- * rendered board matches `measureHubBoard` (#118).
+ * rendered board matches `measureHubBoard` (#118). Each chore row is at least
+ * `hubTouchTarget` (48) square and rows sit at least `minTargetGap` (8) apart
+ * via the layout's `groupGap` (#120).
  */
 function makeBoardStyles(layout: HubLayout) {
   const columns = layout.boardColumns > 1;
@@ -934,6 +937,7 @@ function makeBoardStyles(layout: HubLayout) {
       alignItems: 'center',
       gap: space.s3,
       minHeight: layout.rowHeight,
+      minWidth: hubTouchTarget,
       backgroundColor: colors.card,
       borderRadius: radii.md,
       borderWidth: 1,

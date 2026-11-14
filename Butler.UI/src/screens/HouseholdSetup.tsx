@@ -23,6 +23,7 @@ import {
   type StarterTemplate,
 } from '../setup/starterTemplates';
 import { useHousehold } from '../state/HouseholdContext';
+import { claimColors } from '../theme/theme';
 
 /**
  * The onboarding flow as a discriminated state machine. Modelling the created
@@ -62,9 +63,6 @@ const LOADING_LINES: Record<Exclude<FlowState['step'], 'done'>, string> = {
   chores: 'Adding the chores...',
 };
 
-/** Preset claim colours an organizer can assign to a person's tile. */
-const CLAIM_COLORS = ['#D9B25A', '#7FB2E5', '#E58B7F', '#8FD98F', '#C79FE5'] as const;
-
 /** The chore recurrence options the API accepts. */
 const CADENCES = ['Daily', 'Weekly'] as const;
 
@@ -84,7 +82,9 @@ function templateLabel(template: StarterTemplate): string {
  * the H1-H4 endpoints, driven entirely through the F7 typed API client (no
  * ad-hoc fetch). The steps run in order - create the household, add rooms, add
  * people (each with a child flag and claim colour), then map starter chores to
- * rooms. The chores step offers starter chores from the bundled catalog
+ * rooms. The claim colour is one of the six design-token claim colours
+ * ({@link claimColors}), stored as its dark-variant hex because the hub is
+ * dark-only (#120). The chores step offers starter chores from the bundled catalog
  * (`src/setup/`) under each created room whose name or alias matches a catalog
  * room; the organizer toggles the ones they want and adds them in one tap, next
  * to the custom-chore form. Each step POSTs to its endpoint. While a request is
@@ -432,17 +432,18 @@ export function HouseholdSetup() {
           </View>
           <Text style={styles.label}>Claim colour</Text>
           <View style={styles.swatches}>
-            {CLAIM_COLORS.map((color) => (
+            {claimColors.map((color) => (
               <Pressable
-                key={color}
-                testID={`claim-color-${color}`}
+                key={color.name}
+                testID={`claim-color-${color.name}`}
                 accessibilityRole="button"
-                accessibilityState={{ selected: personClaimColor === color }}
-                onPress={() => setPersonClaimColor(color)}
+                accessibilityLabel={color.name}
+                accessibilityState={{ selected: personClaimColor === color.dark }}
+                onPress={() => setPersonClaimColor(color.dark)}
                 style={[
                   styles.swatch,
-                  { backgroundColor: color },
-                  personClaimColor === color && styles.swatchSelected,
+                  { backgroundColor: color.dark },
+                  personClaimColor === color.dark && styles.swatchSelected,
                 ]}
               />
             ))}

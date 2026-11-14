@@ -7,8 +7,10 @@ import tokensJson from '../../design-tokens.json';
  * `hubLayout.test.ts` rather than a runtime parser, the same pattern as
  * `src/setup/starterTemplates.ts`.
  *
- * Only sizes, spacing and motion durations are exposed. The palette stays in
- * `src/components/Screen.tsx` and is not changed here.
+ * Only sizes, spacing and motion durations are exposed here. Colours (claim
+ * colours and the light/dark palettes) are exposed by `src/theme/theme.ts`,
+ * which re-exports these sizes too; the hub's rendered palette stays in
+ * `src/components/Screen.tsx` (#120).
  */
 
 /** The type scale (px): caption 14, body 18, subhead 22, title 28, display 44. */
@@ -54,6 +56,19 @@ export const radii: Readonly<{ sm: number; md: number; lg: number; pill: number 
 
 /** The smallest tappable box (px). */
 export const minTouchTarget: number = tokensJson.min_touch_target;
+
+/**
+ * The hub's (ambient, shared-tablet) touch-target floor (#120 AC4): 48, the
+ * `s8` spacing step. Name tiles and chore rows measure at least this square, a
+ * step above the generic 44 floor because the hub is tapped at arm's length.
+ */
+export const hubTouchTarget: number = space.s8;
+
+/**
+ * The smallest gap between adjacent hub targets (#120 AC5): 8, the `s2`
+ * spacing step, so a tap cannot land between two rows or tiles ambiguously.
+ */
+export const minTargetGap: number = space.s2;
 
 /** The hub (ambient) density's row floor, ADR-0008: 64. */
 export const densityHub: Readonly<{ rowMinHeight: number }> = Object.freeze({

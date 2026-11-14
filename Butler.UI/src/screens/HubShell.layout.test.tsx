@@ -14,6 +14,7 @@ import {
   type HubLayout,
 } from '../layout/hubLayout';
 import { resetSessionFallbackStorage } from '../offline/storage';
+import { hubTouchTarget, minTargetGap } from '../theme/theme';
 import { currentWeekIso } from '../offline/weekIso';
 import { HouseholdProvider } from '../state/HouseholdContext';
 
@@ -269,5 +270,43 @@ describe('HubShell layout (#118)', () => {
     expect(screen.queryByTestId('hub-main-landscape')).toBeNull();
     expect(screen.getByTestId('hub-scroll')).toBeOnTheScreen();
     expect(screen.getAllByTestId(/^chore-item-c\d+$/)).toHaveLength(8);
+  });
+});
+
+describe('HubShell touch targets (#120)', () => {
+  const windows = [
+    [1280, 800],
+    [1920, 1200],
+    [800, 1280],
+  ] as const;
+
+  it.each(windows)('name tiles and chore rows render at least 48x48 at %sx%s (AC4)', async (width, height) => {
+    await renderHubAt(width, height);
+
+    for (const person of roster) {
+      const tile = styleOf(`name-tile-${person.personId}`);
+      expect(tile.minHeight as number).toBeGreaterThanOrEqual(hubTouchTarget);
+      expect(tile.minWidth as number).toBeGreaterThanOrEqual(hubTouchTarget);
+    }
+    for (const chore of chores) {
+      const row = styleOf(`chore-item-${chore.choreId}`);
+      expect(row.minHeight as number).toBeGreaterThanOrEqual(hubTouchTarget);
+      expect(row.minWidth as number).toBeGreaterThanOrEqual(hubTouchTarget);
+    }
+  });
+
+  it.each(windows)('adjacent tiles and chore rows sit at least 8dp apart at %sx%s (AC5)', async (width, height) => {
+    await renderHubAt(width, height);
+
+    // Tiles are siblings in the tile row; rows are siblings in a person group;
+    // person groups are siblings in the groups container. Each container's gap
+    // is the space between adjacent targets.
+    expect(styleOf('hub-name-tiles').gap as number).toBeGreaterThanOrEqual(minTargetGap);
+    for (const person of roster) {
+      expect(styleOf(`chore-board-person-today-${person.personId}`).gap as number).toBeGreaterThanOrEqual(
+        minTargetGap,
+      );
+    }
+    expect(styleOf('chore-board-groups-today').gap as number).toBeGreaterThanOrEqual(minTargetGap);
   });
 });

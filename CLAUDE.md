@@ -73,6 +73,7 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
 | `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
 | `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration and the PWA post-export step. |
+| `src/theme/` | Typed theme module over `design-tokens.json` (claim colours, light/dark palettes, spacing, touch targets) and the WCAG contrast helper (#120). |
 | `design-tokens.json`, `design/` | Design tokens and the design decision record. |
 
 Tests sit next to the source (`*.test.tsx`), jest-expo preset. Design notes: `Butler.UI/ARCHITECTURE.md`.
