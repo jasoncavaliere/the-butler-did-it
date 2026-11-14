@@ -6,7 +6,7 @@ tags: [vision, strategy, household, chores, fair assignment, grocery, store conn
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 20-architecture-overview, 90-glossary]
+related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 20-architecture-overview, 90-glossary]
 sources:
   - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
   - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
@@ -160,6 +160,8 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 - **Tap-to-claim security trade-off.** No passwords for participants is what makes adoption ambient, but it means the hub trusts whoever is standing at it. De-risk: keep real credentials, billing, teardown, and large purchases behind the organizer's auth, so a no-password tap can never do irreversible or costly things.
 - **Retention and the novelty cliff.** Chore apps are widely observed to lose families once novelty fades, consistent with the general day-90 engagement collapse [19]. De-risk: make the daily habit a glance (a pull) rather than a chore (a push), and land calendar at v1.1 so the wall is worth checking every morning. Watch month-3 weekly-active households and passive glances per day as the early warning.
 
+Each of these risks is tested with households after every demo, using the [Customer Interview Guide](13-customer-interview-guide.md).
+
 ## Sources
 
 1. Oxfam, "Time to Care" (2020). https://www.oxfam.org/en/not-all-gaps-are-created-equal-true-value-care-work
@@ -187,5 +189,6 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 - [Overview](00-overview.md) - what Butler is and how this knowledge base is organized.
 - [Hub Hardware Findings](11-hub-hardware-findings.md) - which tablet the hub runs on and how it boots into Butler.
 - [Pricing Hypothesis](12-pricing-hypothesis.md) - the per-household price points, the pilot-to-paid offer, and how willingness to pay is tested.
+- [Customer Interview Guide](13-customer-interview-guide.md) - the post-demo questions that test this vision's risks, retention thesis, and business model.
 - [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.
