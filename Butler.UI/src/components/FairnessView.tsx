@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import type { FairnessResponse, PersonShare } from '../api/models';
-import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { colors } from './Screen';
+import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
 /**
  * The hub fairness view (Epic 40 C6, journey 6.3): the contribution balance that
@@ -14,15 +14,24 @@ import { colors } from './Screen';
  * share of the household's completed effort - with the top contributor's share
  * called out (the Section 10 fairness guardrail).
  *
- * It is a read-only glance: there is no tap target and no write. Every load
- * outcome is a calm, deliberate state (loading, error, an empty "nothing yet"
- * balance, or the ready distribution) so the wall never shows a crash or a blank
- * region. A person's claim colour accents their bar when supplied via
+ * It is a read-only glance: there is no write. Every load outcome is a calm,
+ * deliberate state inside the same headed region (P8, ADR-0007): a skeleton while
+ * loading, a designed "nothing to weigh yet" empty state, or a friendly error
+ * (fixed copy, never the raw API text) with a "Try again" that re-requests the
+ * balance. A person's claim colour accents their bar when supplied via
  * {@link people}; otherwise the neutral brass accent is used, and the top
  * contributor is always emphasised regardless of colour.
  */
 
 type Phase = 'loading' | 'ready' | 'error';
+
+const COPY = {
+  heading: 'Contribution balance',
+  loading: 'Weighing the load...',
+  emptyTitle: 'Nothing to weigh yet.',
+  emptyDetail: 'The balance fills in as chores are done.',
+  loadFailed: 'The balance did not load just now. Tap Try again.',
+} as const;
 
 /** A person's claim colour, keyed by id, so a bar can glow in their colour. */
 export type FairnessPerson = { personId: string; claimColor: string | null };
@@ -42,8 +51,9 @@ export function FairnessView({
 }) {
   const client = useApiClient();
   const [phase, setPhase] = useState<Phase>('loading');
-  const [message, setMessage] = useState('');
   const [balance, setBalance] = useState<FairnessResponse | null>(null);
+  // Bumped by "Try again"; listed in the load effect's deps so a bump re-reads.
+  const [reloadRevision, setReloadRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -56,7 +66,6 @@ export function FairnessView({
           return;
         }
         if (!result || !result.ok) {
-          setMessage(result ? describeApiError(result.error) : 'The balance is unavailable.');
           setPhase('error');
           return;
         }
@@ -67,22 +76,32 @@ export function FairnessView({
     return () => {
       active = false;
     };
-  }, [client, householdId, windowWeeks]);
+  }, [client, householdId, windowWeeks, reloadRevision]);
+
+  // Loading is set here, in the event handler, never synchronously in the effect.
+  const retry = useCallback(() => {
+    setPhase('loading');
+    setReloadRevision((previous) => previous + 1);
+  }, []);
 
   if (phase === 'loading') {
     return (
-      <View style={styles.centered} testID="fairness-loading">
-        <ActivityIndicator color={colors.brass} />
-        <Text style={styles.status}>Weighing the load...</Text>
-      </View>
+      <Region>
+        <WidgetSkeleton testID="fairness-loading" caption={COPY.loading} />
+      </Region>
     );
   }
 
   if (phase === 'error') {
     return (
-      <Text style={styles.status} testID="fairness-error">
-        {message}
-      </Text>
+      <Region>
+        <WidgetError
+          testID="fairness-error"
+          message={COPY.loadFailed}
+          onRetry={retry}
+          retryTestID="fairness-retry"
+        />
+      </Region>
     );
   }
 
@@ -94,22 +113,14 @@ export function FairnessView({
   // what fills this in, so before any completion there is simply no balance.
   if (shares.length === 0 || total === 0) {
     return (
-      <View style={styles.view} testID="fairness-view">
-        <Text style={styles.heading} accessibilityRole="header">
-          Contribution balance
-        </Text>
-        <Text style={styles.status} testID="fairness-empty">
-          No chores completed yet this stretch.
-        </Text>
-      </View>
+      <Region>
+        <WidgetEmpty testID="fairness-empty" title={COPY.emptyTitle} detail={COPY.emptyDetail} />
+      </Region>
     );
   }
 
   return (
-    <View style={styles.view} testID="fairness-view">
-      <Text style={styles.heading} accessibilityRole="header">
-        Contribution balance
-      </Text>
+    <Region>
       {shares.map((share) => (
         <ShareBar
           key={share.personId}
@@ -118,6 +129,18 @@ export function FairnessView({
           isTop={share.personId === topId}
         />
       ))}
+    </Region>
+  );
+}
+
+/** The headed region every state renders inside, so the view never goes blank. */
+function Region({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.view} testID="fairness-view">
+      <Text style={styles.heading} accessibilityRole="header">
+        {COPY.heading}
+      </Text>
+      {children}
     </View>
   );
 }
@@ -174,8 +197,6 @@ function formatPercent(pct: number): string {
 
 const styles = StyleSheet.create({
   view: { alignSelf: 'stretch', gap: 12 },
-  centered: { alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 16 },
-  status: { color: colors.muted, fontSize: 18, textAlign: 'center' },
   heading: {
     color: colors.brass,
     fontSize: 13,

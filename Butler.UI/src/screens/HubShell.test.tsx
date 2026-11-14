@@ -353,6 +353,54 @@ describe('HubShell', () => {
     expect(screen.queryByTestId('sync-indicator')).toBeNull();
   });
 
+  it('renders the today panel empty state, not its error, when no household is selected', async () => {
+    useApiClientMock.mockReturnValue(
+      clientWith({
+        household: okHousehold('Home'),
+        people: { ok: true, status: 200, data: [], etag: null },
+      }),
+    );
+
+    await renderHub(null);
+
+    await waitFor(() => expect(screen.getByTestId('today-panel-empty')).toBeOnTheScreen());
+    expect(screen.queryByTestId('today-panel-error')).toBeNull();
+  });
+
+  it('TodayPanel shows a friendly error when the shell load fails, and Try again reloads the household and roster', async () => {
+    // An http 500 (not a network failure), so the glance cache cannot stand in.
+    const serverError: ApiResult<unknown> = {
+      ok: false,
+      error: { kind: 'http', status: 500, title: 'Internal Server Error' },
+    };
+    const responses: Responses = { household: serverError, people: serverError };
+    const client = clientWith(responses);
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('today-panel-error')).toBeOnTheScreen());
+    expect(screen.getByText("Today's board did not load. Tap Try again.")).toBeOnTheScreen();
+    expect(screen.getByTestId('today-panel')).not.toHaveTextContent(/Internal Server Error/);
+
+    const get = client.get as unknown as jest.Mock;
+    const householdReads = () =>
+      get.mock.calls.filter(([path]: [string]) => path === '/households/hh-1').length;
+    const peopleReads = () =>
+      get.mock.calls.filter(([path]: [string]) => path === '/households/hh-1/people').length;
+    const before = { household: householdReads(), people: peopleReads() };
+
+    responses.household = okHousehold('Home');
+    responses.people = { ok: true, status: 200, data: roster, etag: null };
+    await act(async () => fireEvent.press(screen.getByTestId('today-panel-retry')));
+
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Home'));
+    expect(householdReads()).toBeGreaterThan(before.household);
+    expect(peopleReads()).toBeGreaterThan(before.people);
+    expect(screen.queryByTestId('today-panel-error')).toBeNull();
+    expect(screen.getByText('Alex')).toBeOnTheScreen();
+  });
+
   it('shows the loading state until the reads resolve', async () => {
     let resolve: (value: [ApiResult<unknown>, ApiResult<unknown>]) => void = () => {};
     const pending = new Promise<[ApiResult<unknown>, ApiResult<unknown>]>((r) => {
