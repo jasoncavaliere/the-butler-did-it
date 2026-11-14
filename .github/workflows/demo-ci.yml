@@ -29,8 +29,9 @@
 #            demo/ci/check-fully-settings.sh): placeholder-only start URL and
 #            kiosk PIN, pinned values, no secrets, every key documented.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
-#            its service worker on :8080, the single origin (SPA fallback, cache
-#            headers, /api proxy, #96), a household created and read back
+#            its service worker on :8080 (with the precache list build:web
+#            injects, demo/ci/check-precache.cjs, #178), the single origin
+#            (SPA fallback, cache headers, /api proxy, #96), a household created and read back
 #            through the hub UI with every API call same-origin (#96), the
 #            API's table provisioning, and that a household survives `down` +
 #            `up`. Then runs the demo CLI against it (#102): status, logs,
@@ -362,11 +363,19 @@ jobs:
       - name: Tables provisioned by the API on first boot
         run: docker compose -f "$COMPOSE_FILE_PATH" logs api | grep -E 'Provisioned [0-9]+ Table Storage tables'
 
-      # AC5: the PWA build is served on host port 8080.
+      # AC5: the PWA build is served on host port 8080. #178: the served sw.js
+      # carries the precache list build:web injects (12-hex build id, app shell,
+      # an /_expo/**.js bundle), not just the marker, and the checker rejects
+      # the placeholder worker a bare expo export copies from public/sw.js.
       - name: Hub served on :8080
         run: |
           curl -fsS "$HUB_URL/" | grep -qi '<html'
-          curl -fsS "$HUB_URL/sw.js" | grep -qF 'butler-precache:begin'
+          node demo/ci/check-precache.cjs "$HUB_URL/sw.js"
+          if node demo/ci/check-precache.cjs Butler.UI/public/sw.js; then
+            echo "check-precache accepted the bare-export worker (Butler.UI/public/sw.js)" >&2
+            exit 1
+          fi
+          echo "rejects the bare-export worker: ok"
           curl -fsS "$HUB_URL/manifest.json" > /dev/null
 
       # #96: one origin on :8080 - SPA fallback, cache headers and the /api
