@@ -1,8 +1,34 @@
-import { render, screen, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { YOUR_DATA_COPY, YourDataScreen } from './YourDataScreen';
+import type { IAuthProvider } from '../auth/authProvider';
+import { OrganizerBar } from '../auth/OrganizerBar';
 import { typeScale } from '../layout/tokens';
+import { OrganizerProvider } from '../state/OrganizerContext';
+
+const organizerAuth: IAuthProvider = {
+  kind: 'fake',
+  signIn: () =>
+    Promise.resolve({ organizer: { subject: 'oid-1', name: 'Robin Organizer' }, token: 'bearer' }),
+  signOut: () => Promise.resolve(),
+};
+
+/** Render the page beside an organizer bar under one organizer session. */
+async function renderWithOrganizer(onOpenTeardown?: () => void) {
+  await render(
+    <OrganizerProvider authProvider={organizerAuth}>
+      <OrganizerBar />
+      <YourDataScreen onOpenTeardown={onOpenTeardown} />
+    </OrganizerProvider>,
+  );
+}
+
+async function signIn() {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('organizer-sign-in'));
+  });
+}
 
 /** Every table registered with AddTableRepository on main, with its plain label. */
 const REGISTERED_TABLES: readonly [string, string][] = [
@@ -101,5 +127,37 @@ describe('YourDataScreen (#125)', () => {
 
     const detail = screen.getByText(YOUR_DATA_COPY.stored.onTablet);
     expect(StyleSheet.flatten(detail.props.style).fontSize).toBeGreaterThanOrEqual(typeScale.body);
+  });
+
+  describe('Delete household link (#168 AC12)', () => {
+    it('shows the Delete household link to a signed-in organizer and calls onOpenTeardown', async () => {
+      const onOpenTeardown = jest.fn();
+      await renderWithOrganizer(onOpenTeardown);
+      await signIn();
+
+      const deletion = screen.getByTestId('your-data-delete');
+      const link = within(deletion).getByTestId('your-data-teardown-link');
+      expect(link).toHaveTextContent(YOUR_DATA_COPY.deletion.link);
+      await act(async () => {
+        fireEvent.press(link);
+      });
+
+      expect(onOpenTeardown).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the link without an organizer', async () => {
+      await renderWithOrganizer(jest.fn());
+
+      expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+      expect(screen.queryByTestId('your-data-teardown-link')).toBeNull();
+    });
+
+    it('hides the link without onOpenTeardown', async () => {
+      await renderWithOrganizer();
+      await signIn();
+
+      expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+      expect(screen.queryByTestId('your-data-teardown-link')).toBeNull();
+    });
   });
 });

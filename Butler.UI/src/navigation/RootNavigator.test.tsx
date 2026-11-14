@@ -290,4 +290,112 @@ describe('RootNavigator', () => {
     expect(screen.getByTestId('name-tile-p1')).toHaveTextContent('Alexis');
     expect(screen.queryByTestId('hub-loading')).toBeNull();
   });
+
+  describe('household teardown (#168)', () => {
+    /**
+     * The hub's reads from pathAwareClient; a DELETE of hh-77 succeeds (204) and
+     * every other write (the board's generate) fails as unreachable.
+     */
+    function teardownServerClient() {
+      const base = pathAwareClient();
+      const update = jest.fn(
+        async (path: string, _body: unknown, options?: { method?: string }): Promise<ApiResult<unknown>> => {
+          if (path === '/households/hh-77' && options?.method === 'DELETE') {
+            return { ok: true, status: 204, data: undefined, etag: null };
+          }
+          return { ok: false, error: { kind: 'network', status: 0, title: 'offline' } };
+        },
+      );
+      const client: ApiClient = {
+        baseUrl: base.baseUrl,
+        get: base.get,
+        update: update as unknown as ApiClient['update'],
+      };
+      return { client, update };
+    }
+
+    const deleteCalls = (update: jest.Mock) =>
+      update.mock.calls.filter(([, , options]) => options?.method === 'DELETE');
+
+    async function renderSignedIn(props: { deletedNoticeMs?: number } = {}) {
+      await render(
+        <HouseholdProvider initialHouseholdId="hh-77">
+          <OrganizerProvider authProvider={organizerAuth}>
+            <RootNavigator {...props} />
+          </OrganizerProvider>
+        </HouseholdProvider>,
+      );
+      expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+      await press('organizer-sign-in');
+    }
+
+    it('opens the household teardown screen from the organizer bar (#168)', async () => {
+      const { client } = teardownServerClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderSignedIn();
+      await press('affordance-household-teardown');
+
+      expect(await screen.findByTestId('household-teardown-screen')).toBeOnTheScreen();
+      expect(await screen.findByTestId('teardown-household-name')).toHaveTextContent(
+        'The Test Household',
+      );
+    });
+
+    it('Cancel returns to the hub from the organizer bar (#168)', async () => {
+      const { client, update } = teardownServerClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderSignedIn();
+      await press('affordance-household-teardown');
+      await screen.findByTestId('teardown-household-name');
+      await press('teardown-cancel');
+
+      await waitFor(() => expect(screen.queryByTestId('household-teardown-screen')).toBeNull());
+      expect(screen.getByTestId('hub-shell')).toBeOnTheScreen();
+      expect(deleteCalls(update)).toHaveLength(0);
+    });
+
+    it('opens the teardown screen from the Your data page, and Cancel returns to the hub (#168)', async () => {
+      const { client, update } = teardownServerClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderSignedIn();
+      await press('affordance-your-data');
+      expect(await screen.findByTestId('your-data-screen')).toBeOnTheScreen();
+      await press('your-data-teardown-link');
+
+      expect(await screen.findByTestId('household-teardown-screen')).toBeOnTheScreen();
+      await screen.findByTestId('teardown-household-name');
+      await press('teardown-cancel');
+
+      await waitFor(() => expect(screen.queryByTestId('household-teardown-screen')).toBeNull());
+      await waitFor(() => expect(screen.queryByTestId('your-data-screen')).toBeNull());
+      expect(screen.getByTestId('hub-shell')).toBeOnTheScreen();
+      expect(deleteCalls(update)).toHaveLength(0);
+    });
+
+    it('after a successful teardown shows Household deleted, then the setup wizard (#168)', async () => {
+      const { client, update } = teardownServerClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderSignedIn({ deletedNoticeMs: 500 });
+      await press('affordance-household-teardown');
+      await screen.findByTestId('teardown-household-name');
+      await act(async () => {
+        fireEvent.changeText(screen.getByTestId('teardown-confirm-input'), 'The Test Household');
+      });
+      await press('teardown-delete');
+
+      expect(deleteCalls(update)).toEqual([
+        ['/households/hh-77', { confirmName: 'The Test Household' }, { method: 'DELETE' }],
+      ]);
+      expect(await screen.findByTestId('household-deleted-screen')).toBeOnTheScreen();
+      expect(screen.queryByTestId('hub-shell')).toBeNull();
+      expect(screen.queryByTestId('household-teardown-screen')).toBeNull();
+
+      expect(await screen.findByTestId('step-household', {}, { timeout: 3000 })).toBeOnTheScreen();
+      expect(screen.queryByTestId('household-deleted-screen')).toBeNull();
+    });
+  });
 });

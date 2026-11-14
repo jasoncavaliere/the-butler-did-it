@@ -1093,9 +1093,8 @@ describe('HubShell', () => {
     /**
      * #57: the hub wires the Confirm order affordance, and it never confirms
      * anything itself - it moves the organizer to the cart's own Confirm button,
-     * which keeps the final tap (G4). Edit roster (#167) renders only when the
-     * navigator supplies onEditRoster (tested above). Household teardown (#168)
-     * has no screen yet, so it is not rendered at all.
+     * which keeps the final tap (G4). Edit roster (#167) and Delete household
+     * (#168) render only when the navigator supplies their handlers.
      */
     describe('organizer actions (#57)', () => {
       const SENSITIVE = [
@@ -1130,7 +1129,7 @@ describe('HubShell', () => {
         });
       }
 
-      it('a signed-in organizer sees Confirm order but no Household teardown', async () => {
+      it('shows no Delete household when the hub is not given onHouseholdTeardown (#168)', async () => {
         useApiClientMock.mockReturnValue(interactiveClient());
 
         await renderHubWithOrganizer(fakeProvider());
@@ -1139,6 +1138,35 @@ describe('HubShell', () => {
 
         expect(screen.getByTestId('organizer-actions')).toBeOnTheScreen();
         expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen();
+        expect(screen.queryByTestId('affordance-household-teardown')).toBeNull();
+        expect(screen.queryByText('Delete household')).toBeNull();
+      });
+
+      it('passes onHouseholdTeardown to the organizer bar (#168)', async () => {
+        useApiClientMock.mockReturnValue(interactiveClient());
+        const onHouseholdTeardown = jest.fn();
+
+        await renderHubWithOrganizer(fakeProvider(), { onHouseholdTeardown });
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await signIn();
+
+        expect(screen.getByTestId('affordance-household-teardown')).toHaveTextContent(
+          'Delete household',
+        );
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('affordance-household-teardown'));
+        });
+
+        expect(onHouseholdTeardown).toHaveBeenCalledTimes(1);
+      });
+
+      it('shows no Delete household while no organizer is signed in, even with onHouseholdTeardown supplied (#168)', async () => {
+        useApiClientMock.mockReturnValue(interactiveClient());
+
+        await renderHubWithOrganizer(fakeProvider(), { onHouseholdTeardown: jest.fn() });
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+        expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
         expect(screen.queryByTestId('affordance-household-teardown')).toBeNull();
         expect(screen.queryByText('Delete household')).toBeNull();
       });

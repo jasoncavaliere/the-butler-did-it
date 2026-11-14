@@ -44,8 +44,8 @@ export type OrganizerBarProps = {
    */
   onShowVersion?: () => void;
   /**
-   * Invoked when the organizer taps "Delete household" (teardown). When omitted,
-   * the button is not rendered.
+   * Invoked when the organizer taps "Delete household" (the household teardown
+   * screen, #168). When omitted, the button is not rendered.
    */
   onHouseholdTeardown?: () => void;
   /** Invoked when the organizer taps "Confirm order". When omitted, the button is not rendered. */

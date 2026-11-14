@@ -107,8 +107,8 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * or an unreachable service) so the wall never shows a crash or a blank screen.
  * There is no password or sign-in prompt here: participants glance and tap, and
  * organizer sign-in is a separate affordance (T4). Of the organizer's sensitive
- * actions, Household, Edit roster (#167), Insights and Your data are wired
- * through handlers the navigator supplies, and Confirm order is wired here. Confirm order never
+ * actions, Household, Edit roster (#167), Insights, Your data and Delete
+ * household (#168) are wired through handlers the navigator supplies, and Confirm order is wired here. Confirm order never
  * confirms anything: it scrolls to the {@link GroceryCart} and focuses the
  * cart's own Confirm button, which keeps the final tap (G4).
  *
@@ -233,6 +233,7 @@ export function HubShell({
   idleTimeoutMs = IDLE_TIMEOUT_MS,
   onEditHousehold,
   onEditRoster,
+  onHouseholdTeardown,
   onShowInsights,
   onShowYourData,
   refreshSignal = 0,
@@ -250,6 +251,12 @@ export function HubShell({
    * roster button.
    */
   onEditRoster?: () => void;
+  /**
+   * Opens the household teardown screen (#168). Supplied by the navigator, like
+   * {@link onEditHousehold}; when omitted, the organizer bar shows no Delete
+   * household button.
+   */
+  onHouseholdTeardown?: () => void;
   /**
    * Opens the organizer's Insights screen (#123). Supplied by the navigator, like
    * {@link onEditHousehold}; when omitted, the organizer bar shows no Insights
@@ -297,6 +304,7 @@ export function HubShell({
       verifyDataset={householdId === null ? undefined : guard.verify}
       onEditHousehold={onEditHousehold}
       onEditRoster={onEditRoster}
+      onHouseholdTeardown={onHouseholdTeardown}
       onShowInsights={onShowInsights}
       onShowYourData={onShowYourData}
       refreshSignal={refreshSignal}
@@ -314,6 +322,7 @@ function HubShellBody({
   verifyDataset,
   onEditHousehold,
   onEditRoster,
+  onHouseholdTeardown,
   onShowInsights,
   onShowYourData,
   refreshSignal,
@@ -322,6 +331,7 @@ function HubShellBody({
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
   onEditHousehold: (() => void) | undefined;
   onEditRoster: (() => void) | undefined;
+  onHouseholdTeardown: (() => void) | undefined;
   onShowInsights: (() => void) | undefined;
   onShowYourData: (() => void) | undefined;
   refreshSignal: number;
@@ -555,14 +565,14 @@ function HubShellBody({
           <HubGlanceReporter householdId={householdId} client={client} />
         </>
       ) : null}
-      {/* Household (#112), Edit roster (#167), Insights (#123) and Your data
-          (#125), when the navigator supplies them, and Confirm order and Version
-          (#126) are wired. Household teardown (#168) is deliberately not passed,
-          so OrganizerBar does not render it. */}
+      {/* Household (#112), Edit roster (#167), Insights (#123), Your data
+          (#125) and Delete household (#168), when the navigator supplies them,
+          and Confirm order and Version (#126) are wired. */}
       <View style={styles.chrome} testID="hub-chrome">
         <OrganizerBar
           onEditHousehold={onEditHousehold}
           onEditRoster={onEditRoster}
+          onHouseholdTeardown={onHouseholdTeardown}
           onShowInsights={onShowInsights}
           onShowYourData={onShowYourData}
           onShowVersion={handleShowVersion}

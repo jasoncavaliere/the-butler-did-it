@@ -1,7 +1,10 @@
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { ActionButton } from '../components/FormControls';
 import { Screen, colors } from '../components/Screen';
 import { space, typeScale } from '../layout/tokens';
+import { useOrganizer } from '../state/OrganizerContext';
 
 /**
  * Every word the Your data page shows. The screen renders only from this
@@ -90,6 +93,7 @@ export const YOUR_DATA_COPY = {
       "Deleting removes all of the household's data: people, rooms, chores, assignments and their history, carts, usage events, and paired tablets.",
       'It cannot be undone.',
     ],
+    link: 'Delete household',
   },
 } as const;
 
@@ -102,10 +106,18 @@ export const YOUR_DATA_COPY = {
  * correctly offline and shows no household data. It is not wrapped in
  * OrganizerGate because it holds nothing sensitive and its only entry point,
  * the organizer bar's Your data button, already appears only for a signed-in
- * organizer. #168 adds a link from here to the household teardown screen.
+ * organizer. A signed-in organizer also sees a Delete household link here that
+ * opens the household teardown screen (#168), when the navigator supplies
+ * {@link onOpenTeardown}.
  */
-export function YourDataScreen() {
+export function YourDataScreen({
+  onOpenTeardown,
+}: {
+  /** Opens the household teardown screen (#168). When omitted, the link is not rendered. */
+  onOpenTeardown?: () => void;
+}) {
   const copy = YOUR_DATA_COPY;
+  const { organizer } = useOrganizer();
   return (
     <Screen testID="your-data-screen">
       <Text style={styles.heading} accessibilityRole="header">
@@ -130,7 +142,13 @@ export function YourDataScreen() {
         testID="your-data-delete"
         heading={copy.deletion.heading}
         lines={copy.deletion.lines}
-      />
+      >
+        {organizer !== null && onOpenTeardown ? (
+          <ActionButton testID="your-data-teardown-link" variant="secondary" onPress={onOpenTeardown}>
+            {copy.deletion.link}
+          </ActionButton>
+        ) : null}
+      </Section>
     </Screen>
   );
 }
@@ -147,10 +165,12 @@ function Section({
   testID,
   heading,
   lines,
+  children,
 }: {
   testID: string;
   heading: string;
   lines: readonly string[];
+  children?: ReactNode;
 }) {
   return (
     <View style={styles.section} testID={testID}>
@@ -160,6 +180,7 @@ function Section({
           {line}
         </Text>
       ))}
+      {children}
     </View>
   );
 }
