@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Events;
+using Butler.Api.Infrastructure.Events;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -297,5 +299,46 @@ public sealed class UndoChoreEndpointTests : IClassFixture<ButlerApiFactory>, ID
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Undoing_records_a_chore_undone_event()
+    {
+        using var client = _factory.CreateClient();
+        var (householdId, week, choreId, personId) = await SeedWeekAsync(client, effort: 2);
+        await CompleteAsync(client, householdId, week, choreId, personId);
+
+        using var response = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/assignments/{week}/{choreId}/undo", UriKind.Relative),
+            new { personId });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // #122: the complete and the undo each append one event. The pinned clock
+        // stamps both with the same tick, so compare them as a set.
+        var events = await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        Assert.Equal(
+            [EventTypes.ChoreCompleted, EventTypes.ChoreUndone],
+            events.Select(recorded => recorded.Type).Order(StringComparer.Ordinal).ToArray());
+        var undone = Assert.Single(events, recorded => recorded.Type == EventTypes.ChoreUndone);
+        Assert.Equal(personId, undone.PersonId);
+        Assert.Equal(choreId, undone.ChoreId);
+        Assert.Equal(week, undone.WeekIso);
+        Assert.Null(undone.ItemId);
+    }
+
+    [Fact]
+    public async Task Undoing_an_unknown_assignment_records_nothing()
+    {
+        using var client = _factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+
+        using var response = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/assignments/2026-W29/{Guid.NewGuid():N}/undo", UriKind.Relative),
+            new { personId = "person-1" });
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        Assert.Empty(await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None));
     }
 }

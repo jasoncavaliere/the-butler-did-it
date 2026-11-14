@@ -1,3 +1,4 @@
+using Butler.Api.Application.Events;
 using MediatR;
 
 namespace Butler.Api.Application.Assignments;
@@ -19,27 +20,53 @@ public sealed record UndoChoreCommand(
     string ChoreId,
     string PersonId) : IRequest<UndoChoreResponse?>;
 
-/// <summary>Handles <see cref="UndoChoreCommand"/> via the application service.</summary>
+/// <summary>
+/// Handles <see cref="UndoChoreCommand"/> via the application service, then
+/// records a <c>chore-undone</c> usage event (#122). The event is
+/// recorded here rather than in the service because the demo seeder calls the
+/// service directly and must not write fake usage.
+/// </summary>
 public sealed class UndoChoreCommandHandler
     : IRequestHandler<UndoChoreCommand, UndoChoreResponse?>
 {
     private readonly IChoreCompletionService _completions;
+    private readonly IEventRecorder _events;
 
-    public UndoChoreCommandHandler(IChoreCompletionService completions)
+    public UndoChoreCommandHandler(IChoreCompletionService completions, IEventRecorder events)
     {
         ArgumentNullException.ThrowIfNull(completions);
+        ArgumentNullException.ThrowIfNull(events);
         _completions = completions;
+        _events = events;
     }
 
-    public Task<UndoChoreResponse?> Handle(
+    public async Task<UndoChoreResponse?> Handle(
         UndoChoreCommand request,
-        CancellationToken cancellationToken) =>
-        _completions.UndoAsync(
-            request.HouseholdId,
-            request.WeekIso,
-            request.ChoreId,
-            request.PersonId,
-            cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await _completions.UndoAsync(
+                request.HouseholdId,
+                request.WeekIso,
+                request.ChoreId,
+                request.PersonId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result is not null)
+        {
+            await _events.TryRecordAsync(
+                    request.HouseholdId,
+                    EventTypes.ChoreUndone,
+                    personId: request.PersonId,
+                    choreId: request.ChoreId,
+                    weekIso: result.WeekIso,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return result;
+    }
 }
 
 /// <summary>

@@ -135,6 +135,33 @@ Six rules keep replay honest:
   `attempts` are untouched (the API never answered it), it stays in storage for O4, and writes with no
   week in their key (a cart add) are not week-bound. The key is parsed rather than a field added, so
   writes queued before this rule existed are covered and the `v1` schema is unchanged.
+- **A held drain shows the queue as stored.** When the dataset guard cannot verify the dataset
+  (`unverified`), the drain re-reads the queue into its state before backing off. Otherwise a write
+  enqueued just after an earlier pass read an empty queue (the hub glance on mount, say) would show as
+  0 pending, and the queue would not listen for the reconnect that replays it.
+
+### Hub glance events (#122)
+
+The hub reports that it was looked at by posting `{ "type": "hub-glanced" }` to
+`POST /households/{id}/events` (`src/offline/hubGlance.ts`, `src/offline/useHubGlance.ts`). It is the
+only usage event the UI posts: completions, undos, cart adds, confirms and claims are recorded by the API
+itself, so claiming a person on the hub posts no event of its own.
+
+- **Triggers.** `HubGlanceReporter`, a render-null component beside `QueueRevival` inside the
+  `WriteQueueProvider` in `HubShell`, reports on mount and whenever `document` fires
+  `visibilitychange` with `visibilityState === 'visible'`. Without a document (native, Jest) it reports
+  on mount only.
+- **10-minute per-device debounce.** The last report is stamped per household under
+  `butler.hubglanced.v1.<householdId>` (not `butler.glance.v1.`, which is the O2 cache) in
+  `sessionFallbackStorage`, so it survives a reload where Web Storage exists. The stamp is written
+  before posting, so a failing API is not hammered.
+- **Online: a direct post, not the queue.** A write that drains through the queue bumps
+  `confirmedRevision`, which flashes "All synced." and makes surfaces refetch. A glance every 10
+  minutes must do neither, so the online path calls `client.update` directly.
+- **Offline: queued.** Only a `network` error enqueues the glance (`kind: 'hub-glance'`, a non-assignment
+  `dedupeKey` of `hub-glance|<ms>`, so it is not week-bound) and it replays on reconnect like any other
+  write. While queued it counts in the sync indicator's pending count. Any other refusal (a `401` on an
+  unpaired hub, `400`, `404`) is dropped, since retrying an answered request cannot succeed.
 
 ### The sync indicator (O4)
 

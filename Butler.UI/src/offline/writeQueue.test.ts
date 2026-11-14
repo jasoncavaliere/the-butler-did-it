@@ -1,4 +1,5 @@
 import type { ApiResult } from '../api/client';
+import { hubGlanceWrite } from './hubGlance';
 import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
 import { currentWeekIso } from './weekIso';
 import {
@@ -756,6 +757,19 @@ describe('drainWriteQueue', () => {
 
       expect(paths).toEqual(['/households/hh-1/carts/items']);
       expect(outcome.confirmed).toBe(1);
+    });
+
+    it('a queued hub-glance is not week-bound and replays (#122)', async () => {
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', hubGlanceWrite('hh-1', 1_000), storage, 1);
+      const { send, paths } = recordingSend([confirmed]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage, MONDAY);
+
+      expect(assignmentWeekIso(hubGlanceWrite('hh-1', 1_000).dedupeKey)).toBeNull();
+      expect(paths).toEqual(['/households/hh-1/events']);
+      expect(outcome.confirmed).toBe(1);
+      expect(readWriteQueue('hh-1', storage)).toEqual([]);
     });
 
     it('a fresh tap in the current week is unaffected by the guard', async () => {

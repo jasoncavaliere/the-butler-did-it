@@ -33,6 +33,7 @@ import { nameTileMinWidth, radii, space } from '../layout/tokens';
 import type { DatasetCheck } from '../offline/datasetGuard';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useDatasetGuard } from '../offline/useDatasetGuard';
+import { useHubGlance } from '../offline/useHubGlance';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { useHousehold } from '../state/HouseholdContext';
@@ -455,7 +456,10 @@ function HubShellBody({
   const content = (
     <View style={styles.hub} testID="hub-shell">
       {householdId !== null ? (
-        <QueueRevival enabled={shellDegraded} onConfirmed={handleQueueConfirmed} />
+        <>
+          <QueueRevival enabled={shellDegraded} onConfirmed={handleQueueConfirmed} />
+          <HubGlanceReporter householdId={householdId} client={client} />
+        </>
       ) : null}
       {/* Household (#112, when the navigator supplies it) and Confirm order are
           wired. Edit roster (#167) and Household teardown (#168) are deliberately
@@ -599,6 +603,19 @@ function QueueRevival({ enabled, onConfirmed }: { enabled: boolean; onConfirmed:
       onConfirmed();
     }
   }, [confirmedRevision, enabled, onConfirmed]);
+  return null;
+}
+
+/**
+ * Reports that the hub was looked at (#122): a `hub-glanced` event on mount and
+ * whenever the page becomes visible again, at most once per device per 10
+ * minutes. It renders nothing; it lives inside the {@link WriteQueueProvider} so
+ * a glance taken while the API is unreachable joins the write queue and replays
+ * on reconnect. Claims are not reported here: the API records those itself.
+ */
+function HubGlanceReporter({ householdId, client }: { householdId: string; client: ApiClient }) {
+  const { enqueue } = useWriteQueueContext();
+  useHubGlance(householdId, client, enqueue);
   return null;
 }
 

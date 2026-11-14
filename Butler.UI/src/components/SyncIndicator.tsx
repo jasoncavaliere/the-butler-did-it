@@ -52,6 +52,8 @@ export function describeQueuedWrite(kind: string): string {
       return 'Undoing a chore';
     case 'cart-add':
       return 'Adding to the cart';
+    case 'hub-glance':
+      return 'Recording a hub view';
     default:
       return 'A change';
   }

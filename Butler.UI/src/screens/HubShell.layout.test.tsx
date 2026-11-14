@@ -25,6 +25,9 @@ import { HouseholdProvider } from '../state/HouseholdContext';
  */
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
+// The hub glance (#122) is covered by HubShell.glance.test.tsx. Here it would add
+// an extra POST (and, with the API down, an extra queued write) to every test.
+jest.mock('../offline/useHubGlance', () => ({ useHubGlance: jest.fn() }));
 
 const useApiClientMock = useApiClient as jest.MockedFunction<typeof useApiClient>;
 

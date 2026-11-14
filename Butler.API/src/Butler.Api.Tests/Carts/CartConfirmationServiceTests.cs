@@ -2,11 +2,13 @@ using System.ComponentModel.DataAnnotations;
 using Butler.Api.Application.Auth;
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Concurrency;
+using Butler.Api.Application.Events;
 using Butler.Api.Infrastructure.Carts;
 using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.People;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
+using NSubstitute;
 
 namespace Butler.Api.Tests.Carts;
 
@@ -259,7 +261,34 @@ public sealed class CartConfirmationServiceTests
     [Fact]
     public void The_command_handler_requires_its_service()
     {
-        Assert.Throws<ArgumentNullException>(() => new ConfirmCartCommandHandler(null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new ConfirmCartCommandHandler(null!, Substitute.For<IEventRecorder>()));
+    }
+
+    [Fact]
+    public void The_command_handler_requires_its_event_recorder()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new ConfirmCartCommandHandler(Substitute.For<ICartConfirmationService>(), null!));
+    }
+
+    [Fact]
+    public async Task The_command_handler_records_nothing_when_no_cart_comes_back()
+    {
+        var service = Substitute.For<ICartConfirmationService>();
+        service
+            .ConfirmAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new CartReadResult(HouseholdExists: false, Cart: null));
+        var recorder = Substitute.For<IEventRecorder>();
+        var handler = new ConfirmCartCommandHandler(service, recorder);
+
+        var result = await handler.Handle(
+            new ConfirmCartCommand("missing", CurrentWeek, OrganizerObjectId, "*"),
+            CancellationToken.None);
+
+        Assert.Null(result.Cart);
+        Assert.Empty(recorder.ReceivedCalls());
     }
 
     [Fact]
@@ -267,7 +296,8 @@ public sealed class CartConfirmationServiceTests
     {
         var fixture = await SeededAsync();
         var etag = await fixture.SeedBuildingCartAsync();
-        var handler = new ConfirmCartCommandHandler(fixture.Service);
+        var recorder = Substitute.For<IEventRecorder>();
+        var handler = new ConfirmCartCommandHandler(fixture.Service, recorder);
 
         var result = await handler.Handle(
             new ConfirmCartCommand(HouseholdId, CurrentWeek, OrganizerObjectId, etag),
@@ -275,5 +305,13 @@ public sealed class CartConfirmationServiceTests
 
         Assert.Equal(CartStatus.Confirmed, result.Cart!.Status);
         Assert.Equal("person-organizer", result.Cart.ConfirmedByPersonId);
+        await recorder.Received(1).TryRecordAsync(
+            HouseholdId,
+            EventTypes.CartConfirmed,
+            "person-organizer",
+            null,
+            CurrentWeek,
+            null,
+            Arg.Any<CancellationToken>());
     }
 }

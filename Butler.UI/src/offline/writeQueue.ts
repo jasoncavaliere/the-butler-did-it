@@ -65,7 +65,7 @@ export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * replay itself is driven by the stored request triple - which is what lets a
  * new write type join the queue without teaching the drain about it.
  */
-export type QueuedWriteKind = 'chore-complete' | 'chore-undo' | 'cart-add';
+export type QueuedWriteKind = 'chore-complete' | 'chore-undo' | 'cart-add' | 'hub-glance';
 
 /** A write handed to the queue: the request to replay, plus how to identify it. */
 export type WriteRequest = {

@@ -54,7 +54,7 @@ Request path: `Controllers/<Feature>Controller.cs` (thin) -> MediatR command/que
 | `Butler.Api.Tests/<Feature>/` | xUnit + NSubstitute. Service unit tests plus endpoint tests through `TestSupport/ButlerApiFactory` (real `Program`, Development env, dev organizer injected). |
 
 Features: Households, Rooms, People, Chores, HubDevices, Assignments (+ ChoreCompletions), Fairness,
-Grocery (store connector), Carts, Capture, System. **To add a feature, copy the Rooms slice**
+Grocery (store connector), Carts, Capture, Events (usage events), System. **To add a feature, copy the Rooms slice**
 (`Application/Rooms/`, `Infrastructure/Rooms/`, `Controllers/RoomsController.cs`, `Butler.Api.Tests/Rooms/`).
 Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section you need).
 
@@ -69,7 +69,7 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding), `Household` (organizer room/chore editor). |
 | `src/setup/` | Starter-chore template catalog (versioned JSON fixture) and matching helpers used by `HouseholdSetup`. |
 | `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `Screen`. |
-| `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect. |
+| `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect, and the hub-glance reporter (`hubGlance`, `useHubGlance`, #122). |
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
 | `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
 | `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration and the PWA post-export step. |

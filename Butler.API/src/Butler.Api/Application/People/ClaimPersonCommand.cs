@@ -1,4 +1,5 @@
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Events;
 using MediatR;
 
 namespace Butler.Api.Application.People;
@@ -15,15 +16,21 @@ namespace Butler.Api.Application.People;
 public sealed record ClaimPersonCommand(string HouseholdId, string PersonId)
     : IRequest<ParticipantSessionResponse?>;
 
-/// <summary>Handles <see cref="ClaimPersonCommand"/>: verifies the person, then issues a session.</summary>
+/// <summary>
+/// Handles <see cref="ClaimPersonCommand"/>: verifies the person, records a
+/// <c>participant-claimed</c> usage event (#122), then issues a session.
+/// </summary>
 public sealed class ClaimPersonCommandHandler : IRequestHandler<ClaimPersonCommand, ParticipantSessionResponse?>
 {
     private readonly IPersonService _people;
+    private readonly IEventRecorder _events;
 
-    public ClaimPersonCommandHandler(IPersonService people)
+    public ClaimPersonCommandHandler(IPersonService people, IEventRecorder events)
     {
         ArgumentNullException.ThrowIfNull(people);
+        ArgumentNullException.ThrowIfNull(events);
         _people = people;
+        _events = events;
     }
 
     public async Task<ParticipantSessionResponse?> Handle(
@@ -39,6 +46,14 @@ public sealed class ClaimPersonCommandHandler : IRequestHandler<ClaimPersonComma
         {
             return null;
         }
+
+        // Recorded server-side only: the hub never posts its own claim event.
+        await _events.TryRecordAsync(
+                request.HouseholdId,
+                EventTypes.ParticipantClaimed,
+                personId: person.PersonId,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
 
         var token = ParticipantSession.Encode(request.HouseholdId, person.PersonId);
         return new ParticipantSessionResponse(

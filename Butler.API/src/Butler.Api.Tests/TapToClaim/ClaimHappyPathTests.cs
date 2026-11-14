@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Events;
+using Butler.Api.Infrastructure.Events;
 using Butler.Api.Tests.TestSupport;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Butler.Api.Tests.TapToClaim;
 
@@ -56,5 +59,49 @@ public sealed class ClaimHappyPathTests : IClassFixture<ButlerApiFactory>
         Assert.True(ParticipantSession.TryDecode(token, out var scopedHousehold, out var scopedPerson));
         Assert.Equal(householdId, scopedHousehold);
         Assert.Equal(personId, scopedPerson);
+    }
+
+    [Fact]
+    public async Task Claiming_records_a_participant_claimed_event()
+    {
+        using var client = _factory.CreateClient();
+        var householdId = Guid.NewGuid().ToString("N");
+
+        using var createResponse = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/people", UriKind.Relative),
+            new { displayName = "Sam", role = "Participant", isChild = false, claimColor = (string?)null });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createDoc = JsonDocument.Parse(await createResponse.Content.ReadAsStringAsync());
+        var personId = createDoc.RootElement.GetProperty("personId").GetString();
+
+        using var claimResponse = await client.PostAsync(
+            new Uri($"/households/{householdId}/people/{personId}/claim", UriKind.Relative),
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, claimResponse.StatusCode);
+
+        // #122: the claim is recorded server-side, carrying the person id only.
+        var events = await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        var recorded = Assert.Single(events);
+        Assert.Equal(EventTypes.ParticipantClaimed, recorded.Type);
+        Assert.Equal(personId, recorded.PersonId);
+        Assert.Null(recorded.ChoreId);
+        Assert.Null(recorded.WeekIso);
+        Assert.Null(recorded.ItemId);
+    }
+
+    [Fact]
+    public async Task Claiming_an_unknown_person_records_nothing()
+    {
+        using var client = _factory.CreateClient();
+        var householdId = Guid.NewGuid().ToString("N");
+
+        using var claimResponse = await client.PostAsync(
+            new Uri($"/households/{householdId}/people/{Guid.NewGuid():N}/claim", UriKind.Relative),
+            content: null);
+        Assert.Equal(HttpStatusCode.NotFound, claimResponse.StatusCode);
+
+        Assert.Empty(await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None));
     }
 }

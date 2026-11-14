@@ -334,6 +334,49 @@ seam (G3), and its organizer-gated confirm (G4, above) - so the API side of "add
 confirm" is complete end to end against the simulated connector, with the hub screen for it (G5) still to
 come - and calendar has not been built yet.
 
+### Events (usage events, #122)
+
+`Events` (`Application/Events/`, `Infrastructure/Events/`, `Controllers/EventsController`) is an
+append-only log of how the household uses Butler, for the insights read (#123) to count. Each row is an
+`EventEntity` in the `Events` table, `PartitionKey = householdId`, `RowKey =
+{OccurredUtc.UtcTicks:D19}_{guid N}` (so a partition lists in time order and two events in one tick never
+collide). The row carries only the event `Type`, `OccurredUtc` (from the injected `TimeProvider`), and the
+ids that already exist in the household model: `PersonId`, `ChoreId`, `WeekIso`, `ItemId`. It never
+carries a name, an utterance, or any other free text; `EventEntityPrivacyTests` pins the exact property
+set. `IEventRepository` is append-only (`AddAsync` and `ListAsync`).
+
+Five event types are recorded server-side, each by the **MediatR handler** after its primary call
+succeeds:
+
+| Type | Recorded by | When |
+| --- | --- | --- |
+| `chore-completed` | `CompleteChoreCommandHandler` | the completion returned an assignment |
+| `chore-undone` | `UndoChoreCommandHandler` | the undo returned an assignment |
+| `cart-item-added` | `CaptureUtteranceCommandHandler` | the capture outcome is `Added` (`ItemId` is the new line) |
+| `cart-confirmed` | `ConfirmCartCommandHandler` | the confirm returned a cart (`PersonId` is the confirming organizer) |
+| `participant-claimed` | `ClaimPersonCommandHandler` | the claimed person is on the roster |
+
+They live in the handlers, not in `ChoreCompletionService`, `CaptureHandler` or
+`CartConfirmationService`, because the demo seeder calls those services directly and must not write fake
+usage on every seed. The handlers use `IEventRecorder.TryRecordAsync`, which is best effort: a storage
+failure is logged as a warning and swallowed (cancellation is not), so a usage event can never fail the
+action it describes.
+
+The one client-posted type is `hub-glanced`. `EventTypes.IsClientAllowed` accepts only that exact
+string (ordinal, case-sensitive); any other type, including `participant-claimed`, is a `400` before any
+I/O, so a client cannot forge a server-side event. The UI debounces glances to one per hub device per 10
+minutes; the API does not dedupe them.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /households/{householdId}/events` | Records a client usage event (`{ "type": "hub-glanced" }`). Returns `204`. Any other type, or an empty body, is a `400` RFC 7807 document and records nothing; an unknown `householdId` is `404`. Requires only authentication (a paired hub device, participant session or organizer), not the `Organizer` policy. |
+
+Known limits, accepted by design: an idempotent replay of complete, undo or confirm records a second
+event (the handler cannot tell a no-op from a real change); a glance replayed after an outage is stamped
+with the server time of the replay; and `Events` is not purged by the demo re-seed or by household
+teardown (#124). The feature registers via `AddEventsFeature()` in `Program.cs`, last, so `Events` is the
+last table provisioned.
+
 ### System (health + dataset id)
 
 `System` (`Application/System/`, `Infrastructure/System/`, `Controllers/SystemController`) is the

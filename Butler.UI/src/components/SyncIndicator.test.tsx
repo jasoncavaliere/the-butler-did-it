@@ -158,6 +158,7 @@ describe('describeQueuedWrite / failedLabel', () => {
     expect(describeQueuedWrite('chore-complete')).toBe('Marking a chore done');
     expect(describeQueuedWrite('chore-undo')).toBe('Undoing a chore');
     expect(describeQueuedWrite('cart-add')).toBe('Adding to the cart');
+    expect(describeQueuedWrite('hub-glance')).toBe('Recording a hub view');
     expect(describeQueuedWrite('something-new')).toBe('A change');
   });
 
