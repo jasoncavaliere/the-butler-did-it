@@ -1,8 +1,12 @@
 # CI gate for the local Docker Compose demo stack (demo/, issue #94).
 #
-# Path-filtered: this runs only when a change touches demo/** (or this workflow
-# file itself), so API- and UI-only PRs never pay for it (see api-ci.yml and
-# ui-ci.yml).
+# Path-filtered: this runs when a change touches demo/**, Butler.API/** or
+# Butler.UI/** (or this workflow file itself). The stack job builds the API
+# image from Butler.API (demo/docker-compose.yml api.build.context
+# ../Butler.API) and the hub export from Butler.UI, so running on those PRs
+# catches demo breakage on the PR that causes it (#177). The cost is one extra
+# stack boot per API/UI PR on top of api-ci.yml and ui-ci.yml, and the
+# concurrency group below cancels stale runs.
 #
 # Two jobs:
 #   config - static checks: the compose file is valid (`docker compose config`
@@ -49,11 +53,15 @@ on:
   pull_request:
     paths:
       - "demo/**"
+      - "Butler.API/**"
+      - "Butler.UI/**"
       - ".github/workflows/demo-ci.yml"
   push:
     branches: [main]
     paths:
       - "demo/**"
+      - "Butler.API/**"
+      - "Butler.UI/**"
       - ".github/workflows/demo-ci.yml"
 
 # Least privilege: both jobs only read the checked-out source.

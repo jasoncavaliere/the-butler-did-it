@@ -9,13 +9,14 @@ sub-service folder. See [`CLAUDE.md`](CLAUDE.md) for the full working guide and
 
 Every pull request runs the gates below via GitHub Actions. Each workflow is
 **path-filtered**, so a PR only triggers the check(s) for the sub-service(s) it
-touches:
+touches (demo-ci also runs for `Butler.API/` and `Butler.UI/`, since the demo
+stack builds both):
 
 | Sub-service | Workflow | Triggers on |
 | --- | --- | --- |
 | `Butler.API/` | [`.github/workflows/api-ci.yml`](.github/workflows/api-ci.yml) | changes under `Butler.API/**` |
 | `Butler.UI/` | [`.github/workflows/ui-ci.yml`](.github/workflows/ui-ci.yml) | changes under `Butler.UI/**` |
-| `demo/` | [`.github/workflows/demo-ci.yml`](.github/workflows/demo-ci.yml) | changes under `demo/**` |
+| `demo/` | [`.github/workflows/demo-ci.yml`](.github/workflows/demo-ci.yml) | changes under `demo/**`, `Butler.API/**` or `Butler.UI/**` (it builds the API image and hub export) |
 | `Butler.Site/` | [`.github/workflows/site-pages.yml`](.github/workflows/site-pages.yml) | changes under `Butler.Site/**` (a push to `main` also deploys to GitHub Pages) |
 
 Run these locally before pushing to reproduce exactly what CI runs.
