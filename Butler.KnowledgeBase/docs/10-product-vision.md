@@ -6,7 +6,7 @@ tags: [vision, strategy, household, chores, fair assignment, grocery, store conn
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 20-architecture-overview, 90-glossary]
+related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 15-pilot-success-criteria, 20-architecture-overview, 90-glossary]
 sources:
   - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
   - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
@@ -129,6 +129,8 @@ Guardrails alongside the north star:
 - **Execution guardrail:** grocery orders placed through the hub per active household per month, target at least one - the monthly wow, actually happening.
 - **Retention guardrail:** month-3 weekly-active household retention (the north-star target above), plus passive glances per day trending up.
 
+For how these targets become week-4 thresholds that decide whether a pilot builds more, changes course, or stops, see the [Pilot Success Criteria](15-pilot-success-criteria.md).
+
 ## What we are NOT building in v1
 
 The v1 scope is a hard line. Butler v1 is the shared hub running exactly three things:
@@ -190,5 +192,6 @@ Each of these risks is tested with households after every demo, using the [Custo
 - [Hub Hardware Findings](11-hub-hardware-findings.md) - which tablet the hub runs on and how it boots into Butler.
 - [Pricing Hypothesis](12-pricing-hypothesis.md) - the per-household price points, the pilot-to-paid offer, and how willingness to pay is tested.
 - [Customer Interview Guide](13-customer-interview-guide.md) - the post-demo questions that test this vision's risks, retention thesis, and business model.
+- [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 pilot thresholds derived from the north star and guardrails above.
 - [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.

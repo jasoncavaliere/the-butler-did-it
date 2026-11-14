@@ -14,6 +14,7 @@ okf_version: "0.2"
 * [12 Pricing Hypothesis](docs/12-pricing-hypothesis.md) - Proposed per-household yearly price points inside the vision's $40-90 band, the pilot-to-paid offer, and the willingness-to-pay questions and experiment that test them (a hypothesis, not live pricing).
 * [13 Customer Interview Guide](docs/13-customer-interview-guide.md) - Twelve open questions to ask a household right after a Butler demo, each tied to the Product Vision risk, retention thesis, or business-model claim it tests, and how to run and log the conversation.
 * [14 Feedback Log Template](docs/14-feedback-log-template.md) - A copy-paste template for logging each post-demo customer conversation (date, household shape, quotes, objections, pricing answers, and follow-up), with filled entries kept out of this public repo.
+* [15 Pilot Success Criteria](docs/15-pilot-success-criteria.md) - Four pilot metrics read from the organizer Insights screen at week 4 (weekly active households, top contributor's share, carts confirmed, distinct participants), each with a hypothesis threshold for build more, change course, or stop, derived from the Product Vision's month-3 target.
 
 # Architecture
 

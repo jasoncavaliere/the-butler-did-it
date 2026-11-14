@@ -6,7 +6,7 @@ tags: [customer interviews, discovery, demo, go to market, risks, retention, wil
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 12-pricing-hypothesis, 14-feedback-log-template]
+related: [10-product-vision, 12-pricing-hypothesis, 14-feedback-log-template, 15-pilot-success-criteria]
 sources:
   - { id: issue-139, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/139, title: S6 - Customer interview guide and feedback log }
   - { id: vision-retention, resource: 10-product-vision.md#the-retention-thesis, title: Product Vision - The retention thesis }
@@ -88,7 +88,7 @@ Complete the log entry within 24 hours, while the conversation is still fresh; t
 - It does not change any claim in the vision or any number in the Pricing Hypothesis, because it only collects evidence about them.
 - It does not set the pilot terms, which belong to the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)).
 - It does not script the demo itself, which is the demo-day runbook ([#138](https://github.com/jasoncavaliere/the-butler-did-it/issues/138)).
-- It does not set the pilot success criteria or the week-4 go/no-go ([#140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140)).
+- It does not set the [Pilot Success Criteria](15-pilot-success-criteria.md) or the week-4 go/no-go.
 - It does not promise any feature, so if a household asks for something v1 does not build, record it as a feature request.
 
 ## Sources
@@ -102,3 +102,4 @@ Complete the log entry within 24 hours, while the conversation is still fresh; t
 - [Product Vision](10-product-vision.md) - the risks, retention thesis, and business model these questions test.
 - [Pricing Hypothesis](12-pricing-hypothesis.md) - the willingness-to-pay questions asked in the pricing block, and the experiment they feed.
 - [Feedback Log Template](14-feedback-log-template.md) - where every answer from this interview is recorded.
+- [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 pilot numbers that later test question 12's month-3 signal with usage data.
