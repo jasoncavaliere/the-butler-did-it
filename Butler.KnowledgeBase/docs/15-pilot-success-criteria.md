@@ -69,7 +69,7 @@ Every derivation starts from the vision's [What winning looks like](10-product-v
 - **Carts confirmed per month:** the vision's execution guardrail is at least one grocery order per active household per month. That target is used unchanged as the build-more line, and half of that target is the stop line.
 - **Distinct participants per week:** the vision calls the multiplayer habit "the whole game" in the north star, and makes multiplayer non-negotiable on day one in [What we are NOT building in v1](10-product-vision.md#what-we-are-not-building-in-v1). The 50 percent bar is applied at the person level, so at least half of a household's members must take part. The household bands of 75 and 50 percent mirror the north star row.
 
-Hub glances per day are not scored, although the vision's retention guardrail names them. The hub reports a glance whenever it is on screen, at most once every 10 minutes, so a hub left on in the kitchen logs glances with nobody looking.
+Hub glances per day are not scored, although the vision's retention guardrail names them. The hub reports a glance when its page loads and each time the page becomes visible again, at most once per device every 10 minutes (`Butler.UI/src/offline/useHubGlance.ts` and `hubGlance.ts`). So the count follows screen wakes and reloads, not people looking. A hub whose screen never sleeps logs one glance and then no more, while one that sleeps and wakes often logs many.
 
 ## Combining the four signals
 
@@ -79,7 +79,7 @@ The rows are read together, in this order, and the first rule that matches decid
 2. **Go (build more)** when the north star is in its build-more band and no row is in its stop band.
 3. **Change course** in every other case: start with the weakest row, make one change aimed at it, and read all four again after the next four weeks, without moving any threshold.
 
-So a carts row in its stop band never ends the pilot on its own, and the other three rows still decide the go/no-go.
+So a carts row in its stop band never ends the pilot on its own, but it does block a go: with carts in its stop band, the best outcome is change course.
 
 Week 4 comes well before the [Novelty Cliff](90-glossary.md#novelty-cliff), which tracks the general engagement collapse by roughly day 90. So a go at week 4 is a reason to keep going, not proof of month-3 retention.
 
