@@ -33,6 +33,8 @@ inside the relevant folder.
   export deployed as an Azure Static Web App (installable PWA). Has its own `AGENTS.md`.
 - `Butler.API/` - .NET 10 Web API (`Butler.API.sln` -> `src/Butler.Api`), deployed to Azure App Service.
 - `Butler.KnowledgeBase/` - **agent-managed** wiki (see "Working in the knowledge base"). Not product code.
+- `Butler.Site/` - the static one-page pilot landing page (plain HTML/CSS, no build), deployed to GitHub
+  Pages by `.github/workflows/site-pages.yml` (#134).
 
 ## Code map (read this instead of exploring)
 

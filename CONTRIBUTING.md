@@ -16,6 +16,7 @@ touches:
 | `Butler.API/` | [`.github/workflows/api-ci.yml`](.github/workflows/api-ci.yml) | changes under `Butler.API/**` |
 | `Butler.UI/` | [`.github/workflows/ui-ci.yml`](.github/workflows/ui-ci.yml) | changes under `Butler.UI/**` |
 | `demo/` | [`.github/workflows/demo-ci.yml`](.github/workflows/demo-ci.yml) | changes under `demo/**` |
+| `Butler.Site/` | [`.github/workflows/site-pages.yml`](.github/workflows/site-pages.yml) | changes under `Butler.Site/**` (a push to `main` also deploys to GitHub Pages) |
 
 Run these locally before pushing to reproduce exactly what CI runs.
 
@@ -50,6 +51,18 @@ npx expo export --platform web  # web bundle (the v1 hub's deploy artifact)
 
 `npm run ci:verify` is the single command that mirrors the UI gate; the coverage
 threshold lives in `jest.config.js` (`coverageThreshold`, per folder).
+
+### Butler.Site (static)
+
+```bash
+# from the repo root
+bash Butler.Site/ci/check-site.sh
+node Butler.Site/ci/check-layout.mjs   # needs Chrome: CHROME_PATH, or google-chrome/chromium on PATH
+```
+
+The landing page is hand-written HTML and CSS: there is no build and no coverage gate, because there is
+no executable code. See [`Butler.Site/README.md`](Butler.Site/README.md) for local preview and the
+Lighthouse accessibility check.
 
 ## Coverage gate
 
