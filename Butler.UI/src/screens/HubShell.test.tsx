@@ -870,6 +870,156 @@ describe('HubShell', () => {
         expect(screen.getByTestId('hub-groceries')).toBeOnTheScreen();
       });
     });
+
+    describe('order receipt (#115)', () => {
+      const cartItems = [
+        {
+          itemId: 'item-1',
+          productId: 'heb-0016',
+          displayName: 'H-E-B Oat Milk',
+          quantity: 2,
+          addedByPersonId: 'p1',
+          sourceConnector: 'simulated-heb',
+          indicativePrice: '$3.79',
+          isCustom: false,
+        },
+        {
+          itemId: 'item-9',
+          productId: null,
+          displayName: 'quinoa flakes',
+          quantity: 1,
+          addedByPersonId: 'p2',
+          sourceConnector: 'custom',
+          indicativePrice: null,
+          isCustom: true,
+        },
+      ];
+
+      const buildingCart: ApiResult<unknown> = {
+        ok: true,
+        status: 200,
+        data: {
+          weekIso: '2026-W29',
+          status: 'Building',
+          confirmedByPersonId: null,
+          confirmedUtc: null,
+          eTag: 'W/"cart-1"',
+          items: cartItems,
+          estimatedTotal: 7.58,
+          customItemCount: 1,
+        },
+        etag: null,
+      };
+
+      // The confirm response the receipt is built from. Its total is the API's
+      // own figure, deliberately not what the building cart said.
+      const confirmedCart: ApiResult<unknown> = {
+        ok: true,
+        status: 200,
+        data: {
+          weekIso: '2026-W29',
+          status: 'Confirmed',
+          confirmedByPersonId: 'p-organizer',
+          confirmedUtc: '2026-07-20T18:00:00Z',
+          eTag: 'W/"cart-2"',
+          items: cartItems,
+          estimatedTotal: 12.34,
+          customItemCount: 1,
+        },
+        etag: null,
+      };
+
+      const weekConfirmed: ApiResult<unknown> = {
+        ok: false,
+        error: { kind: 'http', status: 409, title: 'Confirmed' },
+      };
+
+      /**
+       * The interactive client, but with a cart that has lines to confirm: the
+       * cart read answers Building until the confirm lands and 409 after it,
+       * and the confirm POST answers the confirmed cart. Everything else (the
+       * roster, claims, the board's generate) falls through to the base client.
+       */
+      function receiptClient(): ApiClient {
+        const base = interactiveClient();
+        let isConfirmed = false;
+        const baseGet = base.get as unknown as (p: string, ...r: unknown[]) => Promise<ApiResult<unknown>>;
+        const baseUpdate = base.update as unknown as (
+          p: string,
+          ...r: unknown[]
+        ) => Promise<ApiResult<unknown>>;
+        return {
+          ...base,
+          get: jest.fn(async (path: string, ...rest: unknown[]) => {
+            if (path.includes('/carts/')) {
+              return isConfirmed ? weekConfirmed : buildingCart;
+            }
+            return baseGet(path, ...rest);
+          }) as unknown as ApiClient['get'],
+          update: jest.fn(async (path: string, ...rest: unknown[]) => {
+            if (path.endsWith('/confirm')) {
+              isConfirmed = true;
+              return confirmedCart;
+            }
+            return baseUpdate(path, ...rest);
+          }) as unknown as ApiClient['update'],
+        };
+      }
+
+      async function confirmOrder() {
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('organizer-sign-in'));
+        });
+        await waitFor(() => expect(screen.getByTestId('grocery-confirm')).toBeOnTheScreen());
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('grocery-confirm'));
+        });
+        await waitFor(() => expect(screen.getByTestId('order-receipt')).toBeOnTheScreen());
+      }
+
+      it('receipt: a successful confirm replaces the hub with the receipt built from the confirm response', async () => {
+        useApiClientMock.mockReturnValue(receiptClient());
+
+        await confirmOrder();
+
+        // The receipt takes over the hub body.
+        expect(screen.getByTestId('hub-receipt')).toBeOnTheScreen();
+        expect(screen.queryByTestId('hub-shell')).toBeNull();
+        expect(screen.queryByTestId('hub-groceries')).toBeNull();
+
+        // Built from the confirm response and the roster.
+        expect(screen.getByTestId('order-receipt-item-quantity-item-1')).toHaveTextContent('x2');
+        expect(screen.getByTestId('order-receipt-item-added-by-item-1')).toHaveTextContent('Added by Alex');
+        expect(screen.getByTestId('order-receipt-item-added-by-item-9')).toHaveTextContent('Added by Sam');
+        expect(screen.getByTestId('order-receipt-item-custom-item-9')).toHaveTextContent('Custom');
+        expect(screen.getByTestId('order-receipt-store')).toHaveTextContent('Store: H-E-B');
+        expect(screen.getByTestId('order-receipt-total')).toHaveTextContent('Estimated total $12.34');
+        expect(screen.getByTestId('order-receipt-custom-note')).toHaveTextContent(
+          '1 custom item is not in the estimated total.',
+        );
+      });
+
+      it('receipt: dismissing the receipt returns to the hub shell', async () => {
+        useApiClientMock.mockReturnValue(receiptClient());
+
+        await confirmOrder();
+
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('order-receipt-dismiss'));
+        });
+
+        await waitFor(() => expect(screen.getByTestId('hub-shell')).toBeOnTheScreen());
+        expect(screen.queryByTestId('order-receipt')).toBeNull();
+        expect(screen.queryByTestId('hub-receipt')).toBeNull();
+        expect(screen.getByTestId('hub-groceries')).toBeOnTheScreen();
+        // The remounted cart re-reads the week and finds it confirmed.
+        await waitFor(() =>
+          expect(screen.getByTestId('grocery-cart-week-confirmed')).toBeOnTheScreen(),
+        );
+      });
+    });
   });
 });
 

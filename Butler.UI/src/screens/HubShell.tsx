@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import type { ApiClient, ApiError } from '../api/client';
 import { describeApiError } from '../api/errors';
 import type {
+  CartResponse,
   HouseholdResponse,
   ParticipantSessionResponse,
   RosterEntryResponse,
@@ -15,6 +16,7 @@ import { ChoreBoard } from '../components/ChoreBoard';
 import { FairnessView } from '../components/FairnessView';
 import { GroceryCart } from '../components/GroceryCart';
 import { LastKnownBanner } from '../components/LastKnownBanner';
+import { OrderReceipt } from '../components/OrderReceipt';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
@@ -94,6 +96,13 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * actions only Confirm order is wired today, and it never confirms anything: it
  * scrolls to the {@link GroceryCart} and focuses the cart's own Confirm button,
  * which keeps the final tap (G4).
+ *
+ * When that tap succeeds the cart hands the confirm response up, and the shell
+ * shows an {@link OrderReceipt} in place of its whole body (#115): the lines,
+ * who added each, the store, the API's estimated total, and that no money has
+ * moved. It is in-shell state, not a navigation route. Back to the hub clears
+ * it, which remounts the body, so the cart re-reads the now-confirmed week and
+ * the board re-reads its assignments.
  *
  * Offline (Epic 60 O2) the glance survives: each successful load caches the
  * household and its roster, and a load that fails because the API is
@@ -347,6 +356,13 @@ function HubShellBody({
     groceries?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   }, []);
 
+  // The order receipt (#115): set from the cart's successful confirm and shown
+  // in place of the hub body until dismissed. Both handlers are stable so they
+  // never re-create the cart's confirm callback.
+  const [receipt, setReceipt] = useState<CartResponse | null>(null);
+  const handleCartConfirmed = useCallback((cart: CartResponse) => setReceipt(cart), []);
+  const handleReceiptDismiss = useCallback(() => setReceipt(null), []);
+
   // A missing household is a calm derived state, not a fetch outcome.
   const view: LoadState =
     householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
@@ -436,6 +452,7 @@ function HubShellBody({
             householdId={householdId}
             activePersonId={activeParticipant?.personId ?? null}
             confirmRef={cartConfirmRef}
+            onConfirmed={handleCartConfirmed}
           />
         </View>
       ) : null}
@@ -448,13 +465,24 @@ function HubShellBody({
     </View>
   );
 
+  // A receipt only ever comes from a confirmed cart, which needs a household, so
+  // it always renders inside the provider below.
+  const body =
+    receipt !== null ? (
+      <View style={styles.hub} testID="hub-receipt">
+        <OrderReceipt cart={receipt} people={members} onDismiss={handleReceiptDismiss} />
+      </View>
+    ) : (
+      content
+    );
+
   // One queue per household, shared by the board and the header indicator. With
   // no household there is nothing to queue, so there is no provider either.
   return householdId === null ? (
     content
   ) : (
     <WriteQueueProvider householdId={householdId} client={client} verifyDataset={verifyDataset}>
-      {content}
+      {body}
     </WriteQueueProvider>
   );
 }
