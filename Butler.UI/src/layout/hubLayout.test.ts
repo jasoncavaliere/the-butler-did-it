@@ -17,6 +17,7 @@ import {
   densityHub,
   lineHeightFor,
   minTouchTarget,
+  motionDuration,
   nameTileMinHeight,
   nameTileMinWidth,
   radii,
@@ -44,6 +45,12 @@ describe('tokens', () => {
     expect(nameTileMinHeight).toBe(64);
     expect(nameTileMinWidth).toBe(96);
     expect(chipMinHeight).toBe(32);
+  });
+
+  it('reads motion durations from design-tokens.json', () => {
+    expect(motionDuration).toEqual(tokensJson.motion['duration-ms']);
+    expect(motionDuration).toEqual({ fast: 150, base: 200, slow: 250 });
+    expect(Object.isFrozen(motionDuration)).toBe(true);
   });
 
   it('derives a tight line height from a font size', () => {

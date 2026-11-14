@@ -261,6 +261,7 @@ src/
               WidgetState.tsx # shared load states: WidgetSkeleton, WidgetEmpty, WidgetError with Try again (P8, #117)
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
+              ChoreCelebration.tsx # completion check in the claim colour + "Nice work.", animated <= 1000 ms or static under reduced motion (#119)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
               GroceryCart.tsx # hub grocery region: add by typing or voice, review the cart, organizer-only confirm (Epic 50 G5, #116)
               OrderReceipt.tsx # order receipt shown in place of the hub body after a successful confirm (#115)
@@ -282,6 +283,7 @@ src/
               useWriteQueue.ts # React seam over the write queue: hydrate, drain on mount/reconnect/backoff, enqueue (O3)
               WriteQueueContext.tsx # WriteQueueProvider: the one queue per household, shared by board and indicator (O4)
               useBrowserOnline.ts # navigator.onLine + online/offline events; inert off web (O4)
+  motion/     useReducedMotion.ts # prefers-reduced-motion via AccessibilityInfo; starts reduced until the platform answers (ADR-0006, #119)
   voice/      speechRecognition.ts # feature-detected browser SpeechRecognition / webkitSpeechRecognition + local Web Speech types (#116)
               useSpeechCapture.ts # one-utterance recognition hook behind the grocery mic: supported, listening, start(handlers) (#116)
   pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
@@ -363,7 +365,12 @@ endpoint (`POST .../assignments/{weekIso}/{choreId}/complete`) with an optimisti
 directions reconcile to the response's `status` and revert to the item's prior state on error (or an
 unconfirmed/empty response), so a mis-tap in either direction is recoverable without the board lying
 about the server; a `Done` item is dimmed and checked (still tappable, to undo) rather than inert,
-matching C4/C7's idempotent complete/undo.
+matching C4/C7's idempotent complete/undo. A completing tap also celebrates (#119): the row shows
+`ChoreCelebration`, a check in the participant's claim colour plus "Nice work." in ink, which fades and
+scales in and out within `CELEBRATION_DURATION_MS` (900 ms, from the motion tokens) or renders
+statically when `useReducedMotion` reports prefers-reduced-motion. A board timer, not the animation,
+ends it; an undo or a refused completion ends it early. It is a plain child of the row, so the same
+tap still undoes and other rows still take taps while it plays.
 
 **The fairness view** (`src/components/FairnessView.tsx`, Epic 40 C6) is journey 6.3's contribution
 balance - a read-only glance at the Section 10 fairness guardrail, rendered by `HubShell` below

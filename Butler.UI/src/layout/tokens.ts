@@ -7,7 +7,7 @@ import tokensJson from '../../design-tokens.json';
  * `hubLayout.test.ts` rather than a runtime parser, the same pattern as
  * `src/setup/starterTemplates.ts`.
  *
- * Only sizes and spacing are exposed. The palette stays in
+ * Only sizes, spacing and motion durations are exposed. The palette stays in
  * `src/components/Screen.tsx` and is not changed here.
  */
 
@@ -76,3 +76,12 @@ export const tightLineHeight: number = tokensJson.line_heights.tight;
 export function lineHeightFor(size: number): number {
   return Math.round(size * tightLineHeight);
 }
+
+/**
+ * Motion durations (ms), ADR-0006: fast 150, base 200, slow 250. Every
+ * transition is gentle and quick, and is skipped under prefers-reduced-motion
+ * (see `src/motion/useReducedMotion.ts`).
+ */
+export const motionDuration: Readonly<{ fast: number; base: number; slow: number }> = Object.freeze({
+  ...tokensJson.motion['duration-ms'],
+});
