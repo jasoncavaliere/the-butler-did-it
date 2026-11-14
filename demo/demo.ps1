@@ -16,6 +16,11 @@
       status  Show each container's state and health, the hub URL and the
               dataset id.
       logs    Show the stack logs. Extra arguments go to docker compose logs.
+      share   Share the hub on your tailnet over HTTPS (tailscale serve
+              --bg 8080) and print its https://<host>.<tailnet>.ts.net URL
+              and a QR code for the tablet.
+      unshare Turn off tailscale serve. The hub stays on
+              http://localhost:8080.
 
     There is deliberately no param() block: PowerShell would try to bind
     pass-through arguments such as `logs -f api` as its own parameters.
@@ -42,10 +47,12 @@ $WaitTimeout = '300'
 # below (and the same entry and handler in demo.sh, plus a row in
 # demo/README.md).
 $Commands = [ordered]@{
-    up     = 'Build the hub export if needed, start the stack and wait until it is healthy'
-    down   = 'Stop the stack (data in demo/.data/azurite is kept)'
-    status = 'Show container health, the hub URL and the dataset id'
-    logs   = 'Show the stack logs (extra arguments go to docker compose logs)'
+    up      = 'Build the hub export if needed, start the stack and wait until it is healthy'
+    down    = 'Stop the stack (data in demo/.data/azurite is kept)'
+    status  = 'Show container health, the hub URL and the dataset id'
+    logs    = 'Show the stack logs (extra arguments go to docker compose logs)'
+    share   = 'Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code'
+    unshare = 'Turn off tailscale serve (the hub stays on http://localhost:8080)'
 }
 
 # Files and folders under Butler.UI/ that the hub export is built from.
@@ -216,6 +223,120 @@ function Invoke-DemoLogs([string[]]$LogArgs) {
     Invoke-Compose (@('logs') + $LogArgs)
 }
 
+# Returns the path of the tailscale CLI, or $null when it is not installed.
+function Find-Tailscale {
+    $cmd = Get-Command tailscale -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    $mac = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+    if (Test-Path -LiteralPath $mac -PathType Leaf) { return $mac }
+    if ($env:ProgramFiles) {
+        $win = Join-Path (Join-Path $env:ProgramFiles 'Tailscale') 'tailscale.exe'
+        if (Test-Path -LiteralPath $win -PathType Leaf) { return $win }
+    }
+    return $null
+}
+
+function Write-TailscaleMissing {
+    Write-Err 'Tailscale is not installed (no tailscale command found). Install it from https://tailscale.com/download and sign in.'
+    $script:ExitCode = 1
+}
+
+# Prints a terminal QR code of the URL. The QR output is never captured, and a
+# missing tool or a failed QR command only prints a hint: the URL is already
+# on screen.
+function Write-Qr([string]$Url) {
+    $rc = 1
+    try {
+        if (Get-Command qrencode -ErrorAction SilentlyContinue) {
+            & qrencode -t ansiutf8 $Url
+            $rc = $LASTEXITCODE
+        }
+        elseif (Get-Command npx -ErrorAction SilentlyContinue) {
+            # qrcode-terminal's bin reads stdin (not argv) when stdin is not a TTY.
+            $Url | & npx --yes --loglevel=error --no-update-notifier qrcode-terminal@0.12.0
+            $rc = $LASTEXITCODE
+        }
+    }
+    catch {
+        $rc = 1
+    }
+    if ($rc -ne 0) {
+        Write-Err 'Could not print a QR code (install qrencode, or let npx reach the npm registry). Type the URL above on the tablet instead.'
+    }
+}
+
+# Service workers need a secure context, so a tablet must reach the hub over
+# HTTPS. tailscale serve proxies https://<host>.<tailnet>.ts.net to
+# http://127.0.0.1:8080, which Caddy keeps serving for the desktop browser.
+function Invoke-DemoShare {
+    $ts = Find-Tailscale
+    if (-not $ts) {
+        Write-TailscaleMissing
+        return
+    }
+    # The status JSON is captured on purpose: it is parsed below.
+    $state = ''
+    $name = ''
+    try {
+        $json = (& $ts status --json 2>$null) -join "`n"
+        if ($LASTEXITCODE -eq 0 -and $json) {
+            $status = $json | ConvertFrom-Json
+            if ($status -and $status.PSObject.Properties['BackendState'] -and $status.BackendState) {
+                $state = [string]$status.BackendState
+            }
+            # CertDomains, not Self.DNSName: DNSName also appears under every peer.
+            if ($status -and $status.PSObject.Properties['CertDomains'] -and $status.CertDomains) {
+                $domains = @($status.CertDomains)
+                if ($domains.Count -gt 0 -and $domains[0]) { $name = [string]$domains[0] }
+            }
+        }
+    }
+    catch {
+        $state = ''
+        $name = ''
+    }
+    if (-not $state) { $state = 'unavailable' }
+    if ($state -cne 'Running') {
+        Write-Err "Tailscale is installed but not logged in (backend state: $state). Run 'tailscale up' or sign in from the Tailscale app, then run share again."
+        $script:ExitCode = 1
+        return
+    }
+    if (-not $name) {
+        Write-Err 'Tailscale reports no HTTPS name for this machine. Enable MagicDNS and HTTPS Certificates on the DNS page of the Tailscale admin console, then run share again.'
+        $script:ExitCode = 1
+        return
+    }
+    Write-Out 'Sharing http://localhost:8080 on your tailnet (tailscale serve --bg 8080) ...'
+    & $ts serve --bg 8080
+    $script:ExitCode = $LASTEXITCODE
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'tailscale serve failed. On Linux, allow your user once with ''sudo tailscale set --operator=$USER'', then run share again.'
+        return
+    }
+    $url = "https://$name"
+    Write-Out "Hub on your tailnet: $url"
+    Write-Out 'Scan this on the tablet (it must be signed in to the same tailnet):'
+    Write-Qr $url
+    Write-Out 'The tablet needs the stack running (up). Run unshare to stop sharing.'
+}
+
+# Turns off only the HTTPS 443 handler that share set up; `serve reset` would
+# also wipe any other serve config the user has.
+function Invoke-DemoUnshare {
+    $ts = Find-Tailscale
+    if (-not $ts) {
+        Write-TailscaleMissing
+        return
+    }
+    & $ts serve --https=443 off
+    $script:ExitCode = $LASTEXITCODE
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Could not turn off tailscale serve (was it on?). Check with ''tailscale serve status''.'
+        return
+    }
+    Write-Out 'Tailscale sharing is off. The hub is still at http://localhost:8080.'
+}
+
 function Invoke-Main([object[]]$Arguments) {
     if ($Arguments.Count -eq 0) {
         Write-Usage
@@ -242,6 +363,8 @@ function Invoke-Main([object[]]$Arguments) {
         'down' { Invoke-DemoDown }
         'status' { Invoke-DemoStatus }
         'logs' { Invoke-DemoLogs -LogArgs $rest }
+        'share' { Invoke-DemoShare }
+        'unshare' { Invoke-DemoUnshare }
     }
 }
 
