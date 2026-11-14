@@ -31,12 +31,14 @@ import { createApiClient, type ApiClient } from './client';
  * that request once as the device, so the hub returns to participant-only mode
  * without an error. The client is rebuilt when the base URL, either token, or
  * `clearSession` changes (it is stable), so sign-in/sign-out or pair/unpair
- * flips the credential on subsequent requests.
+ * flips the credential on subsequent requests. When the API answers the device
+ * token with a `401` (revoked or unknown), the client calls {@link useHubDevice}'s
+ * stable `rejectDevice`, which unpairs the hub (#188).
  */
 export function useApiClient(): ApiClient {
   const { apiBaseUrl } = useAppConfig();
   const { token: organizerToken, clearSession } = useOrganizer();
-  const { deviceToken } = useHubDevice();
+  const { deviceToken, rejectDevice } = useHubDevice();
   return useMemo(
     () =>
       createApiClient({
@@ -44,7 +46,8 @@ export function useApiClient(): ApiClient {
         getAuthToken: () => organizerToken,
         getDeviceToken: () => deviceToken,
         onUnauthorized: clearSession,
+        onDeviceRejected: rejectDevice,
       }),
-    [apiBaseUrl, organizerToken, deviceToken, clearSession],
+    [apiBaseUrl, organizerToken, deviceToken, clearSession, rejectDevice],
   );
 }

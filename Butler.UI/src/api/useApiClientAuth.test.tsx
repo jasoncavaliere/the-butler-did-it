@@ -3,7 +3,7 @@ import { Pressable, Text } from 'react-native';
 
 import { useApiClient } from './useApiClient';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
-import { HubDeviceProvider } from '../state/HubDeviceContext';
+import { HubDeviceProvider, useHubDevice } from '../state/HubDeviceContext';
 import { OrganizerProvider, useOrganizer } from '../state/OrganizerContext';
 
 const SESSION: OrganizerSession = {
@@ -38,6 +38,11 @@ function Probe() {
 function SignedInFlag() {
   const { isSignedIn } = useOrganizer();
   return <Text testID="signed-in">{isSignedIn ? 'yes' : 'no'}</Text>;
+}
+
+function PairedFlag() {
+  const { isPaired } = useHubDevice();
+  return <Text testID="paired">{isPaired ? 'yes' : 'no'}</Text>;
 }
 
 async function press(testID: string) {
@@ -164,6 +169,37 @@ describe('useApiClient token threading (T4)', () => {
 
     await press('call');
     expect(lastDeviceHeader()).toBe('device-xyz');
+    expect(lastAuthHeader()).toBeUndefined();
+  });
+  it('a 401 on the device token unpairs: the next call sends no X-Device-Token (#188)', async () => {
+    const onDeviceRejected = jest.fn();
+    await render(
+      <OrganizerProvider authProvider={provider}>
+        <HubDeviceProvider initialDeviceToken="device-revoked" onDeviceRejected={onDeviceRejected}>
+          <Probe />
+          <PairedFlag />
+        </HubDeviceProvider>
+      </OrganizerProvider>,
+    );
+
+    expect(screen.getByTestId('paired')).toHaveTextContent('yes');
+
+    // The API no longer recognises the device token.
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      headers: { get: () => null },
+      text: async () => '',
+    }));
+    await press('call');
+
+    expect(lastDeviceHeader()).toBe('device-revoked');
+    expect(onDeviceRejected).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('paired')).toHaveTextContent('no');
+
+    await press('call');
+    expect(lastDeviceHeader()).toBeUndefined();
     expect(lastAuthHeader()).toBeUndefined();
   });
 });

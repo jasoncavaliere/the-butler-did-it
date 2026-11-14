@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { ComponentProps } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { HubShell, revealAndFocus } from './HubShell';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
@@ -18,7 +18,8 @@ import {
   readWriteQueue,
   saveWriteQueue,
 } from '../offline/writeQueue';
-import { HouseholdProvider } from '../state/HouseholdContext';
+import { HouseholdProvider, useHousehold } from '../state/HouseholdContext';
+import { HubDeviceProvider, useHubDevice } from '../state/HubDeviceContext';
 import { OrganizerProvider, useOrganizer } from '../state/OrganizerContext';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
@@ -1088,6 +1089,79 @@ describe('HubShell', () => {
         await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
         expectParticipantOnly(deviceClient);
         expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+      });
+    });
+
+    /**
+     * #188: a stored pairing can outlive the household or the device's place in
+     * it. GET /households/{id} admits the hub device, so a 403 there on the device
+     * token means the API will not accept this device: the hub forgets the
+     * pairing instead of sitting on an error. A 403 on the organizer (or with no
+     * credential) is still just an error.
+     */
+    describe('stored pairing rejected (#188)', () => {
+      const forbidden = (viaDeviceToken?: boolean): ApiResult<unknown> => ({
+        ok: false,
+        error: {
+          kind: 'problem',
+          status: 403,
+          title: 'Forbidden',
+          detail: 'Not your household.',
+          ...(viaDeviceToken ? { viaDeviceToken } : {}),
+        },
+      });
+
+      function PairingProbe() {
+        const { householdId } = useHousehold();
+        const { deviceToken } = useHubDevice();
+        return (
+          <Text testID="pairing">
+            {householdId ?? 'none'}/{deviceToken ?? 'none'}
+          </Text>
+        );
+      }
+
+      function renderPairedHub(onDeviceRejected: () => void) {
+        return render(
+          <HouseholdProvider initialHouseholdId="hh-1">
+            <HubDeviceProvider initialDeviceToken="dev-1" onDeviceRejected={onDeviceRejected}>
+              <HubShell />
+              <PairingProbe />
+            </HubDeviceProvider>
+          </HouseholdProvider>,
+        );
+      }
+
+      it('a 403 on the household read with viaDeviceToken calls onDeviceRejected and drops the token', async () => {
+        useApiClientMock.mockReturnValue(
+          clientWith({
+            household: forbidden(true),
+            people: { ok: true, status: 200, data: roster, etag: null },
+          }),
+        );
+        const onDeviceRejected = jest.fn();
+
+        await renderPairedHub(onDeviceRejected);
+
+        await waitFor(() => expect(onDeviceRejected).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(screen.getByTestId('pairing')).toHaveTextContent('hh-1/none'));
+        expect(screen.queryByTestId('hub-error')).toBeNull();
+      });
+
+      it('a 403 without viaDeviceToken does not reject the device and shows the error', async () => {
+        useApiClientMock.mockReturnValue(
+          clientWith({
+            household: forbidden(),
+            people: { ok: true, status: 200, data: roster, etag: null },
+          }),
+        );
+        const onDeviceRejected = jest.fn();
+
+        await renderPairedHub(onDeviceRejected);
+
+        await waitFor(() => expect(screen.getByTestId('hub-error')).toHaveTextContent('Not your household.'));
+        expect(onDeviceRejected).not.toHaveBeenCalled();
+        expect(screen.getByTestId('pairing')).toHaveTextContent('hh-1/dev-1');
       });
     });
 

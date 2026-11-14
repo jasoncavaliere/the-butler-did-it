@@ -163,7 +163,11 @@ The demo flow:
 2. **Set up the household** (or seed the demo household) on the setup screens.
 3. **Pair the hub.** On the hub, tap "Pair this tablet". The tablet now
    reads and writes as the hub: name tiles, chores, completions, the grocery
-   list.
+   list. The hub stays paired across page reloads, including automatic ones
+   (a new build arriving, #108, or the hub recovering itself, #109): it comes
+   back on the household's tiles and chores without the PIN. A
+   reload does sign the organizer out, so sign in with the PIN again for the
+   organizer actions.
 4. **Sign out.** Tap "Sign out" in the organizer bar. The hub stays on the
    household's tiles and chores, and the sensitive actions (Confirm order,
    pairing) disappear. To sign in again, tap "Organizer sign in" and enter the
@@ -176,6 +180,19 @@ with the PIN. The demo scripts
 (#98, #99) sign in the same way, with the PIN from `demo/.env`:
 `POST /api/auth/pin/sign-in` with `{"pin":"<pin>"}` returns a `token` to send
 as `Authorization: Bearer <token>`.
+
+**Unpair the hub.** The hub keeps its pairing (the household id and the
+device token, never the organizer token) in the tablet browser's local
+storage under `butler.hubPairing.v1`. To unpair it, do one of these:
+
+- Delete the household: sign in, tap "Delete household" and confirm. The hub
+  forgets the pairing and returns to setup.
+- Clear the hub's site data in the tablet browser. This also drops the
+  offline last-known week and the queue of unsent writes. Or, from the
+  browser's developer console on the hub page, run
+  `localStorage.removeItem('butler.hubPairing.v1')` and reload.
+- After "Wipe the demo data" below, the API no longer knows the device token,
+  so the hub unpairs itself on its next load and shows setup.
 
 ## URLs
 
@@ -397,9 +414,9 @@ no table-creation steps.
 
 - Organizer session: the PIN token lives only in the API's memory and the
   hub's memory. Reloading the hub, or restarting the API (`down` then `up`),
-  signs the organizer out; a reload also forgets the pairing, so sign in and
-  pair again (#188). The token expires after 15 minutes without use, and 5
-  wrong PINs lock sign-in for 60 s.
+  signs the organizer out, but a reload keeps the hub paired (#188), so only
+  the organizer has to sign in again. The token expires after 15 minutes
+  without use, and 5 wrong PINs lock sign-in for 60 s.
 
 - Port 5108: the API is published on `127.0.0.1:5108`, which is also the
   port the in-memory quick loop documented in `.workspace/` binds `dotnet run`
