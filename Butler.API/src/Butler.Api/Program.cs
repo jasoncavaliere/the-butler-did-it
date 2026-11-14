@@ -62,8 +62,8 @@ builder.Services.AddFairnessFeature();
 builder.Services.AddStoreConnectorFeature();
 builder.Services.AddCartsFeature();
 builder.Services.AddCaptureFeature();
-// Demo seeder (#97): Development and Demo only; composes the features above.
-builder.Services.AddDemoFeature();
+// Demo seeder (#97): Development and Demo only; outside them /demo/* is not mapped (#106).
+builder.Services.AddDemoFeature(builder.Environment);
 
 // OpenAPI + Swagger UI (Swashbuckle) so the API is browsable at /swagger.
 builder.Services.AddEndpointsApiExplorer();
