@@ -86,7 +86,7 @@ Complete the log entry within 24 hours, while the conversation is still fresh; t
 ## What this does not decide
 
 - It does not change any claim in the vision or any number in the Pricing Hypothesis, because it only collects evidence about them.
-- It does not set the pilot terms, which belong to the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)).
+- It does not set the pilot terms, which belong to the [Pilot One-Pager](16-pilot-one-pager.md).
 - It does not script the demo itself, which is the demo-day runbook ([#138](https://github.com/jasoncavaliere/the-butler-did-it/issues/138)).
 - It does not set the [Pilot Success Criteria](15-pilot-success-criteria.md) or the week-4 go/no-go.
 - It does not promise any feature, so if a household asks for something v1 does not build, record it as a feature request.
