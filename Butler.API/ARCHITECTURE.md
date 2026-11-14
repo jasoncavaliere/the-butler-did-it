@@ -221,7 +221,13 @@ ordering by display name then product id, empty list for no match/blank query - 
 `SourceConnector` identifying which connector produced the result. `SimulatedHebConnector` is the v1 (and
 only) implementation: it searches a checked-in fixture catalog (`SeedData/grocery/heb-catalog.json`,
 embedded in the assembly) fully offline, with no file-system or network dependency at runtime, and
-stamps every result `SourceConnector = "simulated-heb"`. The feature registers via
+stamps every result `SourceConnector = "simulated-heb"`. The fixture holds about 200 items in six
+lowercase categories (`produce`, `dairy`, `pantry`, `frozen`, `household`, `kids`; meats are frozen
+products), and each item carries a `category` and an `iconId` (equal to the category) on
+`HebCatalogProduct`. The six per-category SVG icons live in `SeedData/grocery/icons/`, are embedded as
+`Butler.Api.SeedData.grocery.icons.<iconId>.svg` (`HebCatalog.IconResourcePrefix`), and are original
+CC0 artwork (source and license in that folder's README). Category and icon are not yet on
+`StoreProduct` or any HTTP response; surfacing them on the hub is a UI follow-up. The feature registers via
 `AddStoreConnectorFeature()` in `Program.cs`, binding `IStoreConnector` to a singleton
 `SimulatedHebConnector`. Its HTTP surface starts with the cart (G2, below) and the capture seam (G3,
 below); confirm (G4) builds on top of them.
