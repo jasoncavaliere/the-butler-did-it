@@ -647,8 +647,60 @@ describe('GroceryCart', () => {
     await renderCart(cartClient({ reads: [unreachable] }));
 
     await waitFor(() => expect(screen.getByTestId('grocery-cart-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('grocery-cart-error')).toHaveTextContent(/unreachable/);
+    expect(screen.getByText("This week's list did not load. Tap Try again.")).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-cart-error')).not.toHaveTextContent(/unreachable/);
     expect(screen.queryByTestId('grocery-cart-list')).toBeNull();
+  });
+
+  describe('load states', () => {
+    it('renders a skeleton while the cart loads', async () => {
+      const pending = deferred<ApiResult<unknown>>();
+      await renderCart(cartClient({ getImpl: () => pending.promise }));
+
+      expect(screen.getByTestId('grocery-cart-loading')).toBeOnTheScreen();
+      expect(screen.getByText("Checking this week's list...")).toBeOnTheScreen();
+      expect(screen.getByText('Groceries')).toBeOnTheScreen();
+    });
+
+    it('renders the designed empty state for an empty building cart', async () => {
+      await renderCart(cartClient());
+      await whenLoaded();
+
+      expect(screen.getByTestId('grocery-cart-empty')).toBeOnTheScreen();
+      expect(screen.getByText('The list is clear.')).toBeOnTheScreen();
+      expect(screen.getByText('Add the first thing you need.')).toBeOnTheScreen();
+    });
+
+    it('renders a friendly error, never the raw API text, when the load fails', async () => {
+      const failed: ApiResult<never> = {
+        ok: false,
+        error: { kind: 'problem', status: 500, title: 'Server Error', detail: 'Cart table offline.' },
+      };
+      await renderCart(cartClient({ reads: [failed] }));
+
+      await waitFor(() => expect(screen.getByTestId('grocery-cart-error')).toBeOnTheScreen());
+      expect(screen.getByText("This week's list did not load. Tap Try again.")).toBeOnTheScreen();
+      expect(screen.getByTestId('grocery-cart-retry')).toBeOnTheScreen();
+      expect(screen.getByTestId('grocery-cart')).not.toHaveTextContent(/Cart table offline|Server Error/);
+    });
+  });
+
+  describe('retry', () => {
+    it('Try again re-reads the current cart', async () => {
+      const client = cartClient({ reads: [unreachable, ok(building([oatMilk]))] });
+      await renderCart(client);
+
+      await waitFor(() => expect(screen.getByTestId('grocery-cart-error')).toBeOnTheScreen());
+      expect(client.get).toHaveBeenCalledTimes(1);
+
+      await press('grocery-cart-retry');
+
+      await whenLoaded();
+      expect(client.get).toHaveBeenCalledTimes(2);
+      expect(client.get).toHaveBeenLastCalledWith(CART_PATH);
+      expect(screen.getByTestId(`grocery-item-${oatMilk.itemId}`)).toBeOnTheScreen();
+      expect(screen.queryByTestId('grocery-cart-error')).toBeNull();
+    });
   });
 
   it('failed-confirm: the cart stays Building and says what to do next', async () => {

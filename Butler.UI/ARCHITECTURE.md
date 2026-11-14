@@ -223,7 +223,7 @@ src/
               client.ts     # typed fetch client (ApiClient) - the data-access seam; one credential per request: organizer bearer or X-Device-Token (T4, #105)
               useApiClient.ts # hook that binds the client to the base URL, the organizer token, the device token and clearSession
               models.ts     # typed request/response shapes for the H1-H4 endpoints
-              errors.ts     # describeApiError: an ApiError -> one readable line; isPreconditionFailed (412)
+              errors.ts     # describeApiError: an ApiError -> one readable line; friendlyApiError: fixed friendly line, never server text (P8); isPreconditionFailed (412)
   auth/       OrganizerGate.tsx    # gates children behind an authenticated organizer (probes /me)
               authProvider.ts     # IAuthProvider seam: OrganizerIdentity/OrganizerSession (T4)
               createAuthProvider.ts # config-driven provider selection (dev, Entra, or PIN) (T4, #105)
@@ -235,6 +235,7 @@ src/
               HubPairing.tsx      # organizer-only "pair this tablet" affordance (T5)
   components/ Screen.tsx     # shared layout primitives
               FormControls.tsx # shared organizer form controls: Field, ActionButton, Chip (#112)
+              WidgetState.tsx # shared load states: WidgetSkeleton, WidgetEmpty, WidgetError with Try again (P8, #117)
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
@@ -305,9 +306,20 @@ current state untouched. With no interaction for `IDLE_TIMEOUT_MS` (45s, exporte
 `HubShell.tsx` and overridable via the `idleTimeoutMs` prop for tests) the active participant clears
 back to the neutral glance automatically - the shared tablet never stays "claimed" by someone who
 walked away. The shell itself fetches no chores; `TodayPanel` (`src/components/TodayPanel.tsx`) stays
-a bounded, dumb container - it renders whatever children it is given (or a calm "being prepared" empty
-state) and, given an `activeParticipant`, accents itself in that person's colour - and `HubShell` fills
-it with `ChoreBoard` (Epic 40 C5) once a household is ready.
+a bounded, dumb container - it renders whatever children it is given and, given an
+`activeParticipant`, accents itself in that person's colour - and `HubShell` fills it with
+`ChoreBoard` (Epic 40 C5) once a household is ready. The shell also hands it a `state` (its own load
+phase, or `ready` when no household is selected) and an `onRetry`: `loading` renders a calm skeleton,
+`error` a friendly line with a `Try again` that re-reads the household and roster, and `ready` with no
+children a designed empty state ("Ready when you are.").
+
+**Widget load states (P8, #117).** `TodayPanel`, `ChoreBoard`, `FairnessView` and `GroceryCart` render
+their load states through the shared `src/components/WidgetState.tsx` (ADR-0007): `WidgetSkeleton`
+(static bars plus a muted caption, never a blank panel), `WidgetEmpty` (a title plus a small detail
+line), and `WidgetError` (a circled `!` in the danger colour plus friendly text, never the raw API
+text, and a `Try again` button). Each widget keeps its copy in a module `COPY` const. `Try again` is an
+event handler that sets the loading phase and bumps a revision counter listed in the load effect's
+dependencies, so the widget re-requests its data. Retry is manual only; automatic retry is #109.
 
 **The chore board** (`src/components/ChoreBoard.tsx`, Epic 40 C5) is the visible payoff of the wedge
 (journey 6.2): it fills `TodayPanel` with the current week's assignments and lets a tap mark one done.
@@ -335,10 +347,10 @@ balance - a read-only glance at the Section 10 fairness guardrail, rendered by `
 `TodayPanel` once a household is ready. On mount it reads the C6 aggregate
 (`GET /households/{householdId}/fairness`, optionally with a `windowWeeks` query param) through the
 typed API client and renders a labelled bar per person sized to their share of the household's
-completed effort, with the top contributor's row emphasised. There is no tap target and no write. Every
-load outcome is a calm, deliberate state: loading, an error message, a "nothing completed yet" empty
-state when the household total is zero, or the ready distribution - the wall never shows a crash or a
-blank region. A person's bar accents in their claim colour when supplied via the `people` prop
+completed effort, with the top contributor's row emphasised. There is no write. Every load outcome is
+a calm, deliberate state under the same heading: a skeleton, a friendly error with `Try again`, a
+"Nothing to weigh yet." empty state when the household total is zero, or the ready distribution - the
+wall never shows a crash or a blank region. A person's bar accents in their claim colour when supplied via the `people` prop
 (`{ personId, claimColor }[]`, sourced from the roster `HubShell` already holds); otherwise it falls
 back to the neutral brass accent.
 
@@ -352,7 +364,9 @@ typed client:
   and `Quantity`, and a custom line (`isCustom`) also carries a `Custom` tag. Under a non-empty list the
   region shows `Estimated total $X.XX` (the API's `estimatedTotal`), and when `customItemCount` is above
   zero a note such as `Plus 1 custom item, not priced.` - on a confirmed cart too. A week whose cart is already confirmed answers `409`, which the region treats as a
-  calm confirmed state rather than an error.
+  calm confirmed state rather than an error. While it loads the region shows a skeleton; an empty
+  building cart shows "The list is clear."; any other failed read shows a friendly line with a
+  `Try again` that re-reads the cart (P8).
 - **Add (G3).** Typing a term and submitting (the Add button and the keyboard's return are the same
   gesture) POSTs to `/capture/text` with `{ utterance, personId, weekIso, quantity: 1 }`, then re-reads
   the cart so the rendered list and the `eTag` are always the server's truth - adding the same product
@@ -407,8 +421,11 @@ records intent only.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
-rooms - driven entirely through the typed API client. Each step POSTs to its H1-H4 endpoint; a
-failure surfaces the API's problem-details as an in-screen message and does not advance. The
+rooms - driven entirely through the typed API client. Each step POSTs to its H1-H4 endpoint. While a
+request is in flight the flow shows a step-specific loading line (`setup-loading`); a failed request
+shows a friendly line from `friendlyApiError` (never the server's detail or title) with a `Try again`
+that re-sends the current form (or the remaining starter-chore selection), and does not advance (P8).
+The client's own validation messages show no retry. The
 chores step also offers starter chores (#111) from the versioned catalog in
 `src/setup/starterChoreTemplates.json`: a created room whose name equals a catalog room's name or
 one of its aliases (trimmed, case-insensitive, exact - so `Bath` matches Bathroom but `Den` matches

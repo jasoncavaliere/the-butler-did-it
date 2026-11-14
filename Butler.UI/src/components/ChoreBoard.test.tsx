@@ -553,7 +553,8 @@ describe('ChoreBoard', () => {
     await renderBoard(boardClient({ generate: unreachable }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('chore-board-error')).toHaveTextContent(/unreachable/);
+    expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
+    expect(screen.getByTestId('chore-board-error')).not.toHaveTextContent(/unreachable/);
   });
 
   it('surfaces a calm error when the assignment read returns nothing', async () => {
@@ -564,7 +565,7 @@ describe('ChoreBoard', () => {
     await renderBoard(client);
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('chore-board-error')).toHaveTextContent(/unavailable/);
+    expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
   });
 
   it('surfaces a calm error when the chores read fails', async () => {
@@ -581,7 +582,7 @@ describe('ChoreBoard', () => {
     await renderBoard(client);
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('chore-board-error')).toHaveTextContent(/unavailable/);
+    expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
   });
 
   it('falls back to the chore id and a weekly bucket when a chore is missing', async () => {
@@ -762,7 +763,8 @@ describe('ChoreBoard offline cache', () => {
     );
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('chore-board-error')).toHaveTextContent(/could not be built/);
+    expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
+    expect(screen.getByTestId('chore-board-error')).not.toHaveTextContent(/could not be built/);
     expect(onLastKnown).toHaveBeenCalledWith(null);
   });
 
@@ -2254,19 +2256,105 @@ describe('pruneLiveTaps', () => {
   });
 });
 
-describe('describeFailure', () => {
-  it('marks only an unreachable API as offline', () => {
-    expect(describeFailure(unreachable)).toEqual({
-      message: expect.stringContaining('unreachable'),
-      offline: true,
+describe('ChoreBoard load states', () => {
+  describe('load states', () => {
+    it('renders a skeleton while the week loads', async () => {
+      const client: ApiClient = {
+        baseUrl: 'http://api.test:1',
+        get: jest.fn(async () => ok(chores)) as unknown as ApiClient['get'],
+        update: jest.fn(() => new Promise(() => {})) as unknown as ApiClient['update'],
+      };
+      await renderBoard(client);
+
+      expect(screen.getByTestId('chore-board-loading')).toBeOnTheScreen();
+      expect(screen.getByText('Setting the board...')).toBeOnTheScreen();
     });
-    expect(
-      describeFailure({ ok: false, error: { kind: 'http', status: 503, title: 'Unavailable' } }),
-    ).toEqual({ message: 'Unavailable', offline: false });
+
+    it('renders the designed empty state when nothing is assigned', async () => {
+      await renderBoard(boardClient({ assignments: [] }));
+
+      await waitFor(() => expect(screen.getByTestId('chore-board-empty')).toBeOnTheScreen());
+      expect(screen.getByText('All caught up.')).toBeOnTheScreen();
+      expect(screen.getByText('Nothing on the board this week. Enjoy the quiet.')).toBeOnTheScreen();
+    });
+
+    it('renders the designed empty state for the active participant with nothing assigned', async () => {
+      await renderBoard(boardClient(), { activePersonId: 'p-nobody' });
+
+      await waitFor(() => expect(screen.getByTestId('chore-board-empty')).toBeOnTheScreen());
+      expect(screen.getByText('All caught up.')).toBeOnTheScreen();
+      expect(screen.getByText('Nothing on your list this week.')).toBeOnTheScreen();
+    });
+
+    it('renders a friendly error, never the raw API text, when the load fails', async () => {
+      const serverError: ApiResult<never> = {
+        ok: false,
+        error: { kind: 'problem', status: 500, title: 'Server error', detail: 'Generate exploded.' },
+      };
+      await renderBoard(boardClient({ generate: serverError }));
+
+      await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+      expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
+      expect(screen.getByTestId('chore-board-retry')).toBeOnTheScreen();
+      expect(screen.getByTestId('chore-board-error')).not.toHaveTextContent(/exploded|Server error/);
+    });
   });
 
-  it('describes a result that never arrived, and never claims a success failed offline', () => {
-    expect(describeFailure(undefined)).toEqual({ message: 'The board is unavailable.', offline: false });
-    expect(describeFailure(ok({}))).toEqual({ message: 'The board is unavailable.', offline: false });
+  describe('retry', () => {
+    it('Try again re-requests the week, shows the skeleton, then the board', async () => {
+      const serverError: ApiResult<never> = {
+        ok: false,
+        error: { kind: 'http', status: 500, title: 'Server error' },
+      };
+      let resolveSecond: (value: ApiResult<unknown>) => void = () => {};
+      const second = new Promise<ApiResult<unknown>>((resolve) => {
+        resolveSecond = resolve;
+      });
+      const generate = jest
+        .fn()
+        .mockResolvedValueOnce(serverError)
+        .mockReturnValueOnce(second);
+      const client: ApiClient = {
+        baseUrl: 'http://api.test:1',
+        get: jest.fn(async () => ok(chores)) as unknown as ApiClient['get'],
+        update: generate as unknown as ApiClient['update'],
+      };
+      await renderBoard(client);
+
+      await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+      expect(generate).toHaveBeenCalledTimes(1);
+
+      await act(async () => fireEvent.press(screen.getByTestId('chore-board-retry')));
+
+      expect(screen.getByTestId('chore-board-loading')).toBeOnTheScreen();
+      expect(generate).toHaveBeenCalledTimes(2);
+      expect(generate).toHaveBeenLastCalledWith(
+        '/households/hh-1/assignments/generate',
+        {},
+        { method: 'POST' },
+      );
+
+      await act(async () => {
+        resolveSecond(ok({ weekIso: WEEK, assignments, unassigned: [] }));
+        await second;
+      });
+
+      await waitFor(() => expect(screen.getByTestId('chore-board')).toBeOnTheScreen());
+      expect(screen.queryByTestId('chore-board-error')).toBeNull();
+    });
+  });
+});
+
+describe('describeFailure', () => {
+  it('marks only an unreachable API as offline', () => {
+    expect(describeFailure(unreachable)).toEqual({ offline: true });
+    expect(
+      describeFailure({ ok: false, error: { kind: 'http', status: 503, title: 'Unavailable' } }),
+    ).toEqual({ offline: false });
+  });
+
+  it('classifies a result that never arrived, and never claims a success failed offline', () => {
+    expect(describeFailure(undefined)).toEqual({ offline: false });
+    expect(describeFailure(ok({}))).toEqual({ offline: false });
   });
 });

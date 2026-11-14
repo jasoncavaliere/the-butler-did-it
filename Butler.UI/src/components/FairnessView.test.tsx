@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { FairnessView, type FairnessPerson } from './FairnessView';
 import type { ApiClient, ApiResult } from '../api/client';
@@ -209,7 +209,8 @@ describe('FairnessView', () => {
     await renderView(fairnessClient(unreachable));
 
     await waitFor(() => expect(screen.getByTestId('fairness-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('fairness-error')).toHaveTextContent(/unreachable/);
+    expect(screen.getByText('The balance did not load just now. Tap Try again.')).toBeOnTheScreen();
+    expect(screen.getByTestId('fairness-error')).not.toHaveTextContent(/unreachable/);
   });
 
   it('surfaces a calm error when the read returns nothing', async () => {
@@ -221,7 +222,7 @@ describe('FairnessView', () => {
     await renderView(client);
 
     await waitFor(() => expect(screen.getByTestId('fairness-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('fairness-error')).toHaveTextContent(/unavailable/);
+    expect(screen.getByText('The balance did not load just now. Tap Try again.')).toBeOnTheScreen();
   });
 
   it('ignores a read that resolves after the view unmounts', async () => {
@@ -245,5 +246,68 @@ describe('FairnessView', () => {
     });
 
     expect(screen.queryByTestId('fairness-view')).toBeNull();
+  });
+
+  describe('load states', () => {
+    it('renders a skeleton while the balance loads', async () => {
+      const client: ApiClient = {
+        baseUrl: 'http://api.test:1',
+        get: jest.fn(() => new Promise(() => {})) as unknown as ApiClient['get'],
+        update: jest.fn() as unknown as ApiClient['update'],
+      };
+      await renderView(client);
+
+      expect(screen.getByTestId('fairness-loading')).toBeOnTheScreen();
+      expect(screen.getByText('Weighing the load...')).toBeOnTheScreen();
+      // The headed region is already there: never a blank panel.
+      expect(screen.getByText('Contribution balance')).toBeOnTheScreen();
+    });
+
+    it('renders the designed empty state when nothing is completed', async () => {
+      await renderView(fairnessClient(ok({ ...balance, totalEffort: 0, shares: [] })));
+
+      await waitFor(() => expect(screen.getByTestId('fairness-empty')).toBeOnTheScreen());
+      expect(screen.getByText('Nothing to weigh yet.')).toBeOnTheScreen();
+      expect(screen.getByText('The balance fills in as chores are done.')).toBeOnTheScreen();
+    });
+
+    it('renders a friendly error, never the raw API text, when the load fails', async () => {
+      await renderView(
+        fairnessClient({
+          ok: false,
+          error: { kind: 'problem', status: 500, title: 'Server Error', detail: 'Table query timed out.' },
+        }),
+      );
+
+      await waitFor(() => expect(screen.getByTestId('fairness-error')).toBeOnTheScreen());
+      expect(screen.getByText('The balance did not load just now. Tap Try again.')).toBeOnTheScreen();
+      expect(screen.getByTestId('fairness-retry')).toBeOnTheScreen();
+      expect(screen.getByTestId('fairness-view')).not.toHaveTextContent(/timed out|Server Error/);
+    });
+  });
+
+  describe('retry', () => {
+    it('Try again re-requests the balance', async () => {
+      const get = jest
+        .fn()
+        .mockResolvedValueOnce(unreachable)
+        .mockResolvedValueOnce(ok(balance));
+      const client: ApiClient = {
+        baseUrl: 'http://api.test:1',
+        get: get as unknown as ApiClient['get'],
+        update: jest.fn() as unknown as ApiClient['update'],
+      };
+      await renderView(client, { people });
+
+      await waitFor(() => expect(screen.getByTestId('fairness-error')).toBeOnTheScreen());
+      expect(get).toHaveBeenCalledTimes(1);
+
+      await act(async () => fireEvent.press(screen.getByTestId('fairness-retry')));
+
+      await waitFor(() => expect(screen.getByTestId('fairness-row-p1')).toBeOnTheScreen());
+      expect(get).toHaveBeenCalledTimes(2);
+      expect(get).toHaveBeenLastCalledWith('/households/hh-1/fairness');
+      expect(screen.queryByTestId('fairness-error')).toBeNull();
+    });
   });
 });

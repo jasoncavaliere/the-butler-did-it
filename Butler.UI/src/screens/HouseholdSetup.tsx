@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { describeApiError } from '../api/errors';
+import type { ApiError } from '../api/client';
+import { friendlyApiError } from '../api/errors';
 import type {
   ChoreResponse,
   CreateChoreRequest,
@@ -15,6 +16,7 @@ import type {
 import { useApiClient } from '../api/useApiClient';
 import { ActionButton, Chip, Field } from '../components/FormControls';
 import { Screen, colors } from '../components/Screen';
+import { WidgetError } from '../components/WidgetState';
 import {
   templatesForRoom,
   toCreateChoreRequest,
@@ -45,6 +47,21 @@ type RoomsState = Extract<FlowState, { step: 'rooms' }>;
 type PeopleState = Extract<FlowState, { step: 'people' }>;
 type ChoresState = Extract<FlowState, { step: 'chores' }>;
 
+/**
+ * What "Try again" re-sends after a failed request: the current step's own
+ * submit, or the starter-chore add. `null` means the message on screen is the
+ * client's own validation, which a retry cannot fix.
+ */
+type RetryKind = 'step' | 'templates' | null;
+
+/** The line shown beside the spinner while a step's request is in flight. */
+const LOADING_LINES: Record<Exclude<FlowState['step'], 'done'>, string> = {
+  household: 'Setting up your household...',
+  rooms: 'Adding the room...',
+  people: 'Adding them to the household...',
+  chores: 'Adding the chores...',
+};
+
 /** Preset claim colours an organizer can assign to a person's tile. */
 const CLAIM_COLORS = ['#D9B25A', '#7FB2E5', '#E58B7F', '#8FD98F', '#C79FE5'] as const;
 
@@ -70,8 +87,12 @@ function templateLabel(template: StarterTemplate): string {
  * rooms. The chores step offers starter chores from the bundled catalog
  * (`src/setup/`) under each created room whose name or alias matches a catalog
  * room; the organizer toggles the ones they want and adds them in one tap, next
- * to the custom-chore form. Each step POSTs to its endpoint; a failure surfaces
- * the API's problem details as an in-screen message and does not advance. The
+ * to the custom-chore form. Each step POSTs to its endpoint. While a request is
+ * in flight the flow shows a step-specific loading line (P8, ADR-0007); a failed
+ * request shows a friendly message ({@link friendlyApiError}, never the server's
+ * raw text) with a "Try again" that re-sends the current form, and does not
+ * advance. Validation the client does itself shows its plain message with no
+ * retry. The
  * created household id is carried through the flow so later steps can scope
  * their paths, and is published to {@link useHousehold} only on completion, so
  * the rest of the app then reads the correct household.
@@ -83,6 +104,7 @@ export function HouseholdSetup() {
   const [flow, setFlow] = useState<FlowState>({ step: 'household' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryKind, setRetryKind] = useState<RetryKind>(null);
 
   // Step-local form fields.
   const [householdName, setHouseholdName] = useState('');
@@ -98,19 +120,37 @@ export function HouseholdSetup() {
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [addedTemplates, setAddedTemplates] = useState<string[]>([]);
 
+  /** Show the client's own validation message: nothing to retry. */
+  function invalid(message: string) {
+    setError(message);
+    setRetryKind(null);
+  }
+
+  /** Clear any message, at the start of an attempt or a step change. */
+  function clearError() {
+    setError(null);
+    setRetryKind(null);
+  }
+
+  /** Show a failed request in friendly words, with a retry of `kind`. */
+  function failed(apiError: ApiError, kind: Exclude<RetryKind, null>) {
+    setError(friendlyApiError(apiError));
+    setRetryKind(kind);
+  }
+
   async function submitHousehold() {
     const name = householdName.trim();
     if (!name) {
-      setError('Enter a name for your household.');
+      invalid('Enter a name for your household.');
       return;
     }
-    setError(null);
+    clearError();
     setSubmitting(true);
     const body: CreateHouseholdRequest = { name };
     const result = await client.update<HouseholdResponse>('/households', body, { method: 'POST' });
     setSubmitting(false);
     if (!result.ok) {
-      setError(describeApiError(result.error));
+      failed(result.error, 'step');
       return;
     }
     setFlow({ step: 'rooms', householdId: result.data.householdId, rooms: [] });
@@ -119,10 +159,10 @@ export function HouseholdSetup() {
   async function addRoom(current: RoomsState) {
     const name = roomName.trim();
     if (!name) {
-      setError('Enter a room name.');
+      invalid('Enter a room name.');
       return;
     }
-    setError(null);
+    clearError();
     setSubmitting(true);
     const body: CreateRoomRequest = { name, sortOrder: current.rooms.length };
     const result = await client.update<RoomResponse>(
@@ -132,7 +172,7 @@ export function HouseholdSetup() {
     );
     setSubmitting(false);
     if (!result.ok) {
-      setError(describeApiError(result.error));
+      failed(result.error, 'step');
       return;
     }
     setFlow({ ...current, rooms: [...current.rooms, result.data] });
@@ -141,20 +181,20 @@ export function HouseholdSetup() {
 
   function goToPeople(current: RoomsState) {
     if (current.rooms.length === 0) {
-      setError('Add at least one room before continuing.');
+      invalid('Add at least one room before continuing.');
       return;
     }
-    setError(null);
+    clearError();
     setFlow({ step: 'people', householdId: current.householdId, rooms: current.rooms, people: [] });
   }
 
   async function addPerson(current: PeopleState) {
     const displayName = personName.trim();
     if (!displayName) {
-      setError('Enter a name.');
+      invalid('Enter a name.');
       return;
     }
-    setError(null);
+    clearError();
     setSubmitting(true);
     const body: CreatePersonRequest = {
       displayName,
@@ -169,7 +209,7 @@ export function HouseholdSetup() {
     );
     setSubmitting(false);
     if (!result.ok) {
-      setError(describeApiError(result.error));
+      failed(result.error, 'step');
       return;
     }
     setFlow({ ...current, people: [...current.people, result.data] });
@@ -179,7 +219,7 @@ export function HouseholdSetup() {
   }
 
   function goToChores(current: PeopleState) {
-    setError(null);
+    clearError();
     setFlow({
       step: 'chores',
       householdId: current.householdId,
@@ -192,19 +232,19 @@ export function HouseholdSetup() {
   async function addChore(current: ChoresState) {
     const title = choreTitle.trim();
     if (!title) {
-      setError('Enter a chore title.');
+      invalid('Enter a chore title.');
       return;
     }
     if (!choreRoomId) {
-      setError('Pick a room for this chore.');
+      invalid('Pick a room for this chore.');
       return;
     }
     const effort = Number.parseInt(choreEffort, 10);
     if (!Number.isFinite(effort) || effort <= 0) {
-      setError('Effort must be a positive whole number.');
+      invalid('Effort must be a positive whole number.');
       return;
     }
-    setError(null);
+    clearError();
     setSubmitting(true);
     const body: CreateChoreRequest = {
       title,
@@ -220,7 +260,7 @@ export function HouseholdSetup() {
     );
     setSubmitting(false);
     if (!result.ok) {
-      setError(describeApiError(result.error));
+      failed(result.error, 'step');
       return;
     }
     setFlow({ ...current, chores: [...current.chores, result.data] });
@@ -241,10 +281,10 @@ export function HouseholdSetup() {
         .map((template) => ({ room, template })),
     );
     if (work.length === 0) {
-      setError('Pick at least one starter chore.');
+      invalid('Pick at least one starter chore.');
       return;
     }
-    setError(null);
+    clearError();
     setSubmitting(true);
     const created: ChoreResponse[] = [];
     const createdKeys: string[] = [];
@@ -256,7 +296,7 @@ export function HouseholdSetup() {
         { method: 'POST' },
       );
       if (!result.ok) {
-        setError(describeApiError(result.error));
+        failed(result.error, 'templates');
         break;
       }
       created.push(result.data);
@@ -272,6 +312,7 @@ export function HouseholdSetup() {
     // Completion: publish the new household to app-wide context so every
     // subsequent screen reads the correct household.
     selectHousehold(current.householdId);
+    clearError();
     setFlow({
       step: 'done',
       rooms: current.rooms,
@@ -280,15 +321,53 @@ export function HouseholdSetup() {
     });
   }
 
+  // "Try again" re-sends whatever failed, with the form fields as they stand now.
+  // Manual only; automatic retry is #109.
+  async function retry() {
+    switch (flow.step) {
+      case 'household':
+        await submitHousehold();
+        break;
+      case 'rooms':
+        await addRoom(flow);
+        break;
+      case 'people':
+        await addPerson(flow);
+        break;
+      case 'chores':
+        await (retryKind === 'templates' ? addTemplates(flow) : addChore(flow));
+        break;
+    }
+  }
+
   return (
     <Screen testID="household-setup">
       <Text style={styles.eyebrow}>BUTLER SETUP</Text>
       <StepHeading step={flow.step} />
 
-      {error !== null && (
-        <Text style={styles.error} testID="setup-error">
-          {error}
-        </Text>
+      {error !== null &&
+        (retryKind !== null ? (
+          <View style={styles.errorBlock}>
+            <WidgetError
+              testID="setup-error"
+              message={error}
+              onRetry={() => {
+                void retry();
+              }}
+              retryTestID="setup-retry"
+            />
+          </View>
+        ) : (
+          <Text style={styles.error} testID="setup-error">
+            {error}
+          </Text>
+        ))}
+
+      {submitting && flow.step !== 'done' && (
+        <View style={styles.loading} testID="setup-loading" accessibilityRole="progressbar">
+          <ActivityIndicator color={colors.brass} />
+          <Text style={styles.loadingText}>{LOADING_LINES[flow.step]}</Text>
+        </View>
       )}
 
       {flow.step === 'household' && (
@@ -578,6 +657,9 @@ const styles = StyleSheet.create({
   title: { color: colors.ink, fontSize: 24, fontWeight: '700', marginTop: 8, marginBottom: 16 },
   body: { color: colors.ink, fontSize: 16 },
   error: { color: '#E5A0A0', fontSize: 14, marginBottom: 16 },
+  errorBlock: { marginBottom: 16 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  loadingText: { color: colors.muted, fontSize: 15 },
   label: { color: colors.muted, fontSize: 13, marginBottom: 6 },
   row: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ComponentRef, type Ref } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ApiError } from '../api/client';
 import { describeApiError } from '../api/errors';
@@ -14,6 +14,7 @@ import { useApiClient } from '../api/useApiClient';
 import { useOrganizer } from '../state/OrganizerContext';
 import { useSpeechCapture } from '../voice/useSpeechCapture';
 import { colors } from './Screen';
+import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
 /**
  * The hub grocery cart (Epic 50 G5, journey 6.4): the whole "add oat milk ->
@@ -61,8 +62,10 @@ import { colors } from './Screen';
  * backing connector is the simulated G1 one, so the demo runs fully offline of
  * any real store.
  *
- * Every outcome is a deliberate, calm state (loading, empty, a readable message,
- * confirmed) so the wall never shows a crash or a blank region.
+ * Every outcome is a deliberate, calm state so the wall never shows a crash or a
+ * blank region (P8, ADR-0007): a skeleton while the cart loads, a designed empty
+ * state for an empty building cart, the confirmed week, or a friendly load error
+ * (fixed copy, never the raw API text) with a "Try again" that re-reads the cart.
  */
 
 /** The cart lifecycle values the API returns (mirrors the API's `CartStatus`). */
@@ -71,7 +74,9 @@ const CONFIRMED = 'Confirmed';
 /** Copy, kept in one place so the concierge voice stays consistent. */
 const COPY = {
   loading: "Checking this week's list...",
-  empty: 'The list is empty. Add the first thing you need.',
+  emptyTitle: 'The list is clear.',
+  emptyDetail: 'Add the first thing you need.',
+  loadFailed: "This week's list did not load. Tap Try again.",
   needsTerm: 'Type what to add, for example "oat milk".',
   needsParticipant: 'Tap your name first, then add to the list.',
   ambiguous: 'Did you mean one of these? Type the one you want.',
@@ -112,7 +117,7 @@ type CartState =
   | { phase: 'loading' }
   | { phase: 'ready'; cart: CartResponse }
   | { phase: 'confirmed' }
-  | { phase: 'error'; message: string };
+  | { phase: 'error' };
 
 /**
  * The candidate products on an ambiguous-capture problem document. The API puts
@@ -171,8 +176,11 @@ export function GroceryCart({
     if (result.error.status === 409) {
       return { phase: 'confirmed' };
     }
-    return { phase: 'error', message: describeApiError(result.error) };
+    return { phase: 'error' };
   }, [client, householdId]);
+
+  // Bumped by "Try again"; listed in the load effect's deps so a bump re-reads.
+  const [loadRevision, setLoadRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -184,7 +192,13 @@ export function GroceryCart({
     return () => {
       active = false;
     };
-  }, [readCart]);
+  }, [readCart, loadRevision]);
+
+  // Loading is set here, in the event handler, never synchronously in the effect.
+  const retryLoad = useCallback(() => {
+    setState({ phase: 'loading' });
+    setLoadRevision((previous) => previous + 1);
+  }, []);
 
   // Capturing: resolve an utterance through G3 (typed to `/capture/text`, spoken
   // to `/capture/voice`) and re-read the cart. The line is attributed to the
@@ -362,16 +376,16 @@ export function GroceryCart({
       </View>
 
       {state.phase === 'loading' ? (
-        <View style={styles.centeredRow} testID="grocery-cart-loading">
-          <ActivityIndicator color={colors.brass} />
-          <Text style={styles.status}>{COPY.loading}</Text>
-        </View>
+        <WidgetSkeleton testID="grocery-cart-loading" caption={COPY.loading} />
       ) : null}
 
       {state.phase === 'error' ? (
-        <Text style={styles.status} testID="grocery-cart-error">
-          {state.message}
-        </Text>
+        <WidgetError
+          testID="grocery-cart-error"
+          message={COPY.loadFailed}
+          onRetry={retryLoad}
+          retryTestID="grocery-cart-retry"
+        />
       ) : null}
 
       {state.phase === 'confirmed' ? (
@@ -413,9 +427,11 @@ export function GroceryCart({
       {cart !== null ? (
         <View style={styles.list} testID="grocery-cart-list">
           {items.length === 0 ? (
-            <Text style={styles.status} testID="grocery-cart-empty">
-              {COPY.empty}
-            </Text>
+            <WidgetEmpty
+              testID="grocery-cart-empty"
+              title={COPY.emptyTitle}
+              detail={COPY.emptyDetail}
+            />
           ) : (
             items.map((item) => (
               <View key={item.itemId} style={styles.item} testID={`grocery-item-${item.itemId}`}>
@@ -602,7 +618,6 @@ const styles = StyleSheet.create({
   },
   statusGlyph: { color: colors.brass, fontSize: 16 },
   statusText: { color: colors.brass, fontSize: 16, fontWeight: '700' },
-  centeredRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   status: { color: colors.muted, fontSize: 18 },
   addRow: { gap: 8 },
   label: { color: colors.muted, fontSize: 15 },

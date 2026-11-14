@@ -1,4 +1,4 @@
-import { describeApiError, isPreconditionFailed } from './errors';
+import { FRIENDLY_ERROR, describeApiError, friendlyApiError, isPreconditionFailed } from './errors';
 
 describe('describeApiError', () => {
   it('prefers the problem-details detail', () => {
@@ -62,5 +62,31 @@ describe('isPreconditionFailed', () => {
     ['a network failure', { kind: 'network' as const, status: 0, title: 'unreachable' }],
   ])('is false for %s', (_label, error) => {
     expect(isPreconditionFailed(error)).toBe(false);
+  });
+});
+
+describe('friendlyApiError', () => {
+  it('maps network, 4xx and other failures to fixed friendly lines and never echoes detail', () => {
+    expect(friendlyApiError({ kind: 'network', status: 0, title: 'unreachable' })).toBe(
+      FRIENDLY_ERROR.network,
+    );
+    const rejected = friendlyApiError({
+      kind: 'problem',
+      status: 400,
+      title: 'Bad Request',
+      detail: 'Effort must be positive.',
+    });
+    expect(rejected).toBe(FRIENDLY_ERROR.rejected);
+    expect(rejected).not.toContain('Effort');
+    expect(friendlyApiError({ kind: 'http', status: 499, title: 'Client Closed' })).toBe(
+      FRIENDLY_ERROR.rejected,
+    );
+    expect(friendlyApiError({ kind: 'http', status: 500, title: 'Server Error' })).toBe(
+      FRIENDLY_ERROR.failed,
+    );
+    expect(friendlyApiError({ kind: 'parse', status: 200, title: 'bad json' })).toBe(
+      FRIENDLY_ERROR.failed,
+    );
+    expect(friendlyApiError({ kind: 'http', status: 399, title: 'Odd' })).toBe(FRIENDLY_ERROR.failed);
   });
 });

@@ -257,6 +257,14 @@ function HubShellBody({
   // a live hub does no extra reads after a sync.
   const [queueSignal, setQueueSignal] = useState(0);
   const handleQueueConfirmed = useCallback(() => setQueueSignal((previous) => previous + 1), []);
+  // "Try again" on the today panel's error state (P8): show the skeleton, then
+  // bump the signal the load effect lists so the shell re-reads the household
+  // and roster. Manual only; automatic retry is #109.
+  const [retrySignal, setRetrySignal] = useState(0);
+  const handleRetry = useCallback(() => {
+    setState({ phase: 'loading' });
+    setRetrySignal((previous) => previous + 1);
+  }, []);
 
   useEffect(() => {
     // Without a selected household there is nothing to load; the "no household"
@@ -300,8 +308,9 @@ function HubShellBody({
     };
     // `reconnectSignal` bumps when the network returns while degraded, and
     // `queueSignal` when a queued write is confirmed while degraded - either is
-    // what makes the hub reload itself rather than sitting on last-known data.
-  }, [client, householdId, reconnectSignal, queueSignal]);
+    // what makes the hub reload itself rather than sitting on last-known data;
+    // `retrySignal` bumps when the today panel's "Try again" is tapped.
+  }, [client, householdId, reconnectSignal, queueSignal, retrySignal]);
 
   // Tapping a name claims that person through T1 and makes them active. There is
   // no password/PIN step: a successful claim sets the session, a switch (tapping
@@ -435,7 +444,13 @@ function HubShellBody({
           ))}
       </View>
 
-      <TodayPanel activeParticipant={activeParticipant}>
+      {/* Fed from the real load phase: a missing household is a derived calm
+          state (the panel's empty state), never its error. */}
+      <TodayPanel
+        activeParticipant={activeParticipant}
+        state={householdId === null ? 'ready' : state.phase}
+        onRetry={handleRetry}
+      >
         {view.phase === 'ready' && householdId !== null ? (
           <ChoreBoard
             householdId={householdId}

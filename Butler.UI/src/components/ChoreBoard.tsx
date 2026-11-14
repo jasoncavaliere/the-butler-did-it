@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiResult } from '../api/client';
 import type {
@@ -9,7 +9,6 @@ import type {
   RosterEntryResponse,
   UndoChoreResponse,
 } from '../api/models';
-import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useCurrentWeekIso } from '../offline/useCurrentWeek';
@@ -18,6 +17,7 @@ import { useWriteQueueContext } from '../offline/WriteQueueContext';
 import { currentWeekIso, isCurrentWeek } from '../offline/weekIso';
 import { assignmentDedupeKey, readWriteQueue, type QueuedWrite } from '../offline/writeQueue';
 import { colors } from './Screen';
+import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
 /**
  * The hub chore board (Epic 40 C5): the visible payoff of the wedge (journey
@@ -58,6 +58,11 @@ import { colors } from './Screen';
  * hub can mark the view as last-known. Only a `network` failure falls back - an
  * HTTP/problem/parse error is a real answer from a reachable service and still
  * shows as an error.
+ *
+ * Load states (P8, ADR-0007): a calm skeleton while the week loads, a designed
+ * "all caught up" empty state when nothing is on the board (or on the active
+ * participant's list), and a friendly error - fixed copy, never the raw API
+ * text - whose "Try again" re-requests the week. Automatic retry is #109.
  *
  * A board - live or served from cache - is a control (Epic 60 O3), and it comes
  * back to life by itself:
@@ -128,6 +133,15 @@ export type BoardItem = {
 
 type Phase = 'loading' | 'ready' | 'error';
 
+/** The board's load-state copy, kept in one place so the voice stays consistent. */
+const COPY = {
+  loading: 'Setting the board...',
+  emptyTitle: 'All caught up.',
+  emptyDetailGlance: 'Nothing on the board this week. Enjoy the quiet.',
+  emptyDetailMine: 'Nothing on your list this week.',
+  loadFailed: 'The board did not load just now. Tap Try again.',
+} as const;
+
 /**
  * How long a live board waits before reloading when the server named a week
  * other than the tablet's (#89), indexed by how many live loads in a row have
@@ -164,21 +178,22 @@ function isDaily(cadence: string): boolean {
   return cadence.toLowerCase() === 'daily';
 }
 
-/** A read that did not produce a board, and whether the API was unreachable. */
-export type LoadFailure = { message: string; offline: boolean };
+/** A read that did not produce a board: whether the API was unreachable. */
+export type LoadFailure = { offline: boolean };
 
 /**
- * Describe one of the board's failed reads: the line to show, and whether the
- * API was unreachable. Only the client's normalized `network` error means
+ * Classify one of the board's failed reads: whether the API was unreachable.
+ * The board shows fixed friendly copy for any failure, so no message is carried.
+ * Only the client's normalized `network` error means
  * "unreachable", which is the single case the last-known cache stands in for -
  * an HTTP/problem/parse error is a real answer from a reachable service, and a
  * result that never arrived carries no error to classify at all.
  */
 export function describeFailure(result: ApiResult<unknown> | undefined): LoadFailure {
   if (result && !result.ok) {
-    return { message: describeApiError(result.error), offline: result.error.kind === 'network' };
+    return { offline: result.error.kind === 'network' };
   }
-  return { message: 'The board is unavailable.', offline: false };
+  return { offline: false };
 }
 
 /**
@@ -279,7 +294,6 @@ export function ChoreBoard({
 }) {
   const client = useApiClient();
   const [phase, setPhase] = useState<Phase>('loading');
-  const [message, setMessage] = useState('');
   const [weekIso, setWeekIso] = useState('');
   const [items, setItems] = useState<BoardItem[]>([]);
   // Whether what is on screen came from the offline cache rather than the API.
@@ -379,7 +393,6 @@ export function ChoreBoard({
           reportRef.current?.(cached.cachedAtIso);
           return;
         }
-        setMessage(failure.message);
         setFromCache(false);
         setPhase('error');
         setWeekMismatches(0);
@@ -603,20 +616,25 @@ export function ChoreBoard({
     [client, householdId, weekIso, activePersonId, items, fromCache, enqueue, recheckWeek],
   );
 
+  // "Try again" on the error state: show the skeleton, then bump the reload
+  // counter the load effect lists. Declared above the early returns (hook rules).
+  const retry = useCallback(() => {
+    setPhase('loading');
+    setReloadRevision((previous) => previous + 1);
+  }, []);
+
   if (phase === 'loading') {
-    return (
-      <View style={styles.centered} testID="chore-board-loading">
-        <ActivityIndicator color={colors.brass} />
-        <Text style={styles.status}>Setting the board...</Text>
-      </View>
-    );
+    return <WidgetSkeleton testID="chore-board-loading" caption={COPY.loading} />;
   }
 
   if (phase === 'error') {
     return (
-      <Text style={styles.status} testID="chore-board-error">
-        {message}
-      </Text>
+      <WidgetError
+        testID="chore-board-error"
+        message={COPY.loadFailed}
+        onRetry={retry}
+        retryTestID="chore-board-retry"
+      />
     );
   }
 
@@ -633,9 +651,11 @@ export function ChoreBoard({
 
   if (visibleItems.length === 0) {
     return (
-      <Text style={styles.status} testID="chore-board-empty">
-        Nothing on the board this week.
-      </Text>
+      <WidgetEmpty
+        testID="chore-board-empty"
+        title={COPY.emptyTitle}
+        detail={activePersonId === null ? COPY.emptyDetailGlance : COPY.emptyDetailMine}
+      />
     );
   }
 
@@ -754,7 +774,6 @@ function ChoreItem({
 
 const styles = StyleSheet.create({
   board: { flex: 1, alignSelf: 'stretch', gap: 20 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   status: { color: colors.muted, fontSize: 20, textAlign: 'center' },
   day: { gap: 10 },
   dayLabel: {

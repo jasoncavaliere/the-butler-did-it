@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 
 import { HouseholdSetup } from './HouseholdSetup';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
+import { FRIENDLY_ERROR } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { templatesForRoom } from '../setup/starterTemplates';
 import { HouseholdProvider, useHousehold } from '../state/HouseholdContext';
@@ -266,9 +267,8 @@ describe('HouseholdSetup', () => {
     await type('input-household-name', 'x');
     await press('submit-household');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('setup-error')).toHaveTextContent('Name must not be empty.'),
-    );
+    await waitFor(() => expect(screen.getByText(FRIENDLY_ERROR.rejected)).toBeOnTheScreen());
+    expect(screen.getByTestId('setup-error')).not.toHaveTextContent(/Name must not be empty/);
     // Did not advance.
     expect(screen.getByTestId('step-household')).toBeOnTheScreen();
     expect(screen.queryByTestId('step-rooms')).toBeNull();
@@ -332,11 +332,8 @@ describe('HouseholdSetup', () => {
     await press('chore-room-room-9');
     await press('add-chore');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('setup-error')).toHaveTextContent(
-        "No room with id 'room-9' exists in household 'hh-9'.",
-      ),
-    );
+    await waitFor(() => expect(screen.getByText(FRIENDLY_ERROR.rejected)).toBeOnTheScreen());
+    expect(screen.getByTestId('setup-error')).not.toHaveTextContent(/No room with id/);
     expect(screen.getByTestId('step-chores')).toBeOnTheScreen();
     expect(screen.queryByTestId('setup-done')).toBeNull();
   });
@@ -431,7 +428,8 @@ describe('HouseholdSetup', () => {
     await type('input-room-name', 'Kitchen');
     await press('add-room');
 
-    expect(screen.getByTestId('setup-error')).toHaveTextContent('Room name is required.');
+    expect(screen.getByText(FRIENDLY_ERROR.rejected)).toBeOnTheScreen();
+    expect(screen.getByTestId('setup-error')).not.toHaveTextContent(/Room name is required/);
     expect(screen.queryByTestId('room-item-room-5')).toBeNull();
   });
 
@@ -469,7 +467,8 @@ describe('HouseholdSetup', () => {
     await type('input-person-name', 'Sam');
     await press('add-person');
 
-    expect(screen.getByTestId('setup-error')).toHaveTextContent('Server Error');
+    expect(screen.getByText(FRIENDLY_ERROR.failed)).toBeOnTheScreen();
+    expect(screen.getByTestId('setup-error')).not.toHaveTextContent(/Server Error/);
     expect(screen.queryByTestId('person-item')).toBeNull();
   });
 
@@ -649,9 +648,8 @@ describe('HouseholdSetup', () => {
       await press(`template-room-kitchen-${c.id}`);
       await press('add-templates');
 
-      await waitFor(() =>
-        expect(screen.getByTestId('setup-error')).toHaveTextContent('Effort must be positive.'),
-      );
+      await waitFor(() => expect(screen.getByText(FRIENDLY_ERROR.rejected)).toBeOnTheScreen());
+      expect(screen.getByTestId('setup-error')).not.toHaveTextContent(/Effort must be positive/);
       // The first succeeded, the second failed, the third was never tried.
       expect(choreCalls(client)).toEqual([
         ['/households/hh-1/chores', payload('room-kitchen', a), { method: 'POST' }],
@@ -695,6 +693,291 @@ describe('HouseholdSetup', () => {
         },
         { method: 'POST' },
       );
+    });
+  });
+
+  describe('request states', () => {
+    const household = ok({
+      householdId: 'hh-1',
+      name: 'H',
+      organizerObjectId: 'o',
+      createdUtc: 'x',
+      etag: '"h"',
+    });
+    const serverError: ApiResult<unknown> = {
+      ok: false,
+      error: { kind: 'http', status: 503, title: 'Service Unavailable' },
+    };
+    const unreachable: ApiResult<unknown> = {
+      ok: false,
+      error: { kind: 'network', status: 0, title: 'The API is unreachable.' },
+    };
+
+    /**
+     * A client that answers every setup endpoint, but fails the first `failures`
+     * POSTs to the path ending in `failSuffix` with `failure`.
+     */
+    function flakyClient(failSuffix: string, failure: ApiResult<unknown>, failures = 1): ApiClient {
+      let remaining = failures;
+      let choreCount = 0;
+      const client = clientWith(async (path, body) => {
+        const fields = body as Record<string, unknown>;
+        if (path.endsWith(failSuffix) && remaining > 0) {
+          remaining -= 1;
+          return failure;
+        }
+        if (path === '/households') {
+          return household;
+        }
+        if (path.endsWith('/rooms')) {
+          const name = String(fields.name);
+          return ok({ roomId: `room-${name.toLowerCase()}`, name, sortOrder: 0, eTag: '"r"' });
+        }
+        if (path.endsWith('/people')) {
+          return ok({ personId: 'p-1', displayName: fields.displayName, isChild: false, eTag: '"p"' });
+        }
+        choreCount += 1;
+        return ok({ choreId: `c-${choreCount}`, ...fields, active: true, eTag: '"c"' });
+      });
+      useApiClientMock.mockReturnValue(client);
+      return client;
+    }
+
+    async function toRooms() {
+      await type('input-household-name', 'H');
+      await press('submit-household');
+      await waitFor(() => expect(screen.getByTestId('step-rooms')).toBeOnTheScreen());
+    }
+
+    async function toPeople() {
+      await toRooms();
+      await type('input-room-name', 'Kitchen');
+      await press('add-room');
+      await waitFor(() => expect(screen.getByTestId('room-item-room-kitchen')).toBeOnTheScreen());
+      await press('continue-rooms');
+      await waitFor(() => expect(screen.getByTestId('step-people')).toBeOnTheScreen());
+    }
+
+    async function toChores() {
+      await toPeople();
+      await press('continue-people');
+      await waitFor(() => expect(screen.getByTestId('step-chores')).toBeOnTheScreen());
+    }
+
+    it('shows a loading state while a step request is in flight', async () => {
+      let resolve: (result: ApiResult<unknown>) => void = () => {};
+      const pending = new Promise<ApiResult<unknown>>((r) => {
+        resolve = r;
+      });
+      useApiClientMock.mockReturnValue(clientWith(() => pending));
+
+      await renderSetup();
+      expect(screen.queryByTestId('setup-loading')).toBeNull();
+      await type('input-household-name', 'H');
+      await press('submit-household');
+
+      expect(screen.getByTestId('setup-loading')).toBeOnTheScreen();
+      expect(screen.getByText('Setting up your household...')).toBeOnTheScreen();
+
+      await act(async () => {
+        resolve(household);
+        await pending;
+      });
+      await waitFor(() => expect(screen.getByTestId('step-rooms')).toBeOnTheScreen());
+      expect(screen.queryByTestId('setup-loading')).toBeNull();
+    });
+
+    it('shows the chores loading line while starter chores are added', async () => {
+      let resolve: (result: ApiResult<unknown>) => void = () => {};
+      const pending = new Promise<ApiResult<unknown>>((r) => {
+        resolve = r;
+      });
+      const kitchen = templatesForRoom('Kitchen');
+      await reachChoresStep(['Kitchen'], () => pending as unknown as ApiResult<unknown>);
+
+      await press(`template-room-kitchen-${kitchen[0].id}`);
+      await press('add-templates');
+
+      expect(screen.getByTestId('setup-loading')).toBeOnTheScreen();
+      expect(screen.getByText('Adding the chores...')).toBeOnTheScreen();
+
+      await act(async () => {
+        resolve(ok({ choreId: 'c-1', title: kitchen[0].title, active: true, eTag: '"c"' }));
+        await pending;
+      });
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-1')).toBeOnTheScreen());
+      expect(screen.queryByTestId('setup-loading')).toBeNull();
+    });
+
+    it('shows friendly copy and a retry, never the raw API text, when a step request fails', async () => {
+      flakyClient('/households', {
+        ok: false,
+        error: {
+          kind: 'problem',
+          status: 409,
+          title: 'Conflict',
+          detail: 'Household table write raced.',
+        },
+      });
+
+      await renderSetup();
+      await type('input-household-name', 'H');
+      await press('submit-household');
+
+      await waitFor(() => expect(screen.getByTestId('setup-error')).toBeOnTheScreen());
+      expect(screen.getByText(FRIENDLY_ERROR.rejected)).toBeOnTheScreen();
+      expect(screen.getByTestId('setup-retry')).toHaveTextContent('Try again');
+      expect(screen.getByTestId('household-setup')).not.toHaveTextContent(/raced|Conflict/);
+      expect(screen.queryByTestId('setup-loading')).toBeNull();
+    });
+
+    it('shows the network line when the API is unreachable', async () => {
+      flakyClient('/households', unreachable);
+
+      await renderSetup();
+      await type('input-household-name', 'H');
+      await press('submit-household');
+
+      await waitFor(() => expect(screen.getByText(FRIENDLY_ERROR.network)).toBeOnTheScreen());
+      expect(screen.getByTestId('setup-retry')).toBeOnTheScreen();
+    });
+
+    it('Try again re-sends the failed household step and advances on success', async () => {
+      const client = flakyClient('/households', serverError);
+
+      await renderSetup();
+      await type('input-household-name', 'The Smiths');
+      await press('submit-household');
+      await waitFor(() => expect(screen.getByText(FRIENDLY_ERROR.failed)).toBeOnTheScreen());
+
+      await press('setup-retry');
+
+      await waitFor(() => expect(screen.getByTestId('step-rooms')).toBeOnTheScreen());
+      expect(client.update).toHaveBeenCalledTimes(2);
+      expect(client.update).toHaveBeenLastCalledWith(
+        '/households',
+        { name: 'The Smiths' },
+        { method: 'POST' },
+      );
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+    });
+
+    it('Try again re-sends the failed room and adds it on success', async () => {
+      const client = flakyClient('/rooms', serverError);
+
+      await renderSetup();
+      await toRooms();
+      await type('input-room-name', 'Kitchen');
+      await press('add-room');
+      await waitFor(() => expect(screen.getByTestId('setup-retry')).toBeOnTheScreen());
+
+      await press('setup-retry');
+
+      await waitFor(() => expect(screen.getByTestId('room-item-room-kitchen')).toBeOnTheScreen());
+      expect(client.update).toHaveBeenLastCalledWith(
+        '/households/hh-1/rooms',
+        { name: 'Kitchen', sortOrder: 0 },
+        { method: 'POST' },
+      );
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+    });
+
+    it('Try again re-sends the failed person and adds them on success', async () => {
+      const client = flakyClient('/people', serverError);
+
+      await renderSetup();
+      await toPeople();
+      await type('input-person-name', 'Sam');
+      await press('add-person');
+      await waitFor(() => expect(screen.getByTestId('setup-retry')).toBeOnTheScreen());
+
+      await press('setup-retry');
+
+      await waitFor(() => expect(screen.getByTestId('person-item-p-1')).toBeOnTheScreen());
+      expect(client.update).toHaveBeenLastCalledWith(
+        '/households/hh-1/people',
+        { displayName: 'Sam', role: 'Participant', isChild: false, claimColor: null },
+        { method: 'POST' },
+      );
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+    });
+
+    it('Try again re-sends the failed custom chore and adds it on success', async () => {
+      const client = flakyClient('/chores', serverError);
+
+      await renderSetup();
+      await toChores();
+      await type('input-chore-title', 'Vacuum');
+      await press('chore-room-room-kitchen');
+      await press('add-chore');
+      await waitFor(() => expect(screen.getByTestId('setup-retry')).toBeOnTheScreen());
+
+      await press('setup-retry');
+
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-1')).toBeOnTheScreen());
+      expect(client.update).toHaveBeenLastCalledWith(
+        '/households/hh-1/chores',
+        { title: 'Vacuum', roomId: 'room-kitchen', cadence: 'Weekly', effort: 1, minAge: null },
+        { method: 'POST' },
+      );
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+    });
+
+    it('Try again after a failed starter-chore add re-sends only the remaining selection', async () => {
+      const kitchen = templatesForRoom('Kitchen');
+      const [a, b] = kitchen;
+      const client = await reachChoresStep(['Kitchen'], (body, call) =>
+        call === 2 ? serverError : ok({ choreId: `c-${call}`, ...body, active: true, eTag: '"c"' }),
+      );
+
+      await press(`template-room-kitchen-${a.id}`);
+      await press(`template-room-kitchen-${b.id}`);
+      await press('add-templates');
+      await waitFor(() => expect(screen.getByTestId('setup-retry')).toBeOnTheScreen());
+      expect(screen.getByText(FRIENDLY_ERROR.failed)).toBeOnTheScreen();
+
+      // Change the custom-chore form in between: the retry must not send it.
+      await type('input-chore-title', 'Not this one');
+      await press('setup-retry');
+
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-3')).toBeOnTheScreen());
+      expect(choreCalls(client).slice(2)).toEqual([
+        ['/households/hh-1/chores', payload('room-kitchen', b), { method: 'POST' }],
+      ]);
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+    });
+
+    it('client-side validation messages show no retry', async () => {
+      flakyClient('/households', serverError);
+
+      await renderSetup();
+      await press('submit-household');
+
+      expect(screen.getByTestId('setup-error')).toHaveTextContent('Enter a name for your household.');
+      expect(screen.queryByTestId('setup-retry')).toBeNull();
+
+      // A request failure brings the retry; the next validation message drops it.
+      await type('input-household-name', 'H');
+      await press('submit-household');
+      await waitFor(() => expect(screen.getByTestId('setup-retry')).toBeOnTheScreen());
+      await type('input-household-name', '   ');
+      await press('submit-household');
+      expect(screen.getByTestId('setup-error')).toHaveTextContent('Enter a name for your household.');
+      expect(screen.queryByTestId('setup-retry')).toBeNull();
+    });
+
+    it('clears a lingering request error when setup finishes', async () => {
+      const kitchen = templatesForRoom('Kitchen');
+      await reachChoresStep(['Kitchen'], () => serverError);
+
+      await press(`template-room-kitchen-${kitchen[0].id}`);
+      await press('add-templates');
+      await waitFor(() => expect(screen.getByTestId('setup-retry')).toBeOnTheScreen());
+
+      await press('finish-setup');
+
+      expect(screen.getByTestId('setup-done')).toBeOnTheScreen();
+      expect(screen.queryByTestId('setup-error')).toBeNull();
     });
   });
 });

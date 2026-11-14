@@ -26,6 +26,28 @@ export function describeApiError(error: ApiError): string {
 }
 
 /**
+ * Fixed, friendly lines for a failed request (ADR-0007, the voice guide). They
+ * never echo server text: a problem `detail` or `title` is meant for the
+ * developer, not the household, so flows that must never show raw error text
+ * (household setup) use these instead of {@link describeApiError}.
+ */
+export const FRIENDLY_ERROR = {
+  network: 'We could not reach Butler. Check the connection, then tap Try again.',
+  rejected: 'That did not go through. Check the details, then tap Try again.',
+  failed: 'Butler could not finish that just now. Tap Try again.',
+} as const;
+
+/**
+ * Map an API failure to one of the {@link FRIENDLY_ERROR} lines: unreachable is
+ * `network`, a 4xx refusal is `rejected`, anything else is `failed`.
+ */
+export function friendlyApiError(error: ApiError): string {
+  if (error.kind === 'network') return FRIENDLY_ERROR.network;
+  if (error.status >= 400 && error.status <= 499) return FRIENDLY_ERROR.rejected;
+  return FRIENDLY_ERROR.failed;
+}
+
+/**
  * True when a write was refused as stale (`412 Precondition Failed`): the
  * `If-Match` ETag no longer matches the stored item (Engineering Contract 7.3).
  * Screens answer it with a reload prompt instead of re-sending the edit.

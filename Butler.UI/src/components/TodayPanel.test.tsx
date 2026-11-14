@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { TodayPanel } from './TodayPanel';
@@ -8,7 +8,7 @@ describe('TodayPanel', () => {
     await render(<TodayPanel />);
 
     expect(screen.getByTestId('today-panel')).toBeOnTheScreen();
-    expect(screen.getByTestId('today-panel-empty')).toHaveTextContent('The board is being prepared.');
+    expect(screen.getByText('Ready when you are.')).toBeOnTheScreen();
   });
 
   it('renders supplied children (the C5 seam) instead of the placeholder', async () => {
@@ -39,5 +39,51 @@ describe('TodayPanel', () => {
     await render(<TodayPanel activeParticipant={{ displayName: 'Sam', claimColor: null }} />);
 
     expect(screen.getByText("Sam's day")).toBeOnTheScreen();
+  });
+
+  describe('load states', () => {
+    it('renders a skeleton while the shell is loading', async () => {
+      await render(<TodayPanel state="loading" />);
+
+      expect(screen.getByTestId('today-panel-loading')).toBeOnTheScreen();
+      expect(screen.getByText('Getting today ready...')).toBeOnTheScreen();
+      expect(screen.queryByTestId('today-panel-empty')).toBeNull();
+    });
+
+    it('renders the designed empty state when ready with no board', async () => {
+      await render(<TodayPanel state="ready" />);
+
+      expect(screen.getByTestId('today-panel-empty')).toBeOnTheScreen();
+      expect(screen.getByText('Ready when you are.')).toBeOnTheScreen();
+      expect(
+        screen.getByText("Today's board appears here once the household is set."),
+      ).toBeOnTheScreen();
+    });
+
+    it('renders a friendly error with a retry', async () => {
+      await render(<TodayPanel state="error" onRetry={jest.fn()} />);
+
+      expect(screen.getByTestId('today-panel-error')).toBeOnTheScreen();
+      expect(screen.getByText("Today's board did not load. Tap Try again.")).toBeOnTheScreen();
+      expect(screen.getByTestId('today-panel-retry')).toHaveTextContent('Try again');
+    });
+  });
+
+  describe('retry', () => {
+    it('Try again calls onRetry', async () => {
+      const onRetry = jest.fn();
+      await render(<TodayPanel state="error" onRetry={onRetry} />);
+
+      await act(async () => fireEvent.press(screen.getByTestId('today-panel-retry')));
+
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no retry button when no onRetry is given', async () => {
+      await render(<TodayPanel state="error" />);
+
+      expect(screen.getByTestId('today-panel-error')).toBeOnTheScreen();
+      expect(screen.queryByTestId('today-panel-retry')).toBeNull();
+    });
   });
 });
