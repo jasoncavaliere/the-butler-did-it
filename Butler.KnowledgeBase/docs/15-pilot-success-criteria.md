@@ -6,12 +6,12 @@ tags: [pilot, success criteria, go no-go, north star, weekly active households, 
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 12-pricing-hypothesis, 13-customer-interview-guide]
+related: [10-product-vision, 12-pricing-hypothesis, 13-customer-interview-guide, 16-pilot-one-pager]
 sources:
   - { id: issue-140, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/140, title: S7 - Pilot success criteria and go/no-go signals }
   - { id: vision-winning, resource: 10-product-vision.md#what-winning-looks-like, title: Product Vision - What winning looks like }
   - { id: issue-123, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/123, title: V2 - Organizer insights screen }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T17:11:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T17:41:37Z }
 ---
 
 # Pilot Success Criteria and Week-4 Go/No-Go
@@ -22,11 +22,11 @@ This article was written on **2026-11-14** for [issue #140](https://github.com/j
 
 ## When and how to read the numbers
 
-The pilot is six weeks with a weekly 10-minute check-in, which is what the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)) sets. That one-pager is still open, so the pilot shape may change.
+The pilot is six weeks with a weekly 10-minute check-in, as the [Pilot One-Pager](16-pilot-one-pager.md) sets.
 
 - **Pilot week 1** is the first full Monday-to-Sunday week, in UTC, after a household is onboarded. The Insights buckets are UTC ISO weeks, so the two line up.
 - **When to read:** as soon as pilot week 4 ends, ideally on the Monday that starts pilot week 5 (UTC).
-- **When to decide:** at the week-5 check-in, from that reading, before the pilot-to-paid offer is introduced in the same check-in (see [The pilot-to-paid offer](12-pricing-hypothesis.md#the-pilot-to-paid-offer)). This needs the week-5 check-in to fall in pilot week 5, after pilot week 4 ends, so the one-pager should schedule check-ins by pilot week.
+- **When to decide:** at the week-5 check-in, from that reading, before the pilot-to-paid offer is introduced in the same check-in (see [The pilot-to-paid offer](12-pricing-hypothesis.md#the-pilot-to-paid-offer)). This needs the week-5 check-in to fall in pilot week 5, after pilot week 4 ends, and the [Pilot One-Pager](16-pilot-one-pager.md) schedules check-ins by pilot week.
 - **On the screen:** the Insights screen always shows 8 weeks, and its last bar is the current, partial week. Read during week 5, pilot week 4 is the bar just before it.
 - **Through the API:** call `GET /households/{householdId}/insights?weeks=5` during pilot week 5 and drop the last entry. The four entries left are pilot weeks 1 to 4, oldest first.
 - **Who can read it:** only the [Household Organizer](90-glossary.md#household-organizer) can call it, and it accepts from 1 to 52 weeks.
@@ -87,7 +87,7 @@ Week 4 comes well before the [Novelty Cliff](90-glossary.md#novelty-cliff), whic
 ## What this does not decide
 
 - It does not ratify the thresholds; the owner does that in review.
-- It does not set the pilot terms, which belong to the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)).
+- It does not set the pilot terms, which belong to the [Pilot One-Pager](16-pilot-one-pager.md).
 - It does not set prices or the offer, which are in the [Pricing Hypothesis](12-pricing-hypothesis.md), or the interview questions, which are in the [Customer Interview Guide](13-customer-interview-guide.md).
 - It does not change the vision's target or guardrails; it only turns them into week-4 lines.
 - It does not build anything, so a cohort-level Insights roll-up remains a possible follow-up rather than part of this article.
@@ -105,3 +105,4 @@ Week 4 comes well before the [Novelty Cliff](90-glossary.md#novelty-cliff), whic
 - [Product Vision](10-product-vision.md) - the north star, the month-3 target, and the guardrails every threshold here is derived from.
 - [Pricing Hypothesis](12-pricing-hypothesis.md) - the pilot-to-paid offer, introduced at the week-5 check-in after this go/no-go is decided.
 - [Customer Interview Guide](13-customer-interview-guide.md) - the post-demo questions, including the month-3 question these numbers later answer with data.
+- [Pilot One-Pager](16-pilot-one-pager.md) - the pilot terms and check-in schedule these numbers are read within.

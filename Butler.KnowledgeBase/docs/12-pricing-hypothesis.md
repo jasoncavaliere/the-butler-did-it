@@ -6,11 +6,11 @@ tags: [pricing, business model, subscription, per household, pilot, conversion, 
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 13-customer-interview-guide, 14-feedback-log-template, 15-pilot-success-criteria]
+related: [10-product-vision, 13-customer-interview-guide, 14-feedback-log-template, 15-pilot-success-criteria, 16-pilot-one-pager]
 sources:
   - { id: issue-137, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/137, title: S4 - Pricing hypothesis and pilot-to-paid offer }
   - { id: vision-business-model, resource: 10-product-vision.md#business-model, title: Product Vision - Business model }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T16:17:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T17:41:37Z }
 ---
 
 # Pricing Hypothesis and Pilot-to-Paid Offer
@@ -41,9 +41,9 @@ Each point is a **yearly price per household**, and all three are hypotheses. Th
 
 ## The pilot-to-paid offer
 
-The pilot comes first, and the paid offer arrives at its end. The pilot terms themselves belong to the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)), so this section only states how a pilot family is asked to pay.
+The pilot comes first, and the paid offer arrives at its end. The pilot terms themselves belong to the [Pilot One-Pager](16-pilot-one-pager.md), so this section only states how a pilot family is asked to pay.
 
-- **The pilot:** six weeks with a weekly 10-minute check-in, which is what #136 sets. This article adds its own hypothesis, for the owner to ratify in the one-pager: the pilot is free, and no payment card is collected up front.
+- **The pilot:** six weeks with a weekly 10-minute check-in, free, with no payment card collected up front, as the [Pilot One-Pager](16-pilot-one-pager.md) sets.
 - **Who is asked:** the [Household Organizer](90-glossary.md#household-organizer), who holds billing for the household; participants are never asked to pay.
 - **When:** the offer is introduced at the week-5 check-in and formally made at pilot exit, at the end of week 6.
 - **The offer:** the founding price of **$49 a year for the first 12 months**, with the $69 list price shown as the anchor, after which the household moves to the list price with notice first.
@@ -105,7 +105,7 @@ These thresholds are hypotheses, written down before the data arrives so the res
 
 - It does not set live pricing; the owner ratifies or edits these numbers in review.
 - It does not build billing, payments, or subscriptions, and v1 includes none of them.
-- It does not write the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)), the [Customer Interview Guide](13-customer-interview-guide.md) and [Feedback Log Template](14-feedback-log-template.md), or the [Pilot Success Criteria](15-pilot-success-criteria.md) and week-4 go/no-go.
+- It does not write the [Pilot One-Pager](16-pilot-one-pager.md), the [Customer Interview Guide](13-customer-interview-guide.md) and [Feedback Log Template](14-feedback-log-template.md), or the [Pilot Success Criteria](15-pilot-success-criteria.md) and week-4 go/no-go.
 - It does not price a monthly plan, grocery commissions, or a hardware bundle, which all remain open questions for later.
 - It does not change the vision's business model; it only proposes specific numbers inside it.
 
@@ -121,3 +121,4 @@ These thresholds are hypotheses, written down before the data arrives so the res
 - [Customer Interview Guide](13-customer-interview-guide.md) - where the willingness-to-pay questions are asked after a demo.
 - [Feedback Log Template](14-feedback-log-template.md) - where every Stage A answer is recorded.
 - [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 go/no-go, decided at the week-5 check-in before the offer is introduced.
+- [Pilot One-Pager](16-pilot-one-pager.md) - the pilot terms this offer follows, as families read them.

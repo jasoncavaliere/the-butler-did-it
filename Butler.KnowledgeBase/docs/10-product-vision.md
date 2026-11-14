@@ -6,7 +6,7 @@ tags: [vision, strategy, household, chores, fair assignment, grocery, store conn
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 15-pilot-success-criteria, 20-architecture-overview, 90-glossary]
+related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 15-pilot-success-criteria, 16-pilot-one-pager, 20-architecture-overview, 90-glossary]
 sources:
   - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
   - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
@@ -193,5 +193,6 @@ Each of these risks is tested with households after every demo, using the [Custo
 - [Pricing Hypothesis](12-pricing-hypothesis.md) - the per-household price points, the pilot-to-paid offer, and how willingness to pay is tested.
 - [Customer Interview Guide](13-customer-interview-guide.md) - the post-demo questions that test this vision's risks, retention thesis, and business model.
 - [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 pilot thresholds derived from the north star and guardrails above.
+- [Pilot One-Pager](16-pilot-one-pager.md) - the six-week pilot offer made to families, built on the v1 scope above.
 - [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.
