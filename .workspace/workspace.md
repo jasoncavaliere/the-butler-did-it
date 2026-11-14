@@ -37,7 +37,7 @@ demo/demo.sh up
 ```
 
 `demo/demo.sh up` builds `Butler.UI/dist` with `EXPO_PUBLIC_API_BASE_URL=/api` when the export is
-missing or stale, runs `docker compose -f demo/docker-compose.yml up -d --build --wait
+missing, stale, or lacks up's build stamp (`Butler.UI/dist/.demo-build-env`, #184), runs `docker compose -f demo/docker-compose.yml up -d --build --wait
 --wait-timeout 300`, and recreates `web` after a rebuild so Caddy serves the new export.
 
 Health is confirmed by:

@@ -47,6 +47,15 @@ $UiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.UI'
 # The hub export's freshness marker. A failed build deletes it (#183), so the
 # next up rebuilds instead of reporting a broken export as up to date.
 $ExportMarker = Join-Path (Join-Path $UiDir 'dist') 'index.html'
+# The EXPO_PUBLIC_* values up builds the hub export with.
+$DemoApiBaseUrl = '/api'
+$DemoAuthProvider = 'pin'
+# up writes this stamp after each successful build (#184), so an export built
+# another way (for example by hand, without EXPO_PUBLIC_API_BASE_URL=/api) is
+# rebuilt instead of served. demo.sh writes the same bytes: these two lines,
+# LF only, with a final LF.
+$ExportStamp = Join-Path (Join-Path $UiDir 'dist') '.demo-build-env'
+$ExportStampText = ("EXPO_PUBLIC_API_BASE_URL=$DemoApiBaseUrl", "EXPO_PUBLIC_AUTH_PROVIDER=$DemoAuthProvider") -join "`n"
 # Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
 $EnvFile = Join-Path $PSScriptRoot '.env'
 
@@ -92,7 +101,12 @@ function Invoke-Compose([string[]]$ComposeArgs) {
     $script:ExitCode = $LASTEXITCODE
 }
 
-# Returns 'missing', 'stale' or 'fresh' for the hub export in Butler.UI/dist.
+# Returns the state of the hub export in Butler.UI/dist, checked in this order:
+#   missing   - no dist/index.html.
+#   stale     - a source file is newer than dist/index.html.
+#   unstamped - up's build stamp (#184) is absent, older than dist/index.html,
+#               or holds other settings (CRs and trailing newlines ignored).
+#   fresh     - none of the above.
 function Get-ExportState {
     $markerPath = $ExportMarker
     if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
@@ -100,13 +114,23 @@ function Get-ExportState {
     }
     $marker = Get-Item -LiteralPath $markerPath -Force
     $paths = @($UiSources | ForEach-Object { Join-Path $UiDir $_ } | Where-Object { Test-Path -LiteralPath $_ })
-    if ($paths.Count -eq 0) {
-        return 'fresh'
+    if ($paths.Count -gt 0) {
+        $newer = Get-ChildItem -LiteralPath $paths -Recurse -File -Force |
+            Where-Object { $_.LastWriteTimeUtc -gt $marker.LastWriteTimeUtc } |
+            Select-Object -First 1
+        if ($newer) { return 'stale' }
     }
-    $newer = Get-ChildItem -LiteralPath $paths -Recurse -File -Force |
-        Where-Object { $_.LastWriteTimeUtc -gt $marker.LastWriteTimeUtc } |
-        Select-Object -First 1
-    if ($newer) { return 'stale' }
+    if (-not (Test-Path -LiteralPath $ExportStamp -PathType Leaf)) {
+        return 'unstamped'
+    }
+    if ($marker.LastWriteTimeUtc -gt (Get-Item -LiteralPath $ExportStamp -Force).LastWriteTimeUtc) {
+        return 'unstamped'
+    }
+    # Get-Content -Raw returns $null for an empty file, hence the [string] cast.
+    $stamp = ([string](Get-Content -LiteralPath $ExportStamp -Raw)) -replace "`r", ''
+    if ($stamp.TrimEnd("`n") -cne $ExportStampText) {
+        return 'unstamped'
+    }
     return 'fresh'
 }
 
@@ -143,8 +167,10 @@ function Invoke-ExportBuild {
         $previous = $env:EXPO_PUBLIC_API_BASE_URL
         $previousProvider = $env:EXPO_PUBLIC_AUTH_PROVIDER
         $previousSha = $env:EXPO_PUBLIC_BUILD_SHA
-        $env:EXPO_PUBLIC_API_BASE_URL = '/api'
-        $env:EXPO_PUBLIC_AUTH_PROVIDER = 'pin'
+        # The stamp is written only after a successful build (#184).
+        Remove-Item -LiteralPath $ExportStamp -Force -ErrorAction SilentlyContinue
+        $env:EXPO_PUBLIC_API_BASE_URL = $DemoApiBaseUrl
+        $env:EXPO_PUBLIC_AUTH_PROVIDER = $DemoAuthProvider
         $env:EXPO_PUBLIC_BUILD_SHA = $env:BUTLER_BUILD_SHA
         try {
             & npm run build:web
@@ -161,7 +187,10 @@ function Invoke-ExportBuild {
             # is then missing, and the next up rebuilds it.
             Remove-Item -LiteralPath $ExportMarker -Force -ErrorAction SilentlyContinue
             Write-Err 'Hub export build failed.'
+            return
         }
+        # Same bytes as demo.sh: UTF-8 without a BOM, LF only, a final LF.
+        [System.IO.File]::WriteAllText($ExportStamp, $ExportStampText + "`n", [System.Text.UTF8Encoding]::new($false))
     }
     finally {
         Pop-Location
@@ -249,6 +278,10 @@ function Invoke-DemoUp {
         }
         'stale' {
             Write-Out 'Hub export is older than its sources; building Butler.UI/dist ...'
+            $rebuilt = $true
+        }
+        'unstamped' {
+            Write-Out 'Hub export was not built with the demo settings; building Butler.UI/dist ...'
             $rebuilt = $true
         }
     }
