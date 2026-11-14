@@ -9,13 +9,19 @@
 #            exits 0), Azurite is pinned with its data bind-mounted to
 #            demo/.data/azurite, the API gets an explicit TableEndpoint
 #            connection string, demo/ creates no tables, demo/.data is
-#            git-ignored, and demo/README.md documents the commands.
+#            git-ignored, and demo/README.md documents the commands. Also the
+#            demo CLI (#102): demo.sh and demo.ps1 parse, print the same usage
+#            and exit non-zero for no/unknown subcommands, every subcommand is
+#            in demo/README.md, and they drive the single compose file.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080, the single origin (SPA fallback, cache
 #            headers, /api proxy, #96), a household created and read back
 #            through the hub UI with every API call same-origin (#96), the
 #            API's table provisioning, and that a household survives `down` +
-#            `up`.
+#            `up`. Then runs the demo CLI against it (#102): status, logs,
+#            up and down through both demo.sh and demo.ps1 with the same
+#            output, down keeping the data, and up rebuilding a missing or
+#            stale hub export and waiting for every service to be healthy.
 name: demo-ci
 
 on:
@@ -95,6 +101,63 @@ jobs:
           # #96: the /api build and the doubled system prefix are documented.
           grep -F 'EXPO_PUBLIC_API_BASE_URL=/api' demo/README.md
           grep -F '/api/api/system/ping' demo/README.md
+
+      # #102 AC7-AC11: the demo CLI scripts. pwsh is preinstalled on
+      # ubuntu-latest. No stack is needed: usage is printed before docker is
+      # touched.
+      - name: "demo CLI: usage, unknown subcommand, parity, README"
+        run: |
+          bash -n demo/demo.sh
+          pwsh -NoProfile -Command '$t = $null; $e = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile("demo/demo.ps1", [ref]$t, [ref]$e); if ($e) { $e; exit 1 }'
+          # AC7 + AC8: no subcommand and an unknown one both print the command
+          # list and exit non-zero, with identical output from both scripts.
+          for args in "" "bogus"; do
+            set +e
+            # shellcheck disable=SC2086 - an empty $args must expand to nothing.
+            sh_out="$(bash demo/demo.sh $args 2>&1)"; sh_rc=$?
+            # shellcheck disable=SC2086
+            ps_out="$(pwsh -NoProfile -File demo/demo.ps1 $args 2>&1)"; ps_rc=$?
+            set -e
+            echo "args='$args' demo.sh exit=$sh_rc demo.ps1 exit=$ps_rc"
+            printf '%s\n' "$sh_out"
+            if [ "$sh_rc" -eq 0 ] || [ "$ps_rc" -eq 0 ]; then
+              echo "expected a non-zero exit for args='$args'" >&2
+              exit 1
+            fi
+            if [ "$sh_rc" -ne "$ps_rc" ]; then
+              echo "exit codes differ for args='$args'" >&2
+              exit 1
+            fi
+            if [ "$sh_out" != "$ps_out" ]; then
+              echo "demo.sh and demo.ps1 print different output for args='$args'" >&2
+              diff <(printf '%s\n' "$sh_out") <(printf '%s\n' "$ps_out") || true
+              exit 1
+            fi
+            for cmd in up down status logs; do
+              printf '%s\n' "$sh_out" | grep -qE "^  $cmd " || { echo "usage does not list '$cmd'" >&2; exit 1; }
+            done
+          done
+          # AC10: every subcommand in the usage is documented in demo/README.md.
+          set +e
+          names="$(bash demo/demo.sh 2>&1 | awk '/^  [a-z]/{print $1}')"
+          set -e
+          count="$(printf '%s\n' "$names" | grep -c . || true)"
+          if [ "$count" -lt 4 ]; then
+            echo "expected at least 4 subcommands in the usage, parsed $count" >&2
+            exit 1
+          fi
+          for name in $names; do
+            grep -qF "demo.sh $name" demo/README.md || { echo "demo/README.md does not document 'demo.sh $name'" >&2; exit 1; }
+          done
+          # AC9: one compose file in the repo, and both scripts drive it.
+          compose_files="$(git ls-files '*compose*.yml' '*compose*.yaml')"
+          echo "compose files: $compose_files"
+          [ "$(printf '%s\n' "$compose_files" | grep -c .)" -eq 1 ]
+          grep -qF 'docker-compose.yml' demo/demo.sh
+          grep -qF 'docker-compose.yml' demo/demo.ps1
+          # AC11: the API README separates the API-only loop from the demo.
+          grep -F 'API-only dev loop' Butler.API/README.md
+          grep -F 'demo/demo.sh' Butler.API/README.md
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -236,6 +299,160 @@ jobs:
             sleep 1
           done
           curl -fsS "$API_URL/households/$id" | jq -e '.name == "Demo CI Household"'
+
+      # #102 AC1-AC6, AC8: the demo CLI against the running stack. The export
+      # is fresh here; EXPO_PUBLIC_API_BASE_URL is deliberately not set, so the
+      # stale-export rebuild proves the script sets it.
+      - name: "demo CLI: status, logs, down, stale-export up"
+        run: |
+          # AC4 + AC5 + AC8: status from both scripts (direct call proves the
+          # exec bit on demo.sh).
+          sh_status="$(demo/demo.sh status)"
+          ps_status="$(pwsh -NoProfile -File demo/demo.ps1 status)"
+          printf '%s\n' "$sh_status"
+          if [ "$sh_status" != "$ps_status" ]; then
+            echo "demo.sh and demo.ps1 status output differ" >&2
+            diff <(printf '%s\n' "$sh_status") <(printf '%s\n' "$ps_status") || true
+            exit 1
+          fi
+          printf '%s\n' "$sh_status" | grep -qF 'http://localhost:8080'
+          for svc in azurite api web; do
+            printf '%s\n' "$sh_status" | grep -qE "^$svc +running +healthy$" || { echo "status does not show $svc running healthy" >&2; exit 1; }
+          done
+          printf '%s\n' "$sh_status" | grep -E '^Dataset: ' | grep -vqF 'unavailable' || { echo "status did not show a dataset id" >&2; exit 1; }
+
+          # AC6: logs shows the compose services' logs.
+          demo/demo.sh logs api | grep -E 'Provisioned [0-9]+ Table Storage tables'
+
+          # AC3: down stops everything and keeps the Azurite data.
+          id="$(curl -fsS -X POST "$API_URL/households" \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"Demo CLI Household"}' | jq -er '.householdId')"
+          echo "created household $id"
+          demo/demo.sh down
+          if [ -n "$(docker compose -f "$COMPOSE_FILE_PATH" ps -aq)" ]; then
+            echo "containers still exist after down" >&2
+            exit 1
+          fi
+          sudo test -s demo/.data/azurite/__azurite_db_table__.json
+
+          # AC1 + AC2: a stale export is rebuilt, and up returns only once
+          # every service is healthy.
+          touch Butler.UI/app.json
+          out="$(demo/demo.sh up)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -qF 'Hub export is older than its sources'
+          [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo stack is up and healthy: http://localhost:8080' ]
+          grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
+          health="$(docker compose -f "$COMPOSE_FILE_PATH" ps --format '{{.Service}} {{.Health}}')"
+          echo "$health"
+          [ "$(printf '%s\n' "$health" | grep -c ' healthy$')" -eq 3 ] || { echo "not every service is healthy right after up" >&2; exit 1; }
+          curl -fsS "$HUB_URL/" | grep -qi '<html'
+          curl -fsS "$API_URL/households/$id" | jq -e '.name == "Demo CLI Household"'
+
+          # AC1: an up-to-date export is not rebuilt.
+          out="$(demo/demo.sh up)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -qxF 'Hub export is up to date (Butler.UI/dist).'
+
+      # #102 AC1 + AC8: demo.ps1 runs logs, up and down too, with the same
+      # output as demo.sh, and both rebuild a missing hub export. docker and
+      # npm output passes through untouched (build steps and digests differ
+      # run to run), so for `up` only the lines the scripts write themselves
+      # are compared; logs and down are compared in full. Starts with the
+      # stack up and the export fresh (previous step).
+      - name: "demo CLI: demo.ps1 logs/up/down parity, missing-export up"
+        run: |
+          ps1() { pwsh -NoProfile -File demo/demo.ps1 "$@"; }
+          # The fixed lines both scripts print for up (and down).
+          own() {
+            grep -xF \
+              -e 'Hub export is up to date (Butler.UI/dist).' \
+              -e 'Hub export is missing; building Butler.UI/dist ...' \
+              -e 'Hub export is older than its sources; building Butler.UI/dist ...' \
+              -e 'Installing Butler.UI dependencies (npm ci) ...' \
+              -e 'Starting the demo stack ...' \
+              -e 'Recreating web to serve the new export ...' \
+              -e 'Demo stack is up and healthy: http://localhost:8080' \
+              -e 'Demo stack did not become healthy. Run the logs command to see why.' \
+              -e 'Stopping the demo stack (data in demo/.data/azurite is kept) ...' \
+              -e 'Demo stack stopped.' || true
+          }
+          same() {
+            if [ "$2" != "$3" ]; then
+              echo "demo.sh and demo.ps1 differ for '$1'" >&2
+              diff <(printf '%s\n' "$2") <(printf '%s\n' "$3") || true
+              exit 1
+            fi
+          }
+          expect() {
+            if [ "$2" != "$3" ]; then
+              echo "unexpected output for '$1'" >&2
+              diff <(printf '%s\n' "$3") <(printf '%s\n' "$2") || true
+              exit 1
+            fi
+          }
+          all_healthy() {
+            health="$(docker compose -f "$COMPOSE_FILE_PATH" ps --format '{{.Service}} {{.Health}}')"
+            echo "$health"
+            [ "$(printf '%s\n' "$health" | grep -c ' healthy$')" -eq 3 ] || { echo "not every service is healthy right after up" >&2; exit 1; }
+          }
+
+          # AC8 logs: both pass extra arguments through and print the same
+          # logs. --until pins the window so new request logs cannot differ.
+          until="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sleep 2
+          sh_logs="$(demo/demo.sh logs --no-color --until "$until" api)"
+          ps_logs="$(ps1 logs --no-color --until "$until" api)"
+          same "logs --no-color --until $until api" "$sh_logs" "$ps_logs"
+          printf '%s\n' "$ps_logs" | grep -E 'Provisioned [0-9]+ Table Storage tables'
+
+          # AC8 up, export fresh: same lines, no rebuild.
+          fresh_up="$(printf '%s\n' \
+            'Hub export is up to date (Butler.UI/dist).' \
+            'Starting the demo stack ...' \
+            'Demo stack is up and healthy: http://localhost:8080')"
+          sh_out="$(demo/demo.sh up)"
+          ps_out="$(ps1 up)"
+          same "up (fresh)" "$(printf '%s\n' "$sh_out" | own)" "$(printf '%s\n' "$ps_out" | own)"
+          expect "up (fresh)" "$(printf '%s\n' "$ps_out" | own)" "$fresh_up"
+
+          # AC8 down: identical output, nothing left running, data kept.
+          down_out="$(printf '%s\n' \
+            'Stopping the demo stack (data in demo/.data/azurite is kept) ...' \
+            'Demo stack stopped.')"
+          ps_down="$(ps1 down)"
+          expect "down (demo.ps1)" "$ps_down" "$down_out"
+          [ -z "$(docker compose -f "$COMPOSE_FILE_PATH" ps -aq)" ] || { echo "containers still exist after demo.ps1 down" >&2; exit 1; }
+          sudo test -s demo/.data/azurite/__azurite_db_table__.json
+
+          # AC1 missing: with no Butler.UI/dist, demo.ps1 up builds the export
+          # (with the /api base) before the stack starts, and returns healthy.
+          missing_up="$(printf '%s\n' \
+            'Hub export is missing; building Butler.UI/dist ...' \
+            'Starting the demo stack ...' \
+            'Recreating web to serve the new export ...' \
+            'Demo stack is up and healthy: http://localhost:8080')"
+          rm -rf Butler.UI/dist
+          ps_out="$(ps1 up)"
+          printf '%s\n' "$ps_out" | own
+          expect "up (missing, demo.ps1)" "$(printf '%s\n' "$ps_out" | own)" "$missing_up"
+          test -f Butler.UI/dist/index.html
+          grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
+          all_healthy
+          curl -fsS "$HUB_URL/" | grep -qi '<html'
+
+          # Same again through demo.sh: down matches demo.ps1's down, and a
+          # missing export is rebuilt with the same lines.
+          sh_down="$(demo/demo.sh down)"
+          same "down" "$sh_down" "$ps_down"
+          rm -rf Butler.UI/dist
+          sh_out="$(demo/demo.sh up)"
+          same "up (missing)" "$(printf '%s\n' "$sh_out" | own)" "$(printf '%s\n' "$ps_out" | own)"
+          test -f Butler.UI/dist/index.html
+          grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
+          all_healthy
+          curl -fsS "$HUB_URL/" | grep -qi '<html'
 
       # On failure, surface what each service logged so the cause is visible
       # without rerunning.

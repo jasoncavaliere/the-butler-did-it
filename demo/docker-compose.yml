@@ -1,8 +1,17 @@
 # Butler local demo stack (#94): Azurite (Table storage) + Butler.API + Caddy.
 #
-# Run from the repo root (build the hub export first - see demo/README.md):
+# The normal entry point is the demo CLI (#102), which builds the hub export
+# when needed and drives this file:
+#   demo/demo.sh up | down | status | logs        (bash, Linux/macOS)
+#   pwsh demo/demo.ps1 up | down | status | logs  (PowerShell 7)
+#
+# Raw compose, from the repo root (build the hub export first - see
+# demo/README.md):
 #   docker compose -f demo/docker-compose.yml up -d --build
 #   docker compose -f demo/docker-compose.yml down
+#
+# Every service has a healthcheck, so `up --wait` returns only once all of
+# them report healthy.
 #
 # Services (names are seams other tickets depend on - do not rename):
 #   azurite - Table service only, data persisted to demo/.data/azurite.
@@ -56,6 +65,18 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:5108:8080"
+    healthcheck:
+      # The ASP.NET runtime image has bash but no curl/wget, so send a plain
+      # HTTP GET of /health over bash's /dev/tcp and expect a 200 status line.
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     restart: unless-stopped
 
   web:
@@ -75,4 +96,10 @@ services:
         read_only: true
         bind:
           create_host_path: false
+    healthcheck:
+      # The alpine image ships busybox wget.
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
     restart: unless-stopped

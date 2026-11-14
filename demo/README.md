@@ -9,12 +9,49 @@ the hub PWA served by Caddy, all started with one Docker Compose command.
 | `api` | `butler-api:demo` (built from `Butler.API/`) | The Butler API in the `Demo` environment |
 | `web` | `caddy:2.10.2-alpine` | Serves the hub PWA export on port 8080 and proxies `/api/*` to the API |
 
+## Demo CLI
+
+Two scripts drive the stack: `demo/demo.sh` (bash, Linux and macOS) and
+`demo/demo.ps1` (PowerShell 7, Windows, Linux and macOS). They take the same
+subcommands, print the same text and work from any directory. Both run every
+command against the one compose file, `demo/docker-compose.yml`.
+
+```bash
+demo/demo.sh up        # build the hub export if needed, start, wait for healthy
+demo/demo.sh status    # container health, hub URL and dataset id
+demo/demo.sh logs -f api
+demo/demo.sh down      # stop; data in demo/.data/azurite is kept
+```
+
+PowerShell 7:
+
+```powershell
+pwsh demo/demo.ps1 up          # or ./demo/demo.ps1 up from a pwsh prompt
+pwsh demo/demo.ps1 status
+pwsh demo/demo.ps1 logs -f api
+pwsh demo/demo.ps1 down
+```
+
+| Command | What it does |
+| --- | --- |
+| `demo.sh up` | Builds `Butler.UI/dist` when it is missing or older than the `Butler.UI` sources (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api` for the build), starts the stack, recreates `web` after a rebuild, and returns only when every service reports healthy. |
+| `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
+| `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
+| `demo.sh logs` | Shows the stack logs. Extra arguments go to `docker compose logs` (for example `logs -f api`). |
+
+Running a script with no subcommand, or with one it does not know, prints this
+list and exits non-zero. The `demo.ps1` commands are the same. The manual
+sections below are the fallback when you want to run the steps yourself.
+
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine with the Compose v2 plugin on Linux).
 - Node 22 (the active LTS) to build the hub export.
+- PowerShell 7 to use `demo/demo.ps1` (bash is enough for `demo/demo.sh`).
 
 ## Build the hub export
+
+`demo.sh up` does this for you when the export is missing or out of date.
 
 The `web` service serves the export from `Butler.UI/dist`, which is built on
 the host. Build it once, and again after any UI change, with the API base set
@@ -55,7 +92,8 @@ recreate `web` afterwards or Caddy keeps serving the old folder:
 
 ## Start the stack
 
-From the repo root:
+`demo.sh up` (or `demo.ps1 up`) runs this and waits until every service is
+healthy. To run it by hand, from the repo root:
 
 ```bash
 docker compose -f demo/docker-compose.yml up -d --build
@@ -103,6 +141,8 @@ NODE_PATH=/tmp/pw/node_modules node demo/ci/check-household-flow.cjs http://loca
 ```
 
 ## Stop the stack
+
+`demo.sh down` (or `demo.ps1 down`) runs this. By hand:
 
 ```bash
 docker compose -f demo/docker-compose.yml down
