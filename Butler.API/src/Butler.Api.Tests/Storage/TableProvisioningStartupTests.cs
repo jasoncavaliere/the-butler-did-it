@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Azure;
 using Azure.Data.Tables;
+using Azure.Data.Tables.Models;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Hosting;
@@ -19,6 +20,8 @@ namespace Butler.Api.Tests.Storage;
 /// mode creates every table the features register, each exactly once, before
 /// the host is ready; a table that cannot be created fails startup with an
 /// error naming it; and in in-memory mode no storage client is ever created.
+/// #174 AC1: a table whose creation never completes (an unreachable endpoint)
+/// fails startup within <c>Storage:ProvisioningTimeout</c>, logging the table.
 /// The client factory is substituted, so no Azurite is needed - and no feature
 /// endpoint is called, because the substitute clients hold no data.
 /// </summary>
@@ -68,6 +71,26 @@ public sealed class TableProvisioningStartupTests
     }
 
     [Fact]
+    public async Task Startup_fails_within_the_configured_timeout_when_a_table_never_completes()
+    {
+        var chores = Substitute.For<TableClient>();
+        chores.CreateIfNotExistsAsync(Arg.Any<CancellationToken>())
+            .Returns(new TaskCompletionSource<Response<TableItem>>().Task);
+        _clients["Chores"] = chores;
+        using var factory = CreateFactory(tableMode: true, provisioningTimeout: "00:00:00.200");
+
+        var startup = Task.Run(() => factory.CreateClient());
+
+        // Guard so a startup that never gives up fails the test instead of hanging it.
+        Assert.Same(startup, await Task.WhenAny(startup, Task.Delay(TimeSpan.FromSeconds(30))));
+        var exception = await Record.ExceptionAsync(() => startup);
+        Assert.NotNull(exception);
+        Assert.NotEmpty(Unwrap(exception).OfType<TimeoutException>());
+        var error = Assert.Single(_logger.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Contains("Chores", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Startup_in_memory_mode_creates_no_storage_client()
     {
         using var factory = CreateFactory(tableMode: false);
@@ -80,13 +103,18 @@ public sealed class TableProvisioningStartupTests
         Assert.Empty(_clients);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(bool tableMode) =>
+    private WebApplicationFactory<Program> CreateFactory(bool tableMode, string? provisioningTimeout = null) =>
         new ButlerApiFactory().WithWebHostBuilder(builder =>
         {
             if (tableMode)
             {
                 builder.UseSetting("Storage:ConnectionString", "UseDevelopmentStorage=true");
                 builder.UseSetting("Storage:UseInMemoryStore", "false");
+            }
+
+            if (provisioningTimeout is not null)
+            {
+                builder.UseSetting("Storage:ProvisioningTimeout", provisioningTimeout);
             }
 
             builder.ConfigureTestServices(services =>

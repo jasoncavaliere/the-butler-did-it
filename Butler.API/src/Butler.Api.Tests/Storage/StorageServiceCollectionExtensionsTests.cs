@@ -3,6 +3,7 @@ using Butler.Api.Tests.TestSupport;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace Butler.Api.Tests.Storage;
 
@@ -100,6 +101,28 @@ public sealed class StorageServiceCollectionExtensionsTests
             descriptor.ServiceType == typeof(IHostedService)
             && descriptor.ImplementationType == typeof(TableProvisioningHostedService));
         Assert.Single(services, descriptor => descriptor.ServiceType == typeof(TableProvisioner));
+    }
+
+    [Fact]
+    public void AddStorage_registers_a_TimeProvider()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>());
+
+        Assert.NotNull(provider.GetService<TimeProvider>());
+    }
+
+    [Fact]
+    public void AddStorage_binds_ProvisioningTimeout_from_configuration()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["Storage:ProvisioningTimeout"] = "00:00:05",
+        });
+
+        var options = provider.GetRequiredService<IOptions<StorageOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromSeconds(5), options.ProvisioningTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(5), options.ResolveProvisioningTimeout());
     }
 
     private static ServiceProvider BuildProvider(IDictionary<string, string?> settings)

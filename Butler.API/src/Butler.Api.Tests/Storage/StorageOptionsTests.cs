@@ -6,7 +6,9 @@ namespace Butler.Api.Tests.Storage;
 /// Criterion: a configuration flag lets the API fall back to the in-memory store.
 /// <see cref="StorageOptions.ResolveUseInMemory"/> is the decision: the explicit
 /// override when set, otherwise in-memory exactly when no storage connection is
-/// configured (so local runs and tests need no Azurite).
+/// configured (so local runs and tests need no Azurite). #174:
+/// <see cref="StorageOptions.ResolveProvisioningTimeout"/> applies the 30-second
+/// default when the bound is unset or not positive.
 /// </summary>
 public sealed class StorageOptionsTests
 {
@@ -59,5 +61,33 @@ public sealed class StorageOptionsTests
         var options = new StorageOptions { UseInMemoryStore = false };
 
         Assert.False(options.ResolveUseInMemory());
+    }
+
+    [Fact]
+    public void ProvisioningTimeout_defaults_to_30_seconds_when_unset()
+    {
+        var options = new StorageOptions();
+
+        Assert.Null(options.ProvisioningTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(30), StorageOptions.DefaultProvisioningTimeout);
+        Assert.Equal(StorageOptions.DefaultProvisioningTimeout, options.ResolveProvisioningTimeout());
+    }
+
+    [Fact]
+    public void ProvisioningTimeout_uses_the_configured_value()
+    {
+        var options = new StorageOptions { ProvisioningTimeout = TimeSpan.FromSeconds(5) };
+
+        Assert.Equal(TimeSpan.FromSeconds(5), options.ResolveProvisioningTimeout());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Non_positive_ProvisioningTimeout_falls_back_to_the_default(int seconds)
+    {
+        var options = new StorageOptions { ProvisioningTimeout = TimeSpan.FromSeconds(seconds) };
+
+        Assert.Equal(StorageOptions.DefaultProvisioningTimeout, options.ResolveProvisioningTimeout());
     }
 }

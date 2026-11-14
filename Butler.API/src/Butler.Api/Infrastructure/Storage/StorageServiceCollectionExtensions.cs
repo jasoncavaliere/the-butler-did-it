@@ -25,7 +25,9 @@ public static class StorageServiceCollectionExtensions
     /// Binds <see cref="StorageOptions"/> from the <c>Storage</c> configuration
     /// section and registers <see cref="ITableClientFactory"/>, the
     /// <see cref="TableProvisioner"/>, and the hosted service that runs it at
-    /// startup. Call once in the composition root. The in-memory decision is made
+    /// startup, plus <see cref="TimeProvider.System"/> (if no
+    /// <see cref="TimeProvider"/> is registered yet) for the provisioning bound.
+    /// Call once in the composition root. The in-memory decision is made
     /// when provisioning runs, so settings added after this call still count.
     /// </summary>
     public static IServiceCollection AddStorage(this IServiceCollection services, IConfiguration configuration)
@@ -35,6 +37,7 @@ public static class StorageServiceCollectionExtensions
 
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.TryAddSingleton<ITableClientFactory, TableClientFactory>();
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<TableProvisioner>();
         services.AddHostedService<TableProvisioningHostedService>();
         return services;
