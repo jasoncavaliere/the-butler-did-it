@@ -28,7 +28,7 @@ public sealed class TableProvisioningStartupTests
     private static readonly string[] FeatureTables =
     [
         "Datasets", "Households", "People", "Rooms", "Chores", "HubDevices",
-        "Assignments", "ChoreCompletions", "Carts", "CartItems",
+        "Assignments", "ChoreCompletions", "Carts", "CartItems", "Events",
     ];
 
     private readonly ConcurrentDictionary<string, TableClient> _clients = new(StringComparer.Ordinal);

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Butler.Api.Application.Events;
 using MediatR;
 
 namespace Butler.Api.Application.Capture;
@@ -29,19 +30,25 @@ public sealed record CaptureUtteranceCommand(
 /// <see cref="ICaptureSource"/> whose <see cref="ICaptureSource.SourceName"/>
 /// matches. Sources are resolved as a set rather than by concrete type, so adding
 /// the Section 9 live-assistant source later is a registration, not a change here.
+/// An <see cref="CaptureOutcome.Added"/> result records a <c>cart-item-added</c>
+/// usage event (#122) here, not in the capture handler, because the demo seeder
+/// calls the capture handler directly and must not write fake usage.
 /// </summary>
 public sealed class CaptureUtteranceCommandHandler
     : IRequestHandler<CaptureUtteranceCommand, CaptureResult>
 {
     private readonly IReadOnlyList<ICaptureSource> _sources;
+    private readonly IEventRecorder _events;
 
-    public CaptureUtteranceCommandHandler(IEnumerable<ICaptureSource> sources)
+    public CaptureUtteranceCommandHandler(IEnumerable<ICaptureSource> sources, IEventRecorder events)
     {
         ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(events);
         _sources = sources.ToList();
+        _events = events;
     }
 
-    public Task<CaptureResult> Handle(CaptureUtteranceCommand request, CancellationToken cancellationToken)
+    public async Task<CaptureResult> Handle(CaptureUtteranceCommand request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -53,13 +60,28 @@ public sealed class CaptureUtteranceCommandHandler
                     candidate.SourceName, request.CaptureSource, StringComparison.Ordinal))
             ?? throw new ValidationException($"Unknown capture source '{request.CaptureSource}'.");
 
-        return source.CaptureAsync(
-            new CaptureRequest(
-                request.HouseholdId,
-                request.Utterance,
-                request.PersonId,
-                request.WeekIso,
-                request.Quantity),
-            cancellationToken);
+        var result = await source.CaptureAsync(
+                new CaptureRequest(
+                    request.HouseholdId,
+                    request.Utterance,
+                    request.PersonId,
+                    request.WeekIso,
+                    request.Quantity),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Outcome == CaptureOutcome.Added)
+        {
+            // Added always carries the item (see CaptureResult.Added).
+            await _events.TryRecordAsync(
+                    request.HouseholdId,
+                    EventTypes.CartItemAdded,
+                    personId: request.PersonId,
+                    weekIso: result.WeekIso,
+                    itemId: result.Item!.ItemId,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return result;
     }
 }

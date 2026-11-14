@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Events;
 using Butler.Api.Application.Grocery;
 using Butler.Api.Infrastructure.Carts;
+using Butler.Api.Infrastructure.Events;
 using Butler.Api.Infrastructure.People;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Hosting;
@@ -366,5 +368,28 @@ public sealed class ConfirmCartTests
         using var doc = JsonDocument.Parse(body);
         Assert.Equal((int)expectedStatus, doc.RootElement.GetProperty("status").GetInt32());
         Assert.Equal(expectedTitle, doc.RootElement.GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public async Task Confirm_records_a_cart_confirmed_event()
+    {
+        var clock = new MutableClock(ConfirmedAt);
+        using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+        var review = await ReviewAsync(client, householdId);
+
+        await ConfirmOkAsync(client, householdId, review.GetProperty("eTag").GetString());
+
+        // #122: one cart-confirmed event attributed to the confirming organizer.
+        var events = await factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        var recorded = Assert.Single(events);
+        Assert.Equal(EventTypes.CartConfirmed, recorded.Type);
+        Assert.Equal(await OrganizerPersonIdAsync(factory, householdId), recorded.PersonId);
+        Assert.Equal(Week, recorded.WeekIso);
+        Assert.Equal(ConfirmedAt, recorded.OccurredUtc);
+        Assert.Null(recorded.ItemId);
+        Assert.Null(recorded.ChoreId);
     }
 }

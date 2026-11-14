@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Butler.Api.Application.Capture;
+using Butler.Api.Application.Carts;
+using Butler.Api.Application.Events;
 using NSubstitute;
 
 namespace Butler.Api.Tests.Capture;
@@ -31,7 +33,7 @@ public sealed class CaptureUtteranceCommandTests
     {
         var text = NewSource(CaptureSourceNames.HubText);
         var voice = NewSource(CaptureSourceNames.SimulatedVoice);
-        var handler = new CaptureUtteranceCommandHandler([text, voice]);
+        var handler = new CaptureUtteranceCommandHandler([text, voice], Substitute.For<IEventRecorder>());
 
         var result = await handler.Handle(
             NewCommand(CaptureSourceNames.SimulatedVoice), CancellationToken.None);
@@ -55,7 +57,7 @@ public sealed class CaptureUtteranceCommandTests
     [Fact]
     public async Task Handle_rejects_an_unknown_capture_source()
     {
-        var handler = new CaptureUtteranceCommandHandler([NewSource(CaptureSourceNames.HubText)]);
+        var handler = new CaptureUtteranceCommandHandler([NewSource(CaptureSourceNames.HubText)], Substitute.For<IEventRecorder>());
 
         var ex = await Assert.ThrowsAsync<ValidationException>(
             () => handler.Handle(NewCommand("alexa"), CancellationToken.None));
@@ -66,7 +68,7 @@ public sealed class CaptureUtteranceCommandTests
     [Fact]
     public async Task Handle_rejects_a_null_command()
     {
-        var handler = new CaptureUtteranceCommandHandler([NewSource(CaptureSourceNames.HubText)]);
+        var handler = new CaptureUtteranceCommandHandler([NewSource(CaptureSourceNames.HubText)], Substitute.For<IEventRecorder>());
 
         await Assert.ThrowsAsync<ArgumentNullException>(
             () => handler.Handle(null!, CancellationToken.None));
@@ -75,6 +77,51 @@ public sealed class CaptureUtteranceCommandTests
     [Fact]
     public void The_command_handler_rejects_a_null_source_set()
     {
-        Assert.Throws<ArgumentNullException>(() => new CaptureUtteranceCommandHandler(null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new CaptureUtteranceCommandHandler(null!, Substitute.For<IEventRecorder>()));
+    }
+
+    [Fact]
+    public void The_command_handler_rejects_a_null_event_recorder()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new CaptureUtteranceCommandHandler([NewSource(CaptureSourceNames.HubText)], null!));
+    }
+
+    [Fact]
+    public async Task Added_outcome_records_cart_item_added()
+    {
+        var source = Substitute.For<ICaptureSource>();
+        source.SourceName.Returns(CaptureSourceNames.HubText);
+        var item = new CartItemView("item-9", "heb-eggs", "Eggs", 2, "person-1", "simulated-heb");
+        source
+            .CaptureAsync(Arg.Any<CaptureRequest>(), Arg.Any<CancellationToken>())
+            .Returns(CaptureResult.Added(CaptureSourceNames.HubText, "eggs", "2026-W30", item));
+        var recorder = Substitute.For<IEventRecorder>();
+        var handler = new CaptureUtteranceCommandHandler([source], recorder);
+
+        var result = await handler.Handle(NewCommand(CaptureSourceNames.HubText), CancellationToken.None);
+
+        Assert.Equal(CaptureOutcome.Added, result.Outcome);
+        await recorder.Received(1).TryRecordAsync(
+            "household-1",
+            EventTypes.CartItemAdded,
+            "person-1",
+            null,
+            "2026-W30",
+            "item-9",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Non_added_outcomes_record_nothing()
+    {
+        var recorder = Substitute.For<IEventRecorder>();
+        var handler = new CaptureUtteranceCommandHandler([NewSource(CaptureSourceNames.HubText)], recorder);
+
+        var result = await handler.Handle(NewCommand(CaptureSourceNames.HubText), CancellationToken.None);
+
+        Assert.Equal(CaptureOutcome.NoMatch, result.Outcome);
+        Assert.Empty(recorder.ReceivedCalls());
     }
 }

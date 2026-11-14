@@ -684,6 +684,29 @@ describe('useWriteQueue', () => {
       expect(result.current.unreachable).toBe(false);
     });
 
+    it('a held pass shows the queue as stored, not a stale snapshot (#122)', async () => {
+      // The hub glance can be enqueued while the mount drain is finishing, after
+      // that pass read an empty queue. The held (unverified) pass that follows
+      // must show what storage holds, or the pending count stays 0 and nothing
+      // listens for the reconnect that would replay it.
+      const client = queueClient(() => confirmed);
+      const verify = jest.fn(async (): Promise<DatasetCheck> => 'unverified');
+      const { result } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+      await act(async () => {});
+      expect(result.current.pending).toBe(0);
+
+      // Storage gains a write the hook's state has not seen, then a drain runs.
+      saveWriteQueue('hh-1', [stored('c1')]);
+      await act(async () => {
+        result.current.flush();
+      });
+
+      await waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+      expect(client.update).not.toHaveBeenCalled();
+      expect(result.current.pending).toBe(1);
+      expect(result.current.unreachable).toBe(true);
+    });
+
     it('keeps an earlier pass confirmation when a later pass is held', async () => {
       // Pass one syncs c1, then picks up c2 (tapped mid-sync) and finds the API
       // gone. The tap also asked for a second pass, whose dataset check cannot

@@ -1,8 +1,11 @@
 using System.Net;
 using Butler.Api.Application.Auth;
 using Butler.Api.Application.Capture;
+using Butler.Api.Application.Events;
 using Butler.Api.Application.Grocery;
+using Butler.Api.Infrastructure.Events;
 using Butler.Api.Tests.TestSupport;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Butler.Api.Tests.Capture;
 
@@ -211,5 +214,45 @@ public sealed class TextCaptureTests : IClassFixture<ButlerApiFactory>
             CaptureRequest request,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(CaptureResult.EmptyTerm(captureSource));
+    }
+
+    [Fact]
+    public async Task An_added_item_records_a_cart_item_added_event()
+    {
+        using var client = _factory.CreateClient();
+        var householdId = await CaptureTestHelper.CreateHouseholdAsync(client);
+        const string week = "2026-W33";
+
+        var captured = await CaptureTestHelper.CaptureAsync(
+            client,
+            CaptureTestHelper.TextRoute(householdId),
+            new { utterance = "add oat milk", personId = "person-41", weekIso = week });
+
+        // #122: one cart-item-added event carrying the new line's id - never the
+        // utterance or the product name.
+        var events = await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        var recorded = Assert.Single(events);
+        Assert.Equal(EventTypes.CartItemAdded, recorded.Type);
+        Assert.Equal("person-41", recorded.PersonId);
+        Assert.Equal(week, recorded.WeekIso);
+        Assert.Equal(captured.GetProperty("item").GetProperty("itemId").GetString(), recorded.ItemId);
+        Assert.Null(recorded.ChoreId);
+    }
+
+    [Fact]
+    public async Task A_no_match_records_no_event()
+    {
+        using var client = _factory.CreateClient();
+        var householdId = await CaptureTestHelper.CreateHouseholdAsync(client);
+
+        var captured = await CaptureTestHelper.CaptureAsync(
+            client,
+            CaptureTestHelper.TextRoute(householdId),
+            new { utterance = "add unicorn steaks", personId = "person-42", weekIso = "2026-W33" });
+
+        Assert.Equal(nameof(CaptureOutcome.NoMatch), captured.GetProperty("outcome").GetString());
+        Assert.Empty(await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None));
     }
 }

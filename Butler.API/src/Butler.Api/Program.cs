@@ -3,6 +3,7 @@ using Butler.Api.Application.Capture;
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Chores;
 using Butler.Api.Application.Demo;
+using Butler.Api.Application.Events;
 using Butler.Api.Application.Fairness;
 using Butler.Api.Application.Grocery;
 using Butler.Api.Application.Households;
@@ -69,6 +70,8 @@ builder.Services.AddFairnessFeature();
 builder.Services.AddStoreConnectorFeature();
 builder.Services.AddCartsFeature();
 builder.Services.AddCaptureFeature();
+// Usage events (#122): registered last so Events is the last provisioned table.
+builder.Services.AddEventsFeature();
 // Demo seeder (#97): Development and Demo only; outside them /demo/* is not mapped (#106).
 builder.Services.AddDemoFeature(builder.Environment);
 

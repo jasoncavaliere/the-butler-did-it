@@ -8,6 +8,9 @@ import { HouseholdProvider } from '../state/HouseholdContext';
 import { OrganizerProvider } from '../state/OrganizerContext';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
+// The hub glance (#122) is covered by HubShell.glance.test.tsx; this client's
+// writes resolve to nothing, so the real hook would have no result to read.
+jest.mock('../offline/useHubGlance', () => ({ useHubGlance: jest.fn() }));
 
 const useApiClientMock = useApiClient as jest.MockedFunction<typeof useApiClient>;
 

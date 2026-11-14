@@ -173,7 +173,11 @@ export function useWriteQueue(
             return;
           }
           if (check === 'unverified') {
-            // Hold the queue and re-probe, exactly as if the API were down.
+            // Hold the queue and re-probe, exactly as if the API were down. Show
+            // the queue as stored: an earlier pass in this run may have set a
+            // snapshot taken before a write was enqueued (#122), and a stale
+            // empty list would leave the reconnect listener unsubscribed.
+            setEntries(readWriteQueue(householdId));
             ending = { offline: true, retryDelayMs: OFFLINE_RETRY_MS };
             break;
           }

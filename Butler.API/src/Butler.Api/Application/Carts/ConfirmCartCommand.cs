@@ -1,3 +1,4 @@
+using Butler.Api.Application.Events;
 using MediatR;
 
 namespace Butler.Api.Application.Carts;
@@ -26,22 +27,45 @@ public sealed record ConfirmCartCommand(
     string OrganizerObjectId,
     string? IfMatch) : IRequest<CartReadResult>;
 
-/// <summary>Handles <see cref="ConfirmCartCommand"/> via the application service.</summary>
+/// <summary>
+/// Handles <see cref="ConfirmCartCommand"/> via the application service, then
+/// records a <c>cart-confirmed</c> usage event (#122) when a cart came back.
+/// </summary>
 public sealed class ConfirmCartCommandHandler : IRequestHandler<ConfirmCartCommand, CartReadResult>
 {
     private readonly ICartConfirmationService _confirmations;
+    private readonly IEventRecorder _events;
 
-    public ConfirmCartCommandHandler(ICartConfirmationService confirmations)
+    public ConfirmCartCommandHandler(ICartConfirmationService confirmations, IEventRecorder events)
     {
         ArgumentNullException.ThrowIfNull(confirmations);
+        ArgumentNullException.ThrowIfNull(events);
         _confirmations = confirmations;
+        _events = events;
     }
 
-    public Task<CartReadResult> Handle(ConfirmCartCommand request, CancellationToken cancellationToken) =>
-        _confirmations.ConfirmAsync(
-            request.HouseholdId,
-            request.WeekIso,
-            request.OrganizerObjectId,
-            request.IfMatch,
-            cancellationToken);
+    public async Task<CartReadResult> Handle(ConfirmCartCommand request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var result = await _confirmations.ConfirmAsync(
+                request.HouseholdId,
+                request.WeekIso,
+                request.OrganizerObjectId,
+                request.IfMatch,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Cart is not null)
+        {
+            await _events.TryRecordAsync(
+                    request.HouseholdId,
+                    EventTypes.CartConfirmed,
+                    personId: result.Cart.ConfirmedByPersonId,
+                    weekIso: result.Cart.WeekIso,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return result;
+    }
 }
