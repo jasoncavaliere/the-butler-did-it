@@ -6,7 +6,7 @@ tags: [pricing, business model, subscription, per household, pilot, conversion, 
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 13-customer-interview-guide, 14-feedback-log-template]
+related: [10-product-vision, 13-customer-interview-guide, 14-feedback-log-template, 15-pilot-success-criteria]
 sources:
   - { id: issue-137, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/137, title: S4 - Pricing hypothesis and pilot-to-paid offer }
   - { id: vision-business-model, resource: 10-product-vision.md#business-model, title: Product Vision - Business model }
@@ -105,7 +105,7 @@ These thresholds are hypotheses, written down before the data arrives so the res
 
 - It does not set live pricing; the owner ratifies or edits these numbers in review.
 - It does not build billing, payments, or subscriptions, and v1 includes none of them.
-- It does not write the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)), the [Customer Interview Guide](13-customer-interview-guide.md) and [Feedback Log Template](14-feedback-log-template.md), or the pilot success criteria and week-4 go/no-go ([#140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140)).
+- It does not write the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)), the [Customer Interview Guide](13-customer-interview-guide.md) and [Feedback Log Template](14-feedback-log-template.md), or the [Pilot Success Criteria](15-pilot-success-criteria.md) and week-4 go/no-go.
 - It does not price a monthly plan, grocery commissions, or a hardware bundle, which all remain open questions for later.
 - It does not change the vision's business model; it only proposes specific numbers inside it.
 
@@ -120,4 +120,4 @@ These thresholds are hypotheses, written down before the data arrives so the res
 - [Product Vision](10-product-vision.md) - the business model these price points sit inside, and the scope and retention story behind each rationale.
 - [Customer Interview Guide](13-customer-interview-guide.md) - where the willingness-to-pay questions are asked after a demo.
 - [Feedback Log Template](14-feedback-log-template.md) - where every Stage A answer is recorded.
-- [Issue #140 - pilot success criteria and go/no-go signals](https://github.com/jasoncavaliere/the-butler-did-it/issues/140) - the week-4 go/no-go that sits beside the pilot-exit offer.
+- [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 go/no-go, decided at the week-5 check-in before the offer is introduced.
