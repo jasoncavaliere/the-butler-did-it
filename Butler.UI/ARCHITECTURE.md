@@ -226,11 +226,20 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
 - **Tokens only.** Every font size, line height (`round(size * 1.2)`), padding, gap and fixed height
   comes from `design-tokens.json` through `src/layout/tokens.ts` (spacing named `s1`..`s9` as in the
   mockup). Every layout keeps the 64px hub row (ADR-0008). The palette is unchanged.
+- **Theme module and hub targets (#120).** `src/theme/theme.ts` is the typed view UI code reads design
+  values from: the six claim colours (`claimColors`, token order, glyph plus light and dark variants),
+  `onClaim`, the light and dark palettes (`themes`), and the spacing and touch-target sizes re-exported
+  from `src/layout/tokens.ts`. Hub targets (name tiles, chore rows) are at least `hubTouchTarget` (48,
+  the `s8` step) square and sit at least `minTargetGap` (8, the `s2` step) apart; the compact
+  `groupGap` is therefore 8. `src/theme/contrast.test.ts` checks every claim colour with the WCAG 2.1
+  formula in `src/theme/contrast.ts`: each light variant >= 3:1 on the light bg and surface, each
+  dark variant >= 3:1 on the dark bg and surface, and on-claim / on-claim-dark text >= 4.5:1 on its
+  variant (ADR-0010). The hub's rendered palette still lives in `Screen.tsx`.
 - **Fit model.** `measureHubBoard(layout, { people, todayRowsByPerson, weekRowsByPerson })` sums page
   padding, the chrome row (44), zone gaps, header, tile rows and the Today panel (frame, heading, day
   labels, person groups chunked by column, rows). Fixed boxes render as `minHeight` over single-line
   content and spacing is `gap` only, so the model matches the render. A 4-person household with 8
-  chores due today models 666px at compact (budget 800) and 794px at roomy (budget 1200).
+  chores due today models 682px at compact (budget 800) and 794px at roomy (budget 1200).
 - **Outside the budget:** the signed-in organizer bar or its PIN pad, `LastKnownBanner`, the
   `SyncIndicator` detail rows, and the board's clock notice. A board over budget scrolls inside the
   Today panel; there is no automatic paging.
@@ -451,7 +460,9 @@ records intent only.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
-rooms - driven entirely through the typed API client. Each step POSTs to its H1-H4 endpoint. While a
+rooms - driven entirely through the typed API client. The claim colour is one of the six token
+claim colours (`claimColors`, swatch `claim-color-<name>`), stored as its dark-variant hex because
+the hub is dark-only (#120); a colour stored before that renders unchanged. Each step POSTs to its H1-H4 endpoint. While a
 request is in flight the flow shows a step-specific loading line (`setup-loading`); a failed request
 shows a friendly line from `friendlyApiError` (never the server's detail or title) with a `Try again`
 that re-sends the current form (or the remaining starter-chore selection), and does not advance (P8).

@@ -214,6 +214,56 @@ describe('HubShell', () => {
     expect(screen.getByText('Sam')).toBeOnTheScreen();
   });
 
+  it('renders a stored non-token claim colour unchanged (#120 AC7)', async () => {
+    // A household saved before #120 may store any hex. The hub neither snaps it
+    // to a token colour nor rewrites it: the tile shows exactly what is stored.
+    const legacy = '#5522AA';
+    const person = { personId: 'p9', displayName: 'Quinn', claimColor: legacy, isChild: false };
+    const client: ApiClient = {
+      baseUrl: 'http://api.test:1',
+      get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+        if (path === DATASET_PATH) {
+          return okDataset;
+        }
+        if (path.includes('/chores')) {
+          return okChores;
+        }
+        if (path.includes('/carts/')) {
+          return okCart;
+        }
+        return path.endsWith('/people')
+          ? { ok: true, status: 200, data: [person], etag: null }
+          : okHousehold('Home');
+      }) as unknown as ApiClient['get'],
+      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+        if (path.endsWith('/generate')) {
+          return okAssignments;
+        }
+        const session: ParticipantSessionResponse = {
+          householdId: 'hh-1',
+          ...person,
+          token: 'tok-p9',
+        };
+        return { ok: true, status: 200, data: session, etag: null };
+      }) as unknown as ApiClient['update'],
+    };
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+    await waitFor(() => expect(screen.getByTestId('name-tile-p9')).toBeOnTheScreen());
+    expect(StyleSheet.flatten(screen.getByTestId('name-tile-p9').props.style)).toMatchObject({
+      borderColor: legacy,
+    });
+
+    await pressTile('p9');
+
+    expect(screen.getByTestId('name-tile-p9').props.accessibilityState).toEqual({ selected: true });
+    expect(StyleSheet.flatten(screen.getByTestId('name-tile-p9').props.style)).toMatchObject({
+      borderColor: legacy,
+      backgroundColor: legacy,
+    });
+  });
+
   it('never renders an organizer/dev identity as a claimable member', async () => {
     // Defence in depth: even if an organizer-role identity reaches the client -
     // the synthetic "Development Organizer" dev identity carries the organizer

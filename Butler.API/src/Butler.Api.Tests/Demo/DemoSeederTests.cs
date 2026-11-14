@@ -19,9 +19,17 @@ namespace Butler.Api.Tests.Demo;
 /// household through the real application services on the in-memory store,
 /// replaces it cleanly on a second run, keeps a paired hub device, derives every
 /// date from the injected clock, and always uses the stable household id.
+/// #120 AC6: every seeded person's claim colour is a design-token claim colour's
+/// dark variant.
 /// </summary>
 public sealed class DemoSeederTests
 {
+    // The six claim_colors.*.dark values in Butler.UI/design-tokens.json (berry,
+    // marigold, grass, blue, violet, clay). Copied, not read: the API and the UI
+    // are independent sub-services, so keep this list in step with that file.
+    private static readonly string[] TokenDarkClaimColors =
+        ["#EC77B4", "#E3B23C", "#83C24E", "#77A8FF", "#B98CEE", "#E58A69"];
+
     [Fact]
     public async Task Seed_builds_rooms_people_chores_history_assignments_and_cart_through_the_services()
     {
@@ -55,6 +63,8 @@ public sealed class DemoSeederTests
         Assert.Equal(["Ava", "Dan", "Leo", "Maria"], participants.Select(p => p.DisplayName).Order());
         Assert.Equal(["Ava", "Leo"], participants.Where(p => p.IsChild).Select(p => p.DisplayName).Order());
         Assert.All(participants, p => Assert.False(string.IsNullOrWhiteSpace(p.ClaimColor)));
+        Assert.All(participants, p => Assert.Contains(p.ClaimColor, TokenDarkClaimColors));
+        Assert.Equal(participants.Count, participants.Select(p => p.ClaimColor).Distinct().Count());
 
         var chores = await DemoTestHost.RowsAsync<ChoreEntity>(factory);
         Assert.Equal(15, chores.Count);

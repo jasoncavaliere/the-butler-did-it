@@ -7,6 +7,7 @@ import { FRIENDLY_ERROR } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { templatesForRoom } from '../setup/starterTemplates';
 import { HouseholdProvider, useHousehold } from '../state/HouseholdContext';
+import { claimColors } from '../theme/theme';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
@@ -174,7 +175,7 @@ describe('HouseholdSetup', () => {
           displayName: 'Alex',
           role: 'Participant',
           isChild: true,
-          claimColor: '#7FB2E5',
+          claimColor: '#77A8FF',
           etag: '"p1"',
         });
       }
@@ -214,12 +215,12 @@ describe('HouseholdSetup', () => {
     // Step 3: add a person with the child flag and a claim colour.
     await type('input-person-name', 'Alex');
     await setSwitch('input-person-child', true);
-    await press('claim-color-#7FB2E5');
+    await press('claim-color-blue');
     await press('add-person');
     await waitFor(() => expect(screen.getByTestId('person-item-p-1')).toBeOnTheScreen());
     expect(client.update).toHaveBeenCalledWith(
       '/households/hh-1/people',
-      { displayName: 'Alex', role: 'Participant', isChild: true, claimColor: '#7FB2E5' },
+      { displayName: 'Alex', role: 'Participant', isChild: true, claimColor: '#77A8FF' },
       { method: 'POST' },
     );
     expect(screen.getByTestId('person-item-p-1')).toHaveTextContent('Alex (child)');
@@ -247,6 +248,87 @@ describe('HouseholdSetup', () => {
     expect(screen.getByTestId('setup-done')).toHaveTextContent(
       'Your household is ready: 1 rooms, 1 people, and 1 chores are set up.',
     );
+  });
+
+  describe('claim colour picker (#120)', () => {
+    /** Drive the flow to the people step; the people mock echoes the body back. */
+    async function reachPeopleStep(): Promise<ApiClient> {
+      const client = clientWith(async (path, body) => {
+        if (path === '/households') {
+          return ok({
+            householdId: 'hh-c',
+            name: 'H',
+            organizerObjectId: 'o',
+            createdUtc: 'x',
+            etag: '"h"',
+          });
+        }
+        if (path.endsWith('/rooms')) {
+          return ok({ roomId: 'room-c', name: 'Kitchen', sortOrder: 0, eTag: '"r"' });
+        }
+        if (path.endsWith('/people')) {
+          return ok({ personId: 'p-c', ...(body as Record<string, unknown>), etag: '"p"' });
+        }
+        throw new Error(`unexpected path ${path}`);
+      });
+      useApiClientMock.mockReturnValue(client);
+
+      await renderSetup();
+      await type('input-household-name', 'H');
+      await press('submit-household');
+      await waitFor(() => expect(screen.getByTestId('step-rooms')).toBeOnTheScreen());
+      await type('input-room-name', 'Kitchen');
+      await press('add-room');
+      await waitFor(() => expect(screen.getByTestId('room-item-room-c')).toBeOnTheScreen());
+      await press('continue-rooms');
+      await waitFor(() => expect(screen.getByTestId('step-people')).toBeOnTheScreen());
+      return client;
+    }
+
+    it('offers the six token claim colours, not the old presets (#120 AC2)', async () => {
+      await reachPeopleStep();
+
+      const swatches = screen.getAllByTestId(/^claim-color-/);
+      expect(swatches.map((swatch) => swatch.props.testID)).toEqual(
+        claimColors.map((color) => `claim-color-${color.name}`),
+      );
+      expect(swatches.map((swatch) => swatch.props.testID)).toEqual([
+        'claim-color-berry',
+        'claim-color-marigold',
+        'claim-color-grass',
+        'claim-color-blue',
+        'claim-color-violet',
+        'claim-color-clay',
+      ]);
+      for (const color of claimColors) {
+        const swatch = screen.getByTestId(`claim-color-${color.name}`);
+        expect(swatch).toHaveStyle({ backgroundColor: color.dark });
+        expect(swatch.props.accessibilityLabel).toBe(color.name);
+      }
+      for (const old of ['#D9B25A', '#7FB2E5', '#E58B7F', '#8FD98F', '#C79FE5']) {
+        expect(screen.queryByTestId(`claim-color-${old}`)).toBeNull();
+      }
+    });
+
+    it('saves the picked claim colour as its token dark hex (#120 AC3)', async () => {
+      const client = await reachPeopleStep();
+
+      await type('input-person-name', 'Sam');
+      await press('claim-color-grass');
+      expect(isSelected('claim-color-grass')).toBe(true);
+      expect(isSelected('claim-color-berry')).toBe(false);
+      await press('claim-color-violet');
+      expect(isSelected('claim-color-violet')).toBe(true);
+      expect(isSelected('claim-color-grass')).toBe(false);
+      await press('add-person');
+      await waitFor(() => expect(screen.getByTestId('person-item-p-c')).toBeOnTheScreen());
+
+      expect(client.update).toHaveBeenCalledWith(
+        '/households/hh-c/people',
+        { displayName: 'Sam', role: 'Participant', isChild: false, claimColor: '#B98CEE' },
+        { method: 'POST' },
+      );
+    });
   });
 
   it('surfaces a problem-details error on the household step and does not advance', async () => {

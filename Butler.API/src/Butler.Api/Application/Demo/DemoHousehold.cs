@@ -31,13 +31,16 @@ public static class DemoHousehold
     /// The chore-doing family members. All four are participants: an organizer
     /// is never assigned chores and never counts in fairness, so the household's
     /// organizer is a separate, hidden roster row created with the household.
+    /// Each claim colour is a design-token claim colour's dark variant
+    /// (<c>claim_colors.*.dark</c> in <c>Butler.UI/design-tokens.json</c>), the
+    /// form the dark-only hub stores (#120): berry, grass, blue and marigold.
     /// </summary>
     public static IReadOnlyList<DemoPerson> People { get; } =
     [
-        new("maria", "Maria", IsChild: false, "#B0206F"),
-        new("dan", "Dan", IsChild: false, "#2F7D6D"),
-        new("ava", "Ava", IsChild: true, "#7FB2E5"),
-        new("leo", "Leo", IsChild: true, "#E0A030"),
+        new("maria", "Maria", IsChild: false, "#EC77B4"),
+        new("dan", "Dan", IsChild: false, "#83C24E"),
+        new("ava", "Ava", IsChild: true, "#77A8FF"),
+        new("leo", "Leo", IsChild: true, "#E3B23C"),
     ];
 
     /// <summary>The household's chores, numbered 1..15 for the history script.</summary>

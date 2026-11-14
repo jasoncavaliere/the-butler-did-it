@@ -15,7 +15,9 @@ import {
 import {
   chipMinHeight,
   densityHub,
+  hubTouchTarget,
   lineHeightFor,
+  minTargetGap,
   minTouchTarget,
   motionDuration,
   nameTileMinHeight,
@@ -171,6 +173,26 @@ describe('layout metrics', () => {
     },
   );
 
+  it.each(LAYOUTS.map((layout) => [layout.name, layout] as const))(
+    'every hub target in %s is at least the 48dp hub touch target (#120 AC4)',
+    (_name, layout) => {
+      expect(hubTouchTarget).toBe(48);
+      expect(layout.tileHeight).toBeGreaterThanOrEqual(hubTouchTarget);
+      expect(nameTileMinWidth).toBeGreaterThanOrEqual(hubTouchTarget);
+      expect(layout.rowHeight).toBeGreaterThanOrEqual(hubTouchTarget);
+    },
+  );
+
+  it.each(LAYOUTS.map((layout) => [layout.name, layout] as const))(
+    'adjacent hub targets in %s are at least 8dp apart (#120 AC5)',
+    (_name, layout) => {
+      expect(minTargetGap).toBe(8);
+      expect(layout.tileGap).toBeGreaterThanOrEqual(minTargetGap);
+      expect(layout.groupGap).toBeGreaterThanOrEqual(minTargetGap);
+      expect(layout.groupSpacing).toBeGreaterThanOrEqual(minTargetGap);
+    },
+  );
+
   it('roomy steps up the type and spacing but keeps the 64px hub row (ADR-0008)', () => {
     expect(LANDSCAPE_ROOMY.rowHeight).toBe(LANDSCAPE_COMPACT.rowHeight);
     expect(LANDSCAPE_ROOMY.nameSize).toBeGreaterThan(LANDSCAPE_COMPACT.nameSize);
@@ -194,7 +216,7 @@ describe('measureHubBoard', () => {
     const layout = selectHubLayout({ width: 1280, height: 800 });
     const measure = measureHubBoard(layout, FOUR_PEOPLE_EIGHT_TODAY);
 
-    expect(measure).toEqual({ chrome: 44, header: 48, tiles: 64, today: 414, total: 666 });
+    expect(measure).toEqual({ chrome: 44, header: 48, tiles: 64, today: 430, total: 682 });
     // The AC's literal sum (header + tile row + rows x row height) is inside it.
     expect(measure.header + measure.tiles + 8 * layout.rowHeight).toBe(624);
     expect(measure.total).toBeLessThanOrEqual(800);
@@ -209,10 +231,10 @@ describe('measureHubBoard', () => {
   });
 
   it('still fits when the 8 chores are skewed across the 4 people', () => {
-    expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: [3, 3, 1, 1] }).total).toBe(666);
-    expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: [4, 2, 1, 1] }).total).toBe(734);
+    expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: [3, 3, 1, 1] }).total).toBe(682);
+    expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: [4, 2, 1, 1] }).total).toBe(754);
     expect(measureHubBoard(LANDSCAPE_ROOMY, { people: 4, todayRowsByPerson: [8, 0, 0, 0] }).total).toBe(1044);
-    // A 5-1-1-1 split models 802px at compact: beyond the guarantee, which the
+    // A 5-1-1-1 split models 826px at compact: beyond the guarantee, which the
     // Today panel's own scroll absorbs (automatic paging is out of scope).
     for (const rows of [[3, 3, 1, 1], [4, 2, 1, 1], [1, 2, 3, 2], [2, 3, 1, 2]]) {
       expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: rows }).total).toBeLessThanOrEqual(800);
