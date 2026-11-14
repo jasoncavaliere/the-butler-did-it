@@ -239,6 +239,7 @@ src/
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
               GroceryCart.tsx # hub grocery region: add by typing, review the cart, organizer-only confirm (Epic 50 G5)
+              OrderReceipt.tsx # order receipt shown in place of the hub body after a successful confirm (#115)
               LastKnownBanner.tsx # "showing last-known" indication when a region is served from cache (O2)
               SyncIndicator.tsx # hub-header sync state: online/offline, pending count, synced, failed writes (O4)
   navigation/ RootNavigator.tsx  # navigation graph
@@ -370,12 +371,22 @@ typed client:
   everywhere else in the hub, hiding the control is convenience: the API independently enforces `403`
   for a participant or the paired hub device. The `OrganizerBar`'s Confirm order jumps to this button
   (through `GroceryCart`'s `confirmRef`); it never confirms on its own.
+- **Receipt (#115).** A successful confirm also hands the confirm response to `HubShell` (through
+  `GroceryCart`'s optional `onConfirmed`), which shows `OrderReceipt` in place of the whole hub body
+  until it is dismissed. The receipt is built only from that response and the roster: each line with
+  its quantity, who added it (roster name, or "someone"), a `Custom` tag on custom lines, the store
+  name from the lines' `sourceConnector` through a display table (`simulated-heb` -> `H-E-B`; never
+  hard-coded in the copy), the API's `estimatedTotal` and `customItemCount` (never recomputed on the
+  client), and a plain line that no money has moved and the order is ready to hand off to the store.
+  It is in-shell state, not a navigation route, and is not persisted. `Back to the hub` clears it,
+  which remounts the hub body, so the cart re-reads the week (now a calm `409` "week confirmed").
 
 **Demo path (fully offline of any real store).** The backing connector is the simulated G1
 `SimulatedHebConnector` and its fixture catalog, so the end-to-end path needs no store account and no
 network beyond the local API: tap a name to claim it -> type `oat milk` -> the cart shows
-`H-E-B Oat Milk` x1 -> an organizer signs in through `OrganizerBar` -> `Confirm order` -> the cart
-reads `Confirmed`. **No real order is placed and no money moves** (BRD decision D-8); the confirm
+`H-E-B Oat Milk` x1 -> an organizer signs in through `OrganizerBar` -> `Confirm order` -> the hub
+shows the order receipt (lines, who added them, `Store: H-E-B`, the estimated total) -> `Back to the
+hub` -> the cart reads as this week's confirmed list. **No real order is placed and no money moves** (BRD decision D-8); the confirm
 records intent only.
 
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create

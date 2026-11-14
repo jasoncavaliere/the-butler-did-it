@@ -44,7 +44,9 @@ import { colors } from './Screen';
  *   (Engineering Contract 7.3). This gate is convenience: the API independently
  *   enforces `403` for a participant or the paired hub device. The
  *   {@link OrganizerBar}'s Confirm order only jumps here (through `confirmRef`);
- *   it never confirms on its own.
+ *   it never confirms on its own. A successful confirm also hands the confirm
+ *   response to `onConfirmed`, which {@link HubShell} uses to show the order
+ *   receipt (#115); the region's own Confirmed state is the same either way.
  *
  * Nothing here places a real order and no money moves (BRD decision D-8) - the
  * backing connector is the simulated G1 one, so the demo runs fully offline of
@@ -112,6 +114,7 @@ export function GroceryCart({
   householdId,
   activePersonId,
   confirmRef,
+  onConfirmed,
 }: {
   householdId: string;
   /** The hub's active tap-to-claim participant, whom an added line is attributed to. */
@@ -122,6 +125,11 @@ export function GroceryCart({
    * confirm itself (the final tap stays here, G4).
    */
   confirmRef?: Ref<ComponentRef<typeof View>>;
+  /**
+   * Called once with the confirm response (G4) after a successful confirm, and
+   * never for a failed one, so the hub can show the order receipt (#115).
+   */
+  onConfirmed?: (cart: CartResponse) => void;
 }) {
   const client = useApiClient();
   const { isSignedIn } = useOrganizer();
@@ -272,8 +280,9 @@ export function GroceryCart({
       setState({ phase: 'ready', cart: result.data });
       setNotice('');
       setBusy(false);
+      onConfirmed?.(result.data);
     },
-    [client, householdId],
+    [client, householdId, onConfirmed],
   );
 
   const cart = state.phase === 'ready' ? state.cart : null;

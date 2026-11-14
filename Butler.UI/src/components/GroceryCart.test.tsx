@@ -233,11 +233,21 @@ function setOrganizer(isSignedIn: boolean) {
 
 async function renderCart(
   client: ApiClient,
-  { organizer = false, activePersonId = 'p1' }: { organizer?: boolean; activePersonId?: string | null } = {},
+  {
+    organizer = false,
+    activePersonId = 'p1',
+    onConfirmed,
+  }: {
+    organizer?: boolean;
+    activePersonId?: string | null;
+    onConfirmed?: (cart: CartResponse) => void;
+  } = {},
 ) {
   useApiClientMock.mockReturnValue(client);
   setOrganizer(organizer);
-  return render(<GroceryCart householdId={HOUSEHOLD} activePersonId={activePersonId} />);
+  return render(
+    <GroceryCart householdId={HOUSEHOLD} activePersonId={activePersonId} onConfirmed={onConfirmed} />,
+  );
 }
 
 /** Wait until the initial cart read has settled into a rendered list. */
@@ -351,6 +361,26 @@ describe('GroceryCart', () => {
     expect(screen.getByTestId('grocery-item-item-1')).toBeOnTheScreen();
     expect(screen.queryByTestId('grocery-confirm')).toBeNull();
     expect(screen.queryByTestId('grocery-add-input')).toBeNull();
+  });
+
+  it('confirm-flow: a successful confirm reports the confirmed cart to onConfirmed', async () => {
+    const body = confirmed([oatMilk, quinoa]);
+    const onConfirmed = jest.fn();
+    await renderCart(cartClient({ reads: [ok(building([oatMilk, quinoa]))], confirm: ok(body) }), {
+      organizer: true,
+      onConfirmed,
+    });
+    await whenLoaded();
+
+    // Nothing is reported before the organizer's tap.
+    expect(onConfirmed).not.toHaveBeenCalled();
+
+    await press('grocery-confirm');
+
+    await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1));
+    expect(onConfirmed).toHaveBeenCalledWith(body);
+    // The region's own Confirmed state is unchanged by the callback.
+    expect(screen.getByTestId('grocery-cart-status')).toHaveTextContent(/Confirmed/);
   });
 
   it('ambiguous-add: several matches surface the G3 suggestions and a next step', async () => {
@@ -630,6 +660,30 @@ describe('GroceryCart', () => {
     );
     expect(screen.queryByTestId('grocery-cart-status')).toBeNull();
     expect(screen.getByTestId('grocery-confirm')).toBeOnTheScreen();
+  });
+
+  it('failed-confirm: onConfirmed is not called when the confirm fails', async () => {
+    const stale: ApiResult<never> = {
+      ok: false,
+      error: {
+        kind: 'problem',
+        status: 412,
+        title: 'The resource was modified by another request.',
+        detail: 'The cart changed since it was read. Review it and confirm again.',
+        problem: { status: 412 },
+      },
+    };
+    const onConfirmed = jest.fn();
+    await renderCart(cartClient({ reads: [ok(building([oatMilk]))], confirm: stale }), {
+      organizer: true,
+      onConfirmed,
+    });
+    await whenLoaded();
+
+    await press('grocery-confirm');
+
+    await waitFor(() => expect(screen.getByTestId('grocery-cart-notice')).toBeOnTheScreen());
+    expect(onConfirmed).not.toHaveBeenCalled();
   });
 
   it('renders every line with its display name and quantity', async () => {
