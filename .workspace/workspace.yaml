@@ -1,53 +1,66 @@
 # .workspace/workspace.yaml - local test-workspace capabilities for this repo.
-# Written and maintained by the frontier-energy:local-workspace skill; safe to hand-edit.
+# Written and maintained by the fe-delivery:local-workspace skill; safe to hand-edit.
 # Schema + field docs: skills/local-workspace/references/manifest-schema.md
 # RULE: placeholders only, never real secrets.
 schema: 1
 repo: the-butler-did-it
-description: "Local dev workspace for Butler - runs both sub-services together (API-first): the Butler.API .NET 10 Web API on :5108 and the Butler.UI Expo web hub on :8081. No root build exists, so every command targets an explicit sub-folder from the repo root. The API runs on the in-memory store fallback (no external storage), and is deliberately bound to :5108 to match the UI's hard-coded dev default."
+description: "Local test workspace for Butler - runs the demo compose stack from demo/docker-compose.yml through the repo's demo CLI (demo/demo.sh): Azurite (Table service, data in demo/.data/azurite), the Butler.API container against Azurite on 127.0.0.1:5108, and Caddy on :8080 serving the hub PWA at / and proxying /api/* to the API. A lighter in-memory dev loop (dotnet run + expo start --web) is documented in notes as the quick option."
 
 prerequisites:
-  - name: dotnet
-    check: dotnet --info
-    min: "10"          # Butler.API/global.json pins the .NET SDK to 10.x
+  - name: docker
+    check: "docker info --format '{{.ServerVersion}}'"   # daemon must be running, not just the CLI
+  - name: docker-compose
+    check: docker compose version
+    min: "2.17"        # demo.sh up relies on `up --wait --wait-timeout`
   - name: node
     check: node --version
-    min: "22"          # .github/workflows/ui-ci.yml pins Node 22
+    min: "22"          # demo.sh up builds the hub export (Butler.UI/dist); ui-ci.yml pins Node 22
+  - name: dotnet
+    check: dotnet --info
+    min: "10"          # test block only; Butler.API/global.json pins the .NET SDK to 10.x
 
 setup:
   - dotnet restore Butler.API/Butler.API.sln -v q --nologo
   - npm --prefix Butler.UI ci --no-audit --no-fund --loglevel=error
 
+services:
+  # The demo stack's backing store. demo.sh up starts it too (api depends_on azurite healthy);
+  # this entry lets the provisioner gate on it explicitly. Port 10002 is not published to the host.
+  - name: azurite
+    provided_by: container
+    start: docker compose -f demo/docker-compose.yml up -d --wait azurite
+    ready: "docker compose -f demo/docker-compose.yml ps azurite --format '{{.Health}}' | grep -qx healthy"
+
 run:
-  # Long-running; both are backgrounded by the provisioner, API started first.
-  # The `-- --urls` command-line arg binds the API to :5108 (the UI's hard-coded dev default,
-  # Butler.UI/src/api/config.ts:11). NOTE: an ASPNETCORE_URLS env var does NOT work here - the
-  # http launch profile's applicationUrl (:5099) overrides the env var under `dotnet run`, so the
-  # URL must be passed as a command-line arg, which has higher config precedence. The launch
-  # profile still supplies ASPNETCORE_ENVIRONMENT=Development.
-  - dotnet run --project Butler.API/src/Butler.Api -- --urls http://localhost:5108
-  - npm --prefix Butler.UI run web    # = expo start --web; Metro dev server on :8081
+  # One-shot (returns when every service is healthy): builds Butler.UI/dist with
+  # EXPO_PUBLIC_API_BASE_URL=/api when the export is missing or stale, then
+  # `docker compose -f demo/docker-compose.yml up -d --build --wait --wait-timeout 300`,
+  # and recreates web after a rebuild so Caddy serves the new export.
+  - demo/demo.sh up
 
 ports:
-  - "5108: api"
-  - "8081: expo web / metro"
+  # Azurite's 10002 is deliberately not published; only the api container talks to it.
+  - "8080: web (Caddy) - hub PWA at / and the API at /api/*"
+  - "5108: api (127.0.0.1 only; container port 8080)"
 
 health:
   - kind: http
-    target: "http://localhost:5108/health"    # Program.cs maps GET /health -> {status:ok}
-    timeout_s: 60
-  - kind: tcp
-    target: "127.0.0.1:8081"                   # Expo/Metro web dev server
-    timeout_s: 120
+    target: "http://localhost:5108/health"       # API container up and serving (anonymous GET /health)
+    timeout_s: 600
+  - kind: http
+    target: "http://localhost:8080/"             # Caddy (web) serving the hub PWA export
+    timeout_s: 600
+  - kind: http
+    target: "http://localhost:8080/api/health"   # proxy route: Caddy strips /api and reaches the API
+    timeout_s: 600
 
 test:
   - dotnet test Butler.API/Butler.API.sln --nologo
   - npm --prefix Butler.UI run ci:verify   # CI-equivalent: lint + typecheck + coverage-gated jest (non-interactive, no watch)
 
 teardown:
-  # Bracket trick ([B]/[e]) so the pkill pattern does not self-match the shell running it.
-  - "pkill -f '[B]utler.Api' || true"
-  - "pkill -f '[e]xpo start' || true"
+  # docker compose down (never -v): stops and removes the containers, keeps demo/.data/azurite.
+  - demo/demo.sh down
 
 isolation: in-place
-notes: "In-place uses the working checkout directly (tree was clean at authoring time) - commit or stash before bringing the workspace up so dev artifacts do not mix with your changes. The API is deliberately started on :5108 (not the 5099 in launchSettings.json) so the UI's hard-coded default in Butler.UI/src/api/config.ts:11 (DEFAULT_DEV_API_BASE_URL) matches with no code change. DRIFT NOTE (found during provisioning 2026-07-21): under `dotnet run` the http launch profile's applicationUrl=:5099 overrides an ASPNETCORE_URLS env var, so the port MUST be forced with the command-line arg `-- --urls http://localhost:5108` (higher config precedence); the earlier env-var form silently bound :5099. The launch profile still provides ASPNETCORE_ENVIRONMENT=Development. Backing store is the API's in-memory fallback (no Azurite / no external storage); the API auto-seeds when no storage is configured, so there is no service block and no data volume to tear down. Teardown is process-based (pkill) - it stops the API and the Expo/Metro dev server without touching data."
+notes: "In-place uses the working checkout directly - commit or stash before bringing the workspace up so dev artifacts do not mix with your changes. COMPOSE SHAPE: demo/docker-compose.yml, project name butler-demo (fixed). azurite runs the Table service only, with its data bind-mounted from demo/.data/azurite (git-ignored, root-owned); port 10002 is not published to the host. api is the Butler.API image in the Demo environment with Storage__UseInMemoryStore=false, pointed at the azurite service (the connection string lives in the compose file, not here), published on 127.0.0.1:5108 (container port 8080); it starts only after azurite is healthy and creates its tables at startup. web is Caddy on :8080: it serves the host-built hub export (Butler.UI/dist) at / and proxies /api/* to the api with the prefix stripped, so API routes are at http://localhost:8080/api/... (SystemController lands at /api/api/system/*). `demo/demo.sh up` builds the export when missing or stale (EXPO_PUBLIC_API_BASE_URL=/api), runs compose up --build --wait, and returns only when all three services are healthy; the first run builds the api image, so allow several minutes. `demo/demo.sh down` runs compose down without -v, so demo/.data/azurite and the dataset survive. Wiping data is a separate, explicit step and never part of teardown: run `demo/demo.sh down`, then delete demo/.data/azurite by hand (it is root-owned, so sudo may be needed). Use `demo/demo.sh status` and `demo/demo.sh logs` to inspect the stack. ONE STACK PER HOST: the project name is fixed, so a second checkout's up reuses the same containers and down from any checkout stops them. QUICK OPTION (in-memory dev loop, no containers): run `dotnet run --project Butler.API/src/Butler.Api -- --urls http://localhost:5108` then `npm --prefix Butler.UI run web` (= expo start --web, Metro on :8081); probes are http http://localhost:5108/health and tcp 127.0.0.1:8081; stop it with `pkill -f '[B]utler.Api' || true` and `pkill -f '[e]xpo start' || true` (the bracket trick stops pkill matching its own shell). In this loop the API uses its in-memory store and auto-seeds, and :5108 matches DEFAULT_DEV_API_BASE_URL in Butler.UI/src/api/config.ts (line 13), so the UI needs no env var. DRIFT NOTE (found 2026-07-21): under `dotnet run` the http launch profile's applicationUrl=:5099 overrides an ASPNETCORE_URLS env var, so the port MUST be forced with the command-line arg `-- --urls http://localhost:5108`; the env-var form silently binds :5099. PORT CONFLICT: the quick loop and the compose stack both use :5108, so stop one before starting the other (otherwise demo.sh up fails with port is already allocated)."

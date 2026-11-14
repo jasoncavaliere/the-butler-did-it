@@ -142,6 +142,7 @@ The exception is a docs ticket (an issue labeled `area:docs`), which follows the
 
 ## Test workspace
 
-`/local-workspace` brings up both services from `.workspace/workspace.yaml` (source of truth): API on
-**:5108** (matches the UI's hard-coded dev default) on the **in-memory store fallback**, then the Expo
-web hub on **:8081**. Isolation is **in-place** - commit or stash first.
+`/local-workspace` brings up the demo compose stack from `.workspace/workspace.yaml` (source of truth)
+via `demo/demo.sh up`: Azurite, the API on **:5108**, and the hub plus `/api` proxy on **:8080**.
+`down` keeps `demo/.data`. The in-memory loop (`dotnet run` on :5108 + `npm run web` on :8081) is
+documented in the manifest notes. Isolation is **in-place** - commit or stash first.
