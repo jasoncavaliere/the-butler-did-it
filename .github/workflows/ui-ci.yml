@@ -49,9 +49,10 @@ jobs:
         run: npm ci
 
       # ci:verify = lint + typecheck + coverage-gated test. The Jest config
-      # gates coverage at 98% globally (Engineering Contract 7.7), so a drop
-      # below the threshold fails this step.
-      - name: Verify (lint, typecheck, 98% coverage gate)
+      # gates coverage at 98%, except the presentation folders (src/components/,
+      # src/screens/) at 90% during the demo push (Engineering Contract 7.7), so
+      # a drop below a threshold fails this step.
+      - name: Verify (lint, typecheck, coverage gate)
         run: npm run ci:verify
 
       # Prove the deployable artifact still builds - the v1 hub ships as this

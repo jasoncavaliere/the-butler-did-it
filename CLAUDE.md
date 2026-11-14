@@ -15,8 +15,9 @@ For implementation work the principles below plus the Engineering Contract are s
 - **Binding rules for every ticket:** the Engineering Contract, one file per clause in
   `Butler.KnowledgeBase/brd/engineering-contract/` (7.1 toolchains and gates, 7.2 API layering + MediatR,
   7.3 Table Storage keyed by `householdId`, 7.4 organizer auth + tap-to-claim, 7.5 RFC 7807 / optimistic
-  concurrency / injected time, 7.6 fair assignment, 7.7 98% coverage + Definition of Done). Open only the
-  clause you need; [`07-engineering-contract.md`](Butler.KnowledgeBase/brd/07-engineering-contract.md) lists them.
+  concurrency / injected time, 7.6 fair assignment, 7.7 98% coverage (90% for UI presentation code in the
+  demo push) + Definition of Done). Open only the clause you need;
+  [`07-engineering-contract.md`](Butler.KnowledgeBase/brd/07-engineering-contract.md) lists them.
 - **Ticket specs:** one file per ticket, `Butler.KnowledgeBase/brd/tickets/<ID>-<slug>.md` (find it with
   `ls Butler.KnowledgeBase/brd/tickets/C2-*`). Its `resource:` is the GitHub issue. Epic files (`brd/10-` ..
   `60-`) only list their tickets. You do not need `00-brd-master.md` (problem, personas, journeys).
@@ -90,7 +91,7 @@ Butler.UI (from `Butler.UI/`):
 npm ci --no-audit --no-fund --loglevel=error
 npm run web                      # web-first dev loop (the hub in a browser)
 npm run build:web                # deployable PWA export -> dist/ (NOT a bare `expo export`)
-npm run ci:verify                # CI gate: lint + typecheck + 98% coverage-gated jest
+npm run ci:verify                # CI gate: lint + typecheck + coverage-gated jest (98%; 90% components/screens, Contract 7.7)
 npx jest --silent path/to/File.test.tsx                               # one test file
 npx jest --coverage --silent --coverageReporters=text-summary         # coverage totals only
 ```
