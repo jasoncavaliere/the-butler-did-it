@@ -2092,6 +2092,11 @@ describe('ChoreBoard offline write queue', () => {
    *   snapshot - a row the cached board never had, for a live tap to land on.
    * - `holdLiveComplete` parks that chore's complete until
    *   `releaseLiveComplete()`, recorded only on release (#147).
+   * - `holdLive` parks every complete and undo for those chores, in send order,
+   *   so overlapping taps can be answered in any order (#153).
+   *   `releaseLive(i)` answers the ith parked POST as the server would and
+   *   records it then; `releaseLive(i, answer)` answers with that failure
+   *   instead and records nothing.
    *
    * A complete that is not held still lands a tick after it is sent (network
    * latency), so a generate sent in the same effect flush sees the pre-sync week.
@@ -2103,6 +2108,7 @@ describe('ChoreBoard offline write queue', () => {
       holdComplete?: boolean;
       extra?: string[];
       holdLiveComplete?: string;
+      holdLive?: string[];
     } = {},
   ) {
     const extra = opts.extra ?? [];
@@ -2120,6 +2126,7 @@ describe('ChoreBoard offline write queue', () => {
     let releaseComplete: () => void = () => {};
     let releaseLiveComplete: () => void = () => {};
     let completeHeld = false;
+    const parkedLive: ((answer?: ApiResult<unknown>) => void)[] = [];
 
     const snapshot = (): ApiResult<unknown> =>
       ok({
@@ -2159,6 +2166,21 @@ describe('ChoreBoard offline write queue', () => {
           }
           return Promise.resolve(answer);
         }
+        const live = /assignments\/[^/]+\/([^/]+)\/(complete|undo)$/.exec(path);
+        if (live !== null && opts.holdLive?.includes(live[1])) {
+          const [, liveChoreId, liveAction] = live;
+          return new Promise((resolve) => {
+            parkedLive.push((answer) => {
+              if (answer !== undefined) {
+                resolve(answer);
+                return;
+              }
+              const status = liveAction === 'complete' ? 'Done' : 'Open';
+              server.status[liveChoreId] = status;
+              resolve(ok({ weekIso: thisWeek, choreId: liveChoreId, assignedPersonId: 'p1', status }));
+            });
+          });
+        }
         const undoChoreId = /assignments\/[^/]+\/([^/]+)\/undo$/.exec(path)?.[1];
         if (undoChoreId !== undefined) {
           server.status[undoChoreId] = 'Open';
@@ -2192,6 +2214,8 @@ describe('ChoreBoard offline write queue', () => {
       releaseGenerate: () => releaseGenerate(),
       releaseComplete: () => releaseComplete(),
       releaseLiveComplete: () => releaseLiveComplete(),
+      releaseLive: (index: number, answer?: ApiResult<unknown>) => parkedLive[index](answer),
+      parkedLiveCount: () => parkedLive.length,
     };
   }
 
@@ -2378,6 +2402,142 @@ describe('ChoreBoard offline write queue', () => {
     expect(fake.server.onlineGenerates).toBe(2);
   });
 
+  /**
+   * The live board with c2's live POSTs parked (#153): every tap on c2 waits
+   * for `releaseLive`, and the confirm refetch is parked with c2 Open.
+   */
+  async function liveBoardWithParkedTaps() {
+    const fake = serverClient({
+      holdComplete: true,
+      holdOnlineGenerate: 2,
+      extra: ['c2'],
+      holdLive: ['c2'],
+    });
+    await liveBoardWithParkedRefetch(fake);
+    return fake;
+  }
+
+  /** Tap c2 once, in its own act, so the next tap sees the row it drew. */
+  const tapC2 = () =>
+    act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c2'));
+    });
+
+  /** Run `release` and let what it settled land, inside act. */
+  const settle = (release: () => void) =>
+    act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  const expectC2 = (status: 'Open' | 'Done') => {
+    expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent(status === 'Done' ? '✓' : '○');
+    expect(screen.getByTestId('chore-item-c2').props.accessibilityState.checked).toBe(
+      status === 'Done',
+    );
+  };
+
+  it('live-tap-overlap: an earlier tap\'s response that lands first does not redraw a later in-flight tap, even across a load', async () => {
+    // #153: complete then undo on c2, both POSTs in flight. The complete answers
+    // first; the row belongs to the undo, so it stays Open, and the stale
+    // refetch that resolves next must not bring the complete back either.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    expectC2('Open');
+
+    await settle(() => fake.releaseLive(0));
+    expectC2('Open');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Open');
+
+    await settle(() => fake.releaseLive(1));
+    expectC2('Open');
+    expect(fake.server.status.c2).toBe('Open');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(fake.server.onlineGenerates).toBe(2);
+  });
+
+  it('live-tap-overlap: a later tap\'s in-flight record survives an earlier tap\'s successful response', async () => {
+    // #153: complete, undo, complete. The undo answers first; only the last
+    // complete's record can draw c2 Done over the refetch's Open snapshot.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    await tapC2();
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(1));
+    expectC2('Done');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(2));
+    await settle(() => fake.releaseLive(0));
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
+  it('live-tap-overlap: a refused earlier tap neither reverts the row nor drops a later tap\'s record', async () => {
+    // #153: the first complete is refused while the undo and the last complete
+    // are still in flight, so the revert belongs to a tap the family has
+    // already overtaken.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(0, refused));
+    expectC2('Done');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(1));
+    await settle(() => fake.releaseLive(2));
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
+  it('live-tap-overlap: an earlier tap that finds the network gone is still queued but leaves a later tap\'s record', async () => {
+    // #153: the undo (the middle tap) finds the network gone. It is still queued,
+    // as any unreachable tap is, but the last complete's record stays, so the
+    // queued undo's overlay cannot draw c2 Open over it.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(1, unreachable));
+    expect(readWriteQueue('hh-1').map((write) => write.dedupeKey)).toEqual([
+      assignmentDedupeKey(thisWeek, 'c2'),
+    ]);
+    expectC2('Done');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Done');
+
+    // Let the rest land so the board ends settled: the queued undo's replay (the
+    // fourth parked POST), then the last complete, then the first.
+    await waitFor(() => expect(fake.parkedLiveCount()).toBe(4));
+    await settle(() => fake.releaseLive(3));
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    expectC2('Done');
+    await settle(() => fake.releaseLive(2));
+    await settle(() => fake.releaseLive(0));
+    await flush();
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+  });
+
   it('sync-refetch: a drain that confirms nothing does not refetch', async () => {
     // A refetch per drain would double every board load (the mount drain runs on
     // an empty queue) and hammer the API while a replay keeps failing.
@@ -2485,7 +2645,7 @@ describe('applyLiveTaps', () => {
     const overlaid = applyLiveTaps(
       items,
       WEEK,
-      taps(['c1', { status: 'Done', settledAtLoad: null }], ['c2', { status: 'Open', settledAtLoad: 3 }]),
+      taps(['c1', { status: 'Done', settledAtLoad: null, tap: 1 }], ['c2', { status: 'Open', settledAtLoad: 3, tap: 2 }]),
     );
 
     expect(overlaid.map((item) => item.status)).toEqual(['Done', 'Open']);
@@ -2493,12 +2653,12 @@ describe('applyLiveTaps', () => {
 
   it('ignores a tap made against a different week', () => {
     expect(
-      applyLiveTaps(items, WEEK, taps(['c1', { status: 'Done', settledAtLoad: null }, '2019-W01'])),
+      applyLiveTaps(items, WEEK, taps(['c1', { status: 'Done', settledAtLoad: null, tap: 1 }, '2019-W01'])),
     ).toEqual(items);
   });
 
   it('ignores a tap on a chore that is not on the board', () => {
-    expect(applyLiveTaps(items, WEEK, taps(['c9', { status: 'Done', settledAtLoad: 1 }]))).toEqual(
+    expect(applyLiveTaps(items, WEEK, taps(['c9', { status: 'Done', settledAtLoad: 1, tap: 1 }]))).toEqual(
       items,
     );
   });
@@ -2507,10 +2667,10 @@ describe('applyLiveTaps', () => {
 describe('pruneLiveTaps', () => {
   const remembered = (): Map<string, LiveTap> =>
     new Map<string, LiveTap>([
-      ['in-flight', { status: 'Done', settledAtLoad: null }],
-      ['before', { status: 'Done', settledAtLoad: 4 }],
-      ['during', { status: 'Open', settledAtLoad: 5 }],
-      ['later', { status: 'Done', settledAtLoad: 6 }],
+      ['in-flight', { status: 'Done', settledAtLoad: null, tap: 1 }],
+      ['before', { status: 'Done', settledAtLoad: 4, tap: 2 }],
+      ['during', { status: 'Open', settledAtLoad: 5, tap: 3 }],
+      ['later', { status: 'Done', settledAtLoad: 6, tap: 4 }],
     ]);
 
   it('forgets only the taps that settled before the load started', () => {
