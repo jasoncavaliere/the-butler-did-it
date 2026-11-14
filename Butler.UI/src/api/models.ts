@@ -30,11 +30,21 @@ export type RoomResponse = {
   roomId: string;
   name: string;
   sortOrder: number;
-  etag: string;
+  /**
+   * Optimistic-concurrency stamp for `If-Match`. The API's `ETag` member
+   * serializes as `eTag` (camelCase), as noted on {@link CartResponse}.
+   */
+  eTag: string;
 };
 
 /** Body for `POST /households/{householdId}/rooms`. */
 export type CreateRoomRequest = {
+  name: string;
+  sortOrder: number;
+};
+
+/** Body for `PUT /households/{householdId}/rooms/{roomId}` (sent with `If-Match`). */
+export type UpdateRoomRequest = {
   name: string;
   sortOrder: number;
 };
@@ -128,7 +138,11 @@ export type ChoreResponse = {
   effort: number;
   minAge: number | null;
   active: boolean;
-  etag: string;
+  /**
+   * Optimistic-concurrency stamp for `If-Match`. The API's `ETag` member
+   * serializes as `eTag` (camelCase), as noted on {@link CartResponse}.
+   */
+  eTag: string;
 };
 
 /** Body for `POST /households/{householdId}/chores`. */
@@ -138,6 +152,11 @@ export type CreateChoreRequest = {
   cadence: string;
   effort: number;
   minAge: number | null;
+};
+
+/** Body for `PUT /households/{householdId}/chores/{choreId}` (full replace, sent with `If-Match`). */
+export type UpdateChoreRequest = CreateChoreRequest & {
+  active: boolean;
 };
 
 /**

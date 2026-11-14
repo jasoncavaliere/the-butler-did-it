@@ -223,7 +223,7 @@ src/
               client.ts     # typed fetch client (ApiClient) - the data-access seam; one credential per request: organizer bearer or X-Device-Token (T4, #105)
               useApiClient.ts # hook that binds the client to the base URL, the organizer token, the device token and clearSession
               models.ts     # typed request/response shapes for the H1-H4 endpoints
-              errors.ts     # describeApiError: an ApiError -> one readable line
+              errors.ts     # describeApiError: an ApiError -> one readable line; isPreconditionFailed (412)
   auth/       OrganizerGate.tsx    # gates children behind an authenticated organizer (probes /me)
               authProvider.ts     # IAuthProvider seam: OrganizerIdentity/OrganizerSession (T4)
               createAuthProvider.ts # config-driven provider selection (dev, Entra, or PIN) (T4, #105)
@@ -234,6 +234,7 @@ src/
               OrganizerBar.tsx    # hub control strip: sign in/out + gated sensitive affordances (T4)
               HubPairing.tsx      # organizer-only "pair this tablet" affordance (T5)
   components/ Screen.tsx     # shared layout primitives
+              FormControls.tsx # shared organizer form controls: Field, ActionButton, Chip (#112)
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
@@ -244,6 +245,8 @@ src/
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
+              HouseholdEditor.tsx      # organizer room/chore editor: list, add, rename, edit, deactivate, remove (#112)
+              HouseholdScreen.tsx      # Household route = OrganizerGate + HouseholdEditor (#112)
   setup/      starterChoreTemplates.json # versioned starter-chore catalog: 30 templates across 9 rooms with aliases (#111)
               starterTemplates.ts # catalog types, room-name/alias matching, template -> CreateChoreRequest (#111)
   offline/    storage.ts    # shared, feature-detected Web Storage seam both offline modules persist through, plus the queue's session-memory fallback (O2/O3)
@@ -274,7 +277,9 @@ scripts/                    # web-export build tooling (plain Node, no bundler)
 `NavigationContainer` and conditionally registers routes on the selected household (the React
 Navigation auth-flow pattern): with no household it mounts the onboarding flow (`HouseholdSetup`),
 and once `useHousehold` holds an id it mounts the `Home` route, which renders the always-on
-`HubShell` (T2). Add a screen under `src/screens`, then register it in `RootNavigator` and extend
+`HubShell` (T2), and the `Household` route (the organizer's room and chore editor, #112). `Home` is a
+small wrapper that passes `HubShell` an `onEditHousehold` handler navigating to `Household`, so
+`HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
 `RootStackParamList`.
 
 **The hub shell** (`src/screens/HubShell.tsx`, T2/T3) is the shared-device shell the rest of the
@@ -407,12 +412,25 @@ hub drops to participant-only mode without an error. With the PIN provider, `Org
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
-does nothing. Today that is only Confirm order, which scrolls the hub to `GroceryCart` and focuses the
+does nothing. Today that is Household (#112), which opens the Household editor through the handler
+`RootNavigator` passes to `HubShell`, and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
 cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Edit roster
 is #167 and Household teardown is #168; until they land, `HubShell` does not pass those handlers. This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.
+
+**Household editor** (`src/screens/HouseholdEditor.tsx`, #112) is the organizer's after-setup editor for
+rooms and chores, behind `OrganizerGate` (`HouseholdScreen.tsx`). It reads `GET /households/{id}/rooms` and
+`GET /households/{id}/chores` (all chores, active or not) together and lists each room with its chores;
+chores whose room is gone sit under "Not in a room". One editor is open at a time. Every write goes through
+the typed client and, on success, replaces the item with the response body, so the next edit carries that
+item's fresh `eTag` (the API's `ETag` member serializes as `eTag`, as `RoomResponse`/`ChoreResponse` now
+declare). Renames and chore edits are PUTs under `If-Match`; a `412` shows a reload prompt that re-reads
+both lists and closes the editor without re-sending the edit (`isPreconditionFailed`). Any other failure
+shows the problem-details message and leaves the list as it was. Deactivate and room DELETE carry no
+`If-Match`. Removing a room is refused on the client while it has active chores (the server DELETE does not
+check). This list/edit/If-Match/412 shape is the pattern for the roster editor (#167).
 
 **Hub device pairing** (`src/auth/HubPairing.tsx`, `src/state/HubDeviceContext.tsx`, T5) makes the
 shared tablet itself a long-lived, household-scoped actor rather than an anonymous caller. `HubPairing`

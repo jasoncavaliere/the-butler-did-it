@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import type { ComponentProps } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HubShell, revealAndFocus } from './HubShell';
@@ -539,15 +540,53 @@ describe('HubShell', () => {
     }
 
     /** Render the hub with both the household and a real organizer session context. */
-    async function renderHubWithOrganizer(authProvider: IAuthProvider) {
+    async function renderHubWithOrganizer(
+      authProvider: IAuthProvider,
+      hubProps: ComponentProps<typeof HubShell> = {},
+    ) {
       return render(
         <HouseholdProvider initialHouseholdId="hh-1">
           <OrganizerProvider authProvider={authProvider}>
-            <HubShell />
+            <HubShell {...hubProps} />
           </OrganizerProvider>
         </HouseholdProvider>,
       );
     }
+
+    it('passes onEditHousehold to the organizer bar', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+      const onEditHousehold = jest.fn();
+
+      await renderHubWithOrganizer(fakeProvider(), { onEditHousehold });
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      // Hidden until an organizer signs in.
+      expect(screen.queryByTestId('affordance-edit-household')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-edit-household'));
+      });
+
+      expect(onEditHousehold).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no Household button when the hub is not given onEditHousehold', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+
+      expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+      expect(screen.queryByTestId('affordance-edit-household')).toBeNull();
+    });
 
     it('leaves the active participant claim intact when an organizer signs in', async () => {
       const client = interactiveClient();

@@ -1,4 +1,4 @@
-import { describeApiError } from './errors';
+import { describeApiError, isPreconditionFailed } from './errors';
 
 describe('describeApiError', () => {
   it('prefers the problem-details detail', () => {
@@ -46,5 +46,21 @@ describe('describeApiError', () => {
     expect(describeApiError({ kind: 'http', status: 503, title: '' })).toBe(
       'Request failed (503).',
     );
+  });
+});
+
+describe('isPreconditionFailed', () => {
+  it('is true for a 412 stale-write refusal', () => {
+    expect(isPreconditionFailed({ kind: 'problem', status: 412, title: 'Precondition Failed' })).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ['a 400', { kind: 'problem' as const, status: 400, title: 'Bad Request' }],
+    ['a 404', { kind: 'http' as const, status: 404, title: 'Not Found' }],
+    ['a network failure', { kind: 'network' as const, status: 0, title: 'unreachable' }],
+  ])('is false for %s', (_label, error) => {
+    expect(isPreconditionFailed(error)).toBe(false);
   });
 });

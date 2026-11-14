@@ -24,3 +24,12 @@ export function describeApiError(error: ApiError): string {
       return error.title || `Request failed (${error.status}).`;
   }
 }
+
+/**
+ * True when a write was refused as stale (`412 Precondition Failed`): the
+ * `If-Match` ETag no longer matches the stored item (Engineering Contract 7.3).
+ * Screens answer it with a reload prompt instead of re-sending the edit.
+ */
+export function isPreconditionFailed(error: ApiError): boolean {
+  return error.status === 412;
+}
