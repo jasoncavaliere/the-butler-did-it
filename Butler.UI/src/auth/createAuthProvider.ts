@@ -1,16 +1,18 @@
 /**
- * Config-driven selection of the concrete {@link IAuthProvider}. In dev mode
- * (`DisableAuthentication`) the {@link createDevAuthProvider} dev organizer is
- * used; otherwise the {@link createEntraAuthProvider} Entra External ID provider
- * is built from the OIDC config. Because the choice is a single config branch
+ * Config-driven selection of the concrete {@link IAuthProvider} by
+ * `AuthConfig.provider`: `dev` uses the {@link createDevAuthProvider} dev
+ * organizer, `pin` the {@link createPinAuthProvider} demo PIN pad (#105), and
+ * `entra` the {@link createEntraAuthProvider} Entra External ID provider built
+ * from the OIDC config. Because the choice is a single config branch
  * over one seam, swapping IdP later is a config + provider-class change, not a
  * UI rewrite - mirroring the generic server and `IStoreConnector`.
  */
 
-import type { AuthConfig } from '../api/config';
+import { apiBaseUrl, type AuthConfig } from '../api/config';
 import type { IAuthProvider } from './authProvider';
 import { createDevAuthProvider } from './devAuthProvider';
 import { createEntraAuthProvider, type EntraAuthDeps } from './entraAuthProvider';
+import { createPinAuthProvider, type PinAuthDeps } from './pinAuthProvider';
 
 /** Structural view of the Web Crypto API this module needs (no DOM lib dep). */
 type WebCryptoLike = {
@@ -86,11 +88,20 @@ export function defaultBrowserDeps(): EntraAuthDeps {
 /**
  * Select and build the auth provider for the given config. `deps` overrides the
  * Entra side effects (used by tests); production supplies none and the real
- * {@link defaultBrowserDeps} are used.
+ * {@link defaultBrowserDeps} are used. `pinDeps` points the PIN provider at the
+ * API (the organizer context passes the app config's base URL); it defaults to
+ * the build's {@link apiBaseUrl}.
  */
-export function createAuthProvider(config: AuthConfig, deps?: EntraAuthDeps): IAuthProvider {
-  if (config.disableAuthentication) {
+export function createAuthProvider(
+  config: AuthConfig,
+  deps?: EntraAuthDeps,
+  pinDeps?: PinAuthDeps,
+): IAuthProvider {
+  if (config.provider === 'dev') {
     return createDevAuthProvider();
+  }
+  if (config.provider === 'pin') {
+    return createPinAuthProvider(pinDeps ?? { apiBaseUrl });
   }
   return createEntraAuthProvider(
     {

@@ -45,4 +45,14 @@ public static class OrganizerAuthorization
 
     /// <summary>Display name of the injected dev organizer.</summary>
     public const string DevOrganizerName = "Development Organizer";
+
+    /// <summary>
+    /// The authentication scheme for the local demo PIN organizer (#105): a
+    /// bearer token issued by <c>POST /auth/pin/sign-in</c>. The principal uses
+    /// <see cref="DevOrganizerSubject"/>, the organizer the demo seed binds.
+    /// </summary>
+    public const string PinScheme = "PinOrganizer";
+
+    /// <summary>Display name of the organizer signed in with the demo PIN.</summary>
+    public const string PinOrganizerName = "Demo Organizer";
 }

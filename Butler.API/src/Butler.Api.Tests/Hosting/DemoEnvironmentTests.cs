@@ -20,10 +20,10 @@ namespace Butler.Api.Tests.Hosting;
 /// <summary>
 /// Criteria (#95): the API boots in the <c>Demo</c> environment the container
 /// image defaults to - it loads <c>appsettings.Demo.json</c>, serves
-/// <c>/health</c> and Swagger, authenticates the dev organizer through the
-/// explicit Demo bypass, binds the storage connection string from configuration
-/// (<c>Storage__ConnectionString</c>), and still fails closed when the bypass is
-/// turned off without an authority. Swagger stays off outside Development and Demo.
+/// <c>/health</c> and Swagger, signs the organizer in with the demo PIN (#105)
+/// as the dev-organizer subject the demo seed binds, binds the storage connection string from configuration
+/// (<c>Storage__ConnectionString</c>), and still fails closed when Entra is
+/// selected without an authority. Swagger stays off outside Development and Demo.
 /// </summary>
 public sealed class DemoEnvironmentTests
 {
@@ -69,8 +69,10 @@ public sealed class DemoEnvironmentTests
         var configuration = factory.Services.GetRequiredService<IConfiguration>();
 
         Assert.Equal(ButlerEnvironments.Demo, environment.EnvironmentName);
-        // Only appsettings.Demo.json sets the bypass explicitly in Demo.
-        Assert.True(configuration.GetValue<bool>("Authentication:DisableAuthentication"));
+        // appsettings.Demo.json selects the PIN organizer (#105) and no longer
+        // sets the bypass.
+        Assert.Equal("Pin", configuration["Authentication:Provider"]);
+        Assert.Null(configuration["Authentication:DisableAuthentication"]);
     }
 
     [Theory]
@@ -87,12 +89,13 @@ public sealed class DemoEnvironmentTests
     }
 
     [Fact]
-    public async Task Demo_environment_authenticates_the_dev_organizer()
+    public async Task Demo_environment_signs_in_the_dev_organizer_subject_with_the_pin()
     {
         using var factory = CreateFactory(ButlerEnvironments.Demo);
         using var client = factory.CreateClient();
+        var token = await PinSignIn.TokenAsync(client);
 
-        using var response = await client.GetAsync(new Uri("/me", UriKind.Relative));
+        using var response = await PinSignIn.GetWithBearerAsync(client, PinSignIn.MeUri, token);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -132,11 +135,12 @@ public sealed class DemoEnvironmentTests
     }
 
     [Fact]
-    public void Demo_environment_fails_closed_when_the_bypass_is_turned_off_without_an_authority()
+    public void Demo_environment_fails_closed_when_Entra_is_selected_without_an_authority()
     {
         using var factory = CreateFactory(ButlerEnvironments.Demo, builder =>
         {
             builder.UseSetting("Authentication:DisableAuthentication", "false");
+            builder.UseSetting("Authentication:Provider", "Entra");
             builder.UseSetting("Authentication:Authority", string.Empty);
         });
 

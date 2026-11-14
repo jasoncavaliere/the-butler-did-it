@@ -1,2 +1,4 @@
 # Local demo stack data (Azurite tables etc.) - see demo/README.md.
 demo/.data/
+# The demo organizer PIN (BUTLER_DEMO_PIN) lives here; never commit it (#105).
+demo/.env

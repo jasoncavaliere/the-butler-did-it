@@ -40,7 +40,7 @@ pwsh demo/demo.ps1 unshare
 
 | Command | What it does |
 | --- | --- |
-| `demo.sh up` | Builds `Butler.UI/dist` when it is missing or older than the `Butler.UI` sources (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api` for the build), starts the stack, recreates `web` after a rebuild, and returns only when every service reports healthy. |
+| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing or older than the `Butler.UI` sources (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api` and `EXPO_PUBLIC_AUTH_PROVIDER=pin` for the build), starts the stack, recreates `web` after a rebuild, and returns only when every service reports healthy. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`, or `logs -f azurite`). See [Logs](#logs). |
@@ -54,6 +54,7 @@ sections below are the fallback when you want to run the steps yourself.
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine with the Compose v2 plugin on Linux).
+- A `demo/.env` file that sets `BUTLER_DEMO_PIN` (see [Organizer PIN](#organizer-pin)).
 - Node 22 (the active LTS) to build the hub export.
 - PowerShell 7 to use `demo/demo.ps1` (bash is enough for `demo/demo.sh`).
 - Optional, for `share`: Tailscale 1.52 or later (older versions use a
@@ -67,12 +68,13 @@ sections below are the fallback when you want to run the steps yourself.
 
 The `web` service serves the export from `Butler.UI/dist`, which is built on
 the host. Build it once, and again after any UI change, with the API base set
-to `/api` so the hub calls the API on its own origin:
+to `/api` so the hub calls the API on its own origin, and the organizer
+sign-in set to the PIN pad:
 
 ```bash
 cd Butler.UI
 npm ci
-EXPO_PUBLIC_API_BASE_URL=/api npm run build:web
+EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web
 cd ..
 ```
 
@@ -81,19 +83,21 @@ PowerShell:
 ```powershell
 cd Butler.UI
 npm ci
-$env:EXPO_PUBLIC_API_BASE_URL = '/api'; npm run build:web
+$env:EXPO_PUBLIC_API_BASE_URL = '/api'; $env:EXPO_PUBLIC_AUTH_PROVIDER = 'pin'; npm run build:web
 cd ..
 ```
 
-Expo inlines `EXPO_PUBLIC_*` values when it bundles, so the variable must be
-set in the shell that runs the build. Without it the hub calls
-`http://localhost:5108` directly, a different origin, and the browser blocks
-those calls with CORS errors.
+Expo inlines `EXPO_PUBLIC_*` values when it bundles, so the variables must be
+set in the shell that runs the build. Without `EXPO_PUBLIC_API_BASE_URL` the
+hub calls `http://localhost:5108` directly, a different origin, and the
+browser blocks those calls with CORS errors. Without
+`EXPO_PUBLIC_AUTH_PROVIDER=pin` the hub shows no PIN pad and cannot sign the
+organizer in against the Demo API.
 
 If a rebuild still calls `localhost:5108`, Metro served a cached bundle. Clear
 it once with
 `npx expo export --platform web --clear && node scripts/pwa-export.js dist`
-(variable still set).
+(variables still set).
 
 If `Butler.UI/dist` is missing, `up` fails with a bind-mount error rather than
 serving an empty site.
@@ -116,7 +120,47 @@ docker compose -f demo/docker-compose.yml up -d --build
 `mkdir`/`chmod` line (which `up` runs for you) makes the API's log folder
 writable: the API container runs as a non-root user, and on a Linux engine a
 folder Docker creates for the bind mount is owned by root. Skip it and the API
-still runs, but writes no log files.
+still runs, but writes no log files. Compose reads `BUTLER_DEMO_PIN` from
+`demo/.env` (or your shell); without it the API does not start.
+
+## Organizer PIN
+
+In the demo the organizer signs in with a 4-6 digit PIN (#105). The API reads
+it from the `BUTLER_DEMO_PIN` environment variable, which compose passes from
+`demo/.env`. That file is git-ignored: never commit a PIN.
+
+Set the PIN once, from the repo root (pick your own digits, or generate them):
+
+```bash
+printf 'BUTLER_DEMO_PIN=%s\n' "$(shuf -i 1000-999999 -n 1)" > demo/.env
+```
+
+PowerShell:
+
+```powershell
+"BUTLER_DEMO_PIN=$(Get-Random -Minimum 1000 -Maximum 1000000)" | Set-Content demo/.env
+```
+
+The demo flow:
+
+1. **Sign in with the PIN.** Run `demo/demo.sh up` and open
+   http://localhost:8080. The setup screen asks for the organizer PIN: type it
+   on the PIN pad and tap Sign in. A wrong PIN says "That PIN is not right.";
+   after 5 wrong PINs in a row every attempt is refused for 60 s.
+2. **Set up the household** (or seed the demo household) on the setup screens.
+3. **Pair the hub.** On the hub, tap "Pair this tablet". The tablet now
+   reads and writes as the hub: name tiles, chores, completions, the grocery
+   list.
+4. **Sign out.** Tap "Sign out" in the organizer bar. The hub stays on the
+   household's tiles and chores, and the sensitive actions (Confirm order,
+   pairing) disappear. To sign in again, tap "Organizer sign in" and enter the
+   PIN.
+
+The organizer token also expires after 15 minutes without use; the hub then
+drops back to the same participant-only view on its own. The demo scripts
+(#98, #99) sign in the same way, with the PIN from `demo/.env`:
+`POST /api/auth/pin/sign-in` with `{"pin":"<pin>"}` returns a `token` to send
+as `Authorization: Bearer <token>`.
 
 ## URLs
 
@@ -325,6 +369,12 @@ startup (#91), and logs `Provisioned N Table Storage tables`. This folder holds
 no table-creation steps.
 
 ## Known limits
+
+- Organizer session: the PIN token lives only in the API's memory and the
+  hub's memory. Reloading the hub, or restarting the API (`down` then `up`),
+  signs the organizer out; a reload also forgets the pairing, so sign in and
+  pair again (#188). The token expires after 15 minutes without use, and 5
+  wrong PINs lock sign-in for 60 s.
 
 - Port 5108: the API is published on `127.0.0.1:5108`, which is also the
   port the in-memory quick loop documented in `.workspace/` binds `dotnet run`

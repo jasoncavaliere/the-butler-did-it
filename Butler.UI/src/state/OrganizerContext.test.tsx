@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Pressable, Text } from 'react-native';
 
+import { AppConfigProvider, defaultAppConfig } from './AppConfigContext';
 import { OrganizerProvider, useOrganizer } from './OrganizerContext';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
 
@@ -19,9 +20,16 @@ function fakeProvider(overrides: Partial<IAuthProvider> = {}): IAuthProvider {
 }
 
 function Probe() {
-  const { organizer, token, isSignedIn, signIn, signOut } = useOrganizer();
+  const { organizer, token, isSignedIn, signIn, signOut, clearSession, providerKind } = useOrganizer();
   return (
     <>
+      <Text testID="kind">{providerKind}</Text>
+      <Pressable testID="do-pin-sign-in" onPress={() => void signIn({ pin: '2468' })}>
+        <Text>pin</Text>
+      </Pressable>
+      <Pressable testID="do-clear" onPress={() => clearSession()}>
+        <Text>clear</Text>
+      </Pressable>
       <Text testID="who">{organizer ? organizer.name : 'none'}</Text>
       <Text testID="token">{token ?? 'no-token'}</Text>
       <Text testID="signed-in">{String(isSignedIn)}</Text>
@@ -46,9 +54,11 @@ describe('OrganizerContext', () => {
     await render(<Probe />);
     expect(screen.getByTestId('who')).toHaveTextContent('none');
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false');
-    // The no-op sign-in/out must not throw when there is no provider.
+    // The no-op sign-in/out/clear must not throw when there is no provider.
+    expect(screen.getByTestId('kind')).toHaveTextContent('dev');
     await press('do-sign-in');
     await press('do-sign-out');
+    await press('do-clear');
     expect(screen.getByTestId('signed-in')).toHaveTextContent('false');
   });
 
@@ -109,5 +119,53 @@ describe('OrganizerContext', () => {
     expect(screen.getByTestId('who')).toHaveTextContent('Development Organizer');
     expect(screen.getByTestId('token')).toHaveTextContent('no-token');
     expect(screen.getByTestId('signed-in')).toHaveTextContent('true');
+  });
+
+  it('passes sign-in credentials through and exposes the provider kind (#105)', async () => {
+    const signIn = jest.fn(() => Promise.resolve(ORGANIZER));
+    await render(
+      <OrganizerProvider authProvider={{ ...fakeProvider({ signIn }), kind: 'pin' }}>
+        <Probe />
+      </OrganizerProvider>,
+    );
+
+    expect(screen.getByTestId('kind')).toHaveTextContent('pin');
+    await press('do-pin-sign-in');
+
+    expect(signIn).toHaveBeenCalledWith({ pin: '2468' });
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('true');
+  });
+
+  it('clearSession drops the organizer locally without calling the provider (#105)', async () => {
+    const signOut = jest.fn(() => Promise.resolve());
+    await render(
+      <OrganizerProvider authProvider={fakeProvider({ signOut })}>
+        <Probe />
+      </OrganizerProvider>,
+    );
+
+    await press('do-sign-in');
+    await press('do-clear');
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('false');
+    expect(screen.getByTestId('token')).toHaveTextContent('no-token');
+  });
+
+  it('builds the PIN provider from the app config when it selects pin (#105)', async () => {
+    const config = {
+      ...defaultAppConfig,
+      apiBaseUrl: 'https://api.test',
+      auth: { ...defaultAppConfig.auth, provider: 'pin' as const, disableAuthentication: false },
+    };
+    await render(
+      <AppConfigProvider value={config}>
+        <OrganizerProvider>
+          <Probe />
+        </OrganizerProvider>
+      </AppConfigProvider>,
+    );
+
+    expect(screen.getByTestId('kind')).toHaveTextContent('pin');
   });
 });

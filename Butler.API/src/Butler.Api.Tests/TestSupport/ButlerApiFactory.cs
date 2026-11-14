@@ -1,3 +1,4 @@
+using Butler.Api.Application.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -21,9 +22,14 @@ namespace Butler.Api.Tests.TestSupport;
 /// The Demo-only rolling log file (#107) is pointed at a fresh temp directory per
 /// factory (<see cref="LogDirectory"/>), so a Demo-environment test never writes
 /// into <c>src/Butler.Api/logs</c> or shares a log file with another test.
+/// The demo PIN (#105) is set to <see cref="DemoPin"/> so a Demo-environment host,
+/// which uses the PIN organizer and refuses to start without a PIN, always boots.
 /// </remarks>
 public sealed class ButlerApiFactory : WebApplicationFactory<Program>
 {
+    /// <summary>The <c>BUTLER_DEMO_PIN</c> every test host is given (test-only value).</summary>
+    public const string DemoPin = "246810";
+
     /// <summary>
     /// The directory the Demo-environment file sink writes to for this factory:
     /// a unique folder under the system temp directory. Nothing is written there
@@ -36,6 +42,7 @@ public sealed class ButlerApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("DemoLogging:DirectoryPath", LogDirectory);
+        builder.UseSetting(PinOrganizerOptions.PinConfigurationKey, DemoPin);
 
         builder.ConfigureTestServices(services =>
             services.AddControllers()

@@ -49,10 +49,12 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 // API accepts requests; a table that cannot be created fails startup.
 builder.Services.AddStorage(builder.Configuration);
 
-// Organizer authentication seam (Engineering Contract 7.4): JWT bearer against
-// Entra External ID + the Organizer authorization policy. The bypass defaults on
-// only in Development, is permitted in Demo when set explicitly
-// (appsettings.Demo.json), and fails closed in every other environment.
+// Organizer authentication seam (Engineering Contract 7.4) + the Organizer
+// authorization policies, in one of three modes: the dev-organizer bypass
+// (Development default; explicit only in Demo), the local demo PIN organizer
+// (Authentication:Provider=Pin, set by appsettings.Demo.json; PIN from the
+// BUTLER_DEMO_PIN environment variable; Development or Demo only), or JWT bearer
+// against Entra External ID. Bypass or PIN anywhere else fails startup (closed).
 builder.Services.AddOrganizerAuthentication(builder.Configuration, builder.Environment);
 
 // Features.

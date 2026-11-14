@@ -23,13 +23,15 @@ public static class DemoLogFiles
     /// <summary>
     /// A Demo-environment factory whose file sink writes to
     /// <paramref name="logDirectory"/>, with any extra configuration overrides.
+    /// The organizer bypass is set explicitly (Demo otherwise uses the PIN
+    /// organizer, #105) so the logged requests reach their endpoints.
     /// </summary>
     /// <param name="logDirectory">The <c>DemoLogging:DirectoryPath</c> to use.</param>
     /// <param name="settings">Extra <c>key=value</c> configuration overrides.</param>
     public static WebApplicationFactory<Program> CreateDemoFactory(
         string logDirectory,
         params (string Key, string Value)[] settings) =>
-        CreateFactory("Demo", logDirectory, settings);
+        CreateFactory("Demo", logDirectory, [("Authentication:DisableAuthentication", "true"), .. settings]);
 
     /// <summary>
     /// A factory in <paramref name="environment"/> whose (Demo-only) file sink

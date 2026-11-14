@@ -31,13 +31,23 @@ export function resolveApiBaseUrl(
 export const apiBaseUrl: string = resolveApiBaseUrl();
 
 /**
+ * Which organizer sign-in the UI uses:
+ * - `dev` -- the F6 dev organizer (no live tenant, no token; the API's bypass).
+ * - `entra` -- Entra External ID over OIDC/PKCE.
+ * - `pin` -- the local demo PIN pad (#105), against a Demo API.
+ */
+export type AuthProviderKind = 'dev' | 'entra' | 'pin';
+
+/**
  * Organizer authentication configuration (Engineering Contract 7.4, client
  * side). The organizer is the only authenticated user; these values are public
- * OIDC identifiers, not secrets. `disableAuthentication` mirrors the API's dev
- * bypass: when set, the UI uses the F6 dev organizer instead of a live sign-in.
+ * OIDC identifiers, not secrets. `provider` selects the sign-in; the derived
+ * `disableAuthentication` mirrors the API's dev bypass (`provider === 'dev'`).
  */
 export type AuthConfig = {
-  /** When true, use the dev organizer (no live tenant, no token). */
+  /** Which organizer sign-in to use (`EXPO_PUBLIC_AUTH_PROVIDER`). */
+  provider: AuthProviderKind;
+  /** When true, use the dev organizer (no live tenant, no token). Same as `provider === 'dev'`. */
   disableAuthentication: boolean;
   /** OIDC authority (issuer) that mints organizer tokens. */
   authority: string;
@@ -60,19 +70,50 @@ function parseDisableAuth(raw: string | undefined): boolean {
 }
 
 /**
+ * Resolve the provider from `EXPO_PUBLIC_AUTH_PROVIDER` (`dev`, `entra`, or
+ * `pin`, case-insensitive). When it is unset or unrecognized, fall back to the
+ * older `EXPO_PUBLIC_DISABLE_AUTH` flag: dev when it is on (or unset), else Entra.
+ */
+function parseAuthProvider(raw: string | undefined, disableRaw: string | undefined): AuthProviderKind {
+  const value = raw?.trim().toLowerCase();
+  if (value === 'dev' || value === 'entra' || value === 'pin') {
+    return value;
+  }
+  return parseDisableAuth(disableRaw) ? 'dev' : 'entra';
+}
+
+/**
+ * The auth env vars as Expo sees them at bundle time. Expo inlines only direct
+ * `process.env.EXPO_PUBLIC_*` reads, so each one is named here; reading them
+ * off a `process.env` object passed around would find nothing in a web export.
+ */
+export function buildTimeAuthEnv(): Record<string, string | undefined> {
+  return {
+    EXPO_PUBLIC_AUTH_PROVIDER: process.env.EXPO_PUBLIC_AUTH_PROVIDER,
+    EXPO_PUBLIC_DISABLE_AUTH: process.env.EXPO_PUBLIC_DISABLE_AUTH,
+    EXPO_PUBLIC_AUTH_AUTHORITY: process.env.EXPO_PUBLIC_AUTH_AUTHORITY,
+    EXPO_PUBLIC_AUTH_CLIENT_ID: process.env.EXPO_PUBLIC_AUTH_CLIENT_ID,
+    EXPO_PUBLIC_AUTH_REDIRECT_URI: process.env.EXPO_PUBLIC_AUTH_REDIRECT_URI,
+    EXPO_PUBLIC_AUTH_SCOPES: process.env.EXPO_PUBLIC_AUTH_SCOPES,
+  };
+}
+
+/**
  * Resolve {@link AuthConfig} from the Expo public env vars (injectable for
  * tests). Scopes default to the OIDC basics; the IdP-specific values stay empty
  * placeholders supplied per environment.
  */
 export function resolveAuthConfig(
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = buildTimeAuthEnv(),
 ): AuthConfig {
   const scopes = (env.EXPO_PUBLIC_AUTH_SCOPES ?? 'openid profile')
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+  const provider = parseAuthProvider(env.EXPO_PUBLIC_AUTH_PROVIDER, env.EXPO_PUBLIC_DISABLE_AUTH);
   return {
-    disableAuthentication: parseDisableAuth(env.EXPO_PUBLIC_DISABLE_AUTH),
+    provider,
+    disableAuthentication: provider === 'dev',
     authority: (env.EXPO_PUBLIC_AUTH_AUTHORITY ?? '').trim(),
     clientId: (env.EXPO_PUBLIC_AUTH_CLIENT_ID ?? '').trim(),
     redirectUri: (env.EXPO_PUBLIC_AUTH_REDIRECT_URI ?? '').trim(),

@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 
-import type { IAuthProvider, OrganizerIdentity, OrganizerSession } from '../auth/authProvider';
+import type {
+  IAuthProvider,
+  OrganizerIdentity,
+  OrganizerSession,
+  SignInCredentials,
+} from '../auth/authProvider';
 import { createAuthProvider } from '../auth/createAuthProvider';
 import { useAppConfig } from './AppConfigContext';
 
@@ -19,10 +24,21 @@ export type OrganizerContextValue = {
   token: string | null;
   /** Convenience flag: whether an organizer session is active. */
   isSignedIn: boolean;
-  /** Start (or complete) organizer sign-in through the configured provider. */
-  signIn: () => Promise<void>;
+  /**
+   * Start (or complete) organizer sign-in through the configured provider. The
+   * PIN provider needs `credentials.pin` and rejects when the PIN is refused;
+   * the rejection propagates so the PIN pad can show why.
+   */
+  signIn: (credentials?: SignInCredentials) => Promise<void>;
   /** Clear the organizer session, returning to the participant-only state. */
   signOut: () => Promise<void>;
+  /**
+   * Drop the local organizer session without calling the provider - used when
+   * the API rejects the organizer token (expired). Referentially stable.
+   */
+  clearSession: () => void;
+  /** The configured provider's kind (`dev`, `entra`, `pin`), so the UI can pick its sign-in affordance. */
+  providerKind: string;
 };
 
 /**
@@ -37,13 +53,15 @@ const defaultValue: OrganizerContextValue = {
   isSignedIn: false,
   signIn: () => Promise.resolve(),
   signOut: () => Promise.resolve(),
+  clearSession: () => undefined,
+  providerKind: 'dev',
 };
 
 const OrganizerContext = createContext<OrganizerContextValue>(defaultValue);
 
 /**
  * Provides the organizer session. The concrete auth provider is selected from
- * {@link useAppConfig} (dev organizer vs Entra OIDC/PKCE); tests inject a fake
+ * {@link useAppConfig} (dev organizer, Entra OIDC/PKCE, or the demo PIN); tests inject a fake
  * provider through the same {@link IAuthProvider} seam, proving it is real.
  */
 export function OrganizerProvider({
@@ -54,15 +72,15 @@ export function OrganizerProvider({
   /** Override the config-selected provider (tests inject a fake here). */
   authProvider?: IAuthProvider;
 }) {
-  const { auth } = useAppConfig();
+  const { auth, apiBaseUrl } = useAppConfig();
   const provider = useMemo(
-    () => authProvider ?? createAuthProvider(auth),
-    [authProvider, auth],
+    () => authProvider ?? createAuthProvider(auth, undefined, { apiBaseUrl }),
+    [authProvider, auth, apiBaseUrl],
   );
   const [session, setSession] = useState<OrganizerSession | null>(null);
 
-  const signIn = useCallback(async () => {
-    const result = await provider.signIn();
+  const signIn = useCallback(async (credentials?: SignInCredentials) => {
+    const result = await provider.signIn(credentials);
     // A `null` result means a browser redirect is in flight; the session lands
     // on the return trip. Only a resolved session updates state.
     if (result) {
@@ -75,6 +93,11 @@ export function OrganizerProvider({
     setSession(null);
   }, [provider]);
 
+  // Local only: the API already rejected the token, so there is nothing to revoke.
+  const clearSession = useCallback(() => {
+    setSession(null);
+  }, []);
+
   const value = useMemo<OrganizerContextValue>(
     () => ({
       organizer: session?.organizer ?? null,
@@ -82,8 +105,10 @@ export function OrganizerProvider({
       isSignedIn: session !== null,
       signIn,
       signOut,
+      clearSession,
+      providerKind: provider.kind,
     }),
-    [session, signIn, signOut],
+    [session, signIn, signOut, clearSession, provider],
   );
 
   return <OrganizerContext.Provider value={value}>{children}</OrganizerContext.Provider>;

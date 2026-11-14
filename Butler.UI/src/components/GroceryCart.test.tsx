@@ -186,6 +186,8 @@ function setOrganizer(isSignedIn: boolean) {
     isSignedIn,
     signIn: () => Promise.resolve(),
     signOut: () => Promise.resolve(),
+    clearSession: () => undefined,
+    providerKind: 'dev',
   });
 }
 

@@ -70,6 +70,13 @@ export type ApiClient = {
   update<T>(path: string, body: unknown, options?: UpdateOptions): Promise<ApiResult<T>>;
 };
 
+/**
+ * The request header a paired hub device presents its token on (T5). It
+ * matches the API's `DeviceToken.HeaderName`; the device token is never sent as
+ * `Authorization: Bearer` (#105).
+ */
+export const DEVICE_TOKEN_HEADER = 'X-Device-Token';
+
 /** Options for {@link createApiClient}. */
 export type CreateApiClientOptions = {
   baseUrl: string;
@@ -82,6 +89,20 @@ export type CreateApiClientOptions = {
    * (or is absent), no bearer is sent - participant reads stay unauthenticated.
    */
   getAuthToken?: () => string | null;
+  /**
+   * Supplies the paired hub device token per request (T5), or `null` when the
+   * tablet is not paired. It is sent on {@link DEVICE_TOKEN_HEADER} only when
+   * no organizer token is present: exactly one credential per request, because
+   * the API routes any request carrying the device header to the device scheme.
+   */
+  getDeviceToken?: () => string | null;
+  /**
+   * Called when a request that carried the organizer bearer gets a `401` (the
+   * token expired or was revoked). When a device token exists, the request is
+   * then retried once with only the device header and that result is returned,
+   * so the hub drops to participant-only mode without surfacing an error.
+   */
+  onUnauthorized?: () => void;
 };
 
 function messageOf(cause: unknown): string {
@@ -183,33 +204,73 @@ export function createApiClient(options: CreateApiClientOptions): ApiClient {
   const { baseUrl } = options;
   const doFetch = options.fetchImpl ?? globalThis.fetch;
 
-  async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
-    const url = apiUrl(path, baseUrl);
-
-    // Attach the organizer bearer only when a token is available; participant
-    // reads (no organizer signed in) go out unauthenticated.
-    const token = options.getAuthToken?.() ?? null;
+  /**
+   * One fetch carrying exactly one credential (or none). A fetch that throws
+   * (API unreachable) resolves to a normalized network error instead.
+   */
+  async function fetchWith(
+    url: string,
+    init: RequestInit,
+    credential: { organizer: string } | { device: string } | null,
+  ): Promise<{ response: Response } | { failure: ApiResult<never> }> {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+    if (credential && 'organizer' in credential) {
+      headers.Authorization = `Bearer ${credential.organizer}`;
+    } else if (credential) {
+      headers[DEVICE_TOKEN_HEADER] = credential.device;
     }
 
-    let response: Response;
     try {
-      response = await doFetch(url, { ...init, headers });
+      return { response: await doFetch(url, { ...init, headers }) };
     } catch (cause) {
       return {
-        ok: false,
-        error: {
-          kind: 'network',
-          status: 0,
-          title: 'The API is unreachable.',
-          detail: messageOf(cause),
+        failure: {
+          ok: false,
+          error: {
+            kind: 'network',
+            status: 0,
+            title: 'The API is unreachable.',
+            detail: messageOf(cause),
+          },
         },
       };
     }
+  }
 
-    return response.ok ? toSuccessResult<T>(response) : toErrorResult(response);
+  function toResult<T>(
+    outcome: { response: Response } | { failure: ApiResult<never> },
+  ): Promise<ApiResult<T>> | ApiResult<T> {
+    if ('failure' in outcome) {
+      return outcome.failure;
+    }
+    return outcome.response.ok ? toSuccessResult<T>(outcome.response) : toErrorResult(outcome.response);
+  }
+
+  async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
+    const url = apiUrl(path, baseUrl);
+
+    // Exactly one credential: the organizer bearer when signed in, else the
+    // paired device header, else none (participant reads stay unauthenticated).
+    const organizerToken = options.getAuthToken?.() ?? null;
+    const deviceToken = options.getDeviceToken?.() ?? null;
+    let credential: { organizer: string } | { device: string } | null = null;
+    if (organizerToken) {
+      credential = { organizer: organizerToken };
+    } else if (deviceToken) {
+      credential = { device: deviceToken };
+    }
+
+    const first = await fetchWith(url, init, credential);
+    if (organizerToken && 'response' in first && first.response.status === 401) {
+      // The organizer token expired or was revoked: drop the organizer and, on a
+      // paired hub, retry once as the device so the hub keeps working.
+      options.onUnauthorized?.();
+      if (deviceToken) {
+        return toResult<T>(await fetchWith(url, init, { device: deviceToken }));
+      }
+    }
+
+    return toResult<T>(first);
   }
 
   return {

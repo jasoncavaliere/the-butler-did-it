@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '../components/Screen';
 import { useOrganizer } from '../state/OrganizerContext';
+import { PinPad } from './PinPad';
 
 /**
  * The organizer control strip on the hub. It is the visible half of Engineering
@@ -15,7 +17,9 @@ import { useOrganizer } from '../state/OrganizerContext';
  *
  * This is defense-in-depth only: the server enforces the `Organizer` policy
  * (F6/T5), so a hidden affordance is convenience, not the security boundary.
- * The strip is independent of the participant tap-to-claim state.
+ * The strip is independent of the participant tap-to-claim state. With the
+ * demo PIN provider (#105) the sign-in button opens an inline {@link PinPad};
+ * the sensitive actions still appear only once the PIN signs the organizer in.
  */
 export type OrganizerBarProps = {
   /**
@@ -30,9 +34,11 @@ export type OrganizerBarProps = {
 };
 
 export function OrganizerBar({ onHouseholdTeardown, onConfirmOrder, onEditRoster }: OrganizerBarProps) {
-  const { organizer, signIn, signOut } = useOrganizer();
+  const { organizer, signIn, signOut, providerKind } = useOrganizer();
+  const [showPinPad, setShowPinPad] = useState(false);
 
   if (!organizer) {
+    const usesPin = providerKind === 'pin';
     return (
       <View style={styles.bar} testID="organizer-bar">
         <Pressable
@@ -40,11 +46,20 @@ export function OrganizerBar({ onHouseholdTeardown, onConfirmOrder, onEditRoster
           testID="organizer-sign-in"
           style={styles.button}
           onPress={() => {
+            if (usesPin) {
+              setShowPinPad((open) => !open);
+              return;
+            }
             void signIn();
           }}
         >
           <Text style={styles.buttonText}>Organizer sign in</Text>
         </Pressable>
+        {usesPin && showPinPad ? (
+          <View testID="organizer-pin-pad">
+            <PinPad onSignedIn={() => setShowPinPad(false)} onCancel={() => setShowPinPad(false)} />
+          </View>
+        ) : null}
       </View>
     );
   }

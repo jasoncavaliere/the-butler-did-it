@@ -5,8 +5,9 @@ namespace Butler.Api.Infrastructure.Hosting;
 /// <summary>
 /// Butler's named hosting environments beyond the framework's built-in ones.
 /// <c>Demo</c> is the local demo stack (the container image defaults to it): it
-/// serves Swagger like Development and permits the organizer-auth bypass when it
-/// is set explicitly (see <c>appsettings.Demo.json</c>).
+/// serves Swagger like Development and signs the organizer in with the local demo
+/// PIN provider (#105, see <c>appsettings.Demo.json</c>). The organizer-auth bypass
+/// is permitted there only when set explicitly.
 /// </summary>
 public static class ButlerEnvironments
 {

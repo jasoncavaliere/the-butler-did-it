@@ -15,28 +15,36 @@ import { createApiClient, type ApiClient } from './client';
 
 /**
  * Return the shared API client for the current {@link useAppConfig} base URL,
- * threading whichever bearer the shared device holds.
+ * threading whichever credential the shared device holds - exactly one per
+ * request (#105).
  *
- * Precedence is organizer over paired hub device: a signed-in organizer (T4)
- * always wins because it is the stronger actor, and its token satisfies every
- * policy. With no organizer signed in - the always-on tablet's normal state -
- * the client falls back to the paired hub-device token (T5) from
- * {@link useHubDevice}, so household reads and the hub's own writes (generate a
- * week C3, tap-to-complete C4) authenticate as "The Hub" rather than going out
- * anonymous and getting a 401/403. When neither is present (an unpaired tablet
- * with no organizer) no bearer is sent and those endpoints stay unauthorized -
- * completion actors still travel in the request body, never as this bearer.
+ * A signed-in organizer (T4) wins: its token goes as `Authorization: Bearer`
+ * and satisfies every policy. With no organizer signed in - the always-on
+ * tablet's normal state - the paired hub-device token (T5) from
+ * {@link useHubDevice} goes on the `X-Device-Token` header (never as a bearer),
+ * so household reads and the hub's own writes (generate a week C3,
+ * tap-to-complete C4, capture) authenticate as "The Hub". When neither is
+ * present (an unpaired tablet with no organizer) no credential is sent.
  *
- * The client is rebuilt when the base URL or either token changes, so a
- * sign-in/sign-out or a pair/unpair flips the bearer on subsequent requests.
+ * When the API rejects the organizer token (expired after 15 idle minutes, or
+ * revoked), the client calls {@link useOrganizer}'s `clearSession` and retries
+ * that request once as the device, so the hub returns to participant-only mode
+ * without an error. The client is rebuilt when the base URL, either token, or
+ * `clearSession` changes (it is stable), so sign-in/sign-out or pair/unpair
+ * flips the credential on subsequent requests.
  */
 export function useApiClient(): ApiClient {
   const { apiBaseUrl } = useAppConfig();
-  const { token: organizerToken } = useOrganizer();
+  const { token: organizerToken, clearSession } = useOrganizer();
   const { deviceToken } = useHubDevice();
-  const authToken = organizerToken ?? deviceToken;
   return useMemo(
-    () => createApiClient({ baseUrl: apiBaseUrl, getAuthToken: () => authToken }),
-    [apiBaseUrl, authToken],
+    () =>
+      createApiClient({
+        baseUrl: apiBaseUrl,
+        getAuthToken: () => organizerToken,
+        getDeviceToken: () => deviceToken,
+        onUnauthorized: clearSession,
+      }),
+    [apiBaseUrl, organizerToken, deviceToken, clearSession],
   );
 }

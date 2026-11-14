@@ -17,6 +17,8 @@ COMPOSE_FILE="$DEMO_DIR/docker-compose.yml"
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 LOGS_DIR="$DEMO_DIR/.data/logs"
 UI_DIR="$REPO_ROOT/Butler.UI"
+# Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
+ENV_FILE="$DEMO_DIR/.env"
 
 HUB_URL="http://localhost:8080"
 DATASET_URL="$HUB_URL/api/api/system/dataset"
@@ -108,8 +110,9 @@ build_export() {
       return "$rc"
     fi
   fi
-  # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin.
-  (cd "$UI_DIR" && EXPO_PUBLIC_API_BASE_URL=/api npm run build:web) || rc=$?
+  # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin,
+  # and pin makes the hub sign the organizer in on the PIN pad (#105).
+  (cd "$UI_DIR" && EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web) || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "Hub export build failed." >&2
     return "$rc"
@@ -128,8 +131,33 @@ ensure_logs_dir() {
   return 0
 }
 
+# Prints the organizer PIN (#105): BUTLER_DEMO_PIN from the shell if set,
+# otherwise the last BUTLER_DEMO_PIN= line of demo/.env (quotes stripped).
+demo_pin() {
+  if [ -n "${BUTLER_DEMO_PIN:-}" ]; then
+    printf '%s\n' "$BUTLER_DEMO_PIN"
+    return 0
+  fi
+  [ -f "$ENV_FILE" ] || return 0
+  sed -n 's/^[[:space:]]*BUTLER_DEMO_PIN[[:space:]]*=[[:space:]]*//p' "$ENV_FILE" \
+    | tail -n 1 | tr -d '\r' | sed -e 's/[[:space:]]*$//' -e "s/^[\"']//" -e "s/[\"']\$//"
+}
+
+# The Demo API refuses to start without a 4-6 digit PIN, so fail fast, before
+# npm or docker run.
+check_pin() {
+  case "$(demo_pin)" in
+    [0-9][0-9][0-9][0-9] | [0-9][0-9][0-9][0-9][0-9] | [0-9][0-9][0-9][0-9][0-9][0-9])
+      return 0
+      ;;
+  esac
+  echo "demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md." >&2
+  return 1
+}
+
 cmd_up() {
   local state rebuilt=0 rc=0
+  check_pin || return 1
   state="$(export_state)"
   case "$state" in
     fresh)

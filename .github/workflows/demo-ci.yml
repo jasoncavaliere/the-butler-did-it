@@ -17,7 +17,10 @@
 #            scripts (demo/ci/check-share.sh static), run once with the npx
 #            qrcode-terminal QR fallback and once with qrencode installed.
 #            And the API's log folder (#107) is bind-mounted from
-#            demo/.data/logs to /app/logs.
+#            demo/.data/logs to /app/logs. And the organizer PIN (#105):
+#            demo/.env is git-ignored and untracked, compose passes
+#            BUTLER_DEMO_PIN to the API, no PIN is committed, and `up` without
+#            a PIN fails fast with the same message through both scripts.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080, the single origin (SPA fallback, cache
 #            headers, /api proxy, #96), a household created and read back
@@ -31,7 +34,12 @@
 #            after unshare (#101, demo/ci/check-share.sh stack). And the Demo
 #            request log (#107): a 404's traceId appears as the CorrelationId
 #            in demo/.data/logs, `demo logs` follows api and web together, and
-#            `demo logs --api` shows only the API.
+#            `demo logs --api` shows only the API. The API runs with the PIN
+#            organizer (#105): the job writes a random CI-only PIN to the
+#            git-ignored demo/.env, builds the hub with
+#            EXPO_PUBLIC_AUTH_PROVIDER=pin, and signs in through
+#            POST /auth/pin/sign-in before every organizer call (again after
+#            every restart, since tokens live in API memory).
 name: demo-ci
 
 on:
@@ -110,6 +118,23 @@ jobs:
       - name: Assert demo/.data is git-ignored
         run: git check-ignore -q demo/.data/azurite/probe
 
+      # #105 AC16 + AC16b: the organizer PIN lives only in the git-ignored
+      # demo/.env, compose hands it to the API, and no config file in the repo
+      # commits a PIN value.
+      - name: "Organizer PIN: demo/.env ignored, untracked, passed by compose, never committed"
+        run: |
+          git check-ignore -q demo/.env
+          if git ls-files --error-unmatch demo/.env > /dev/null 2>&1; then
+            echo "demo/.env must not be tracked" >&2
+            exit 1
+          fi
+          grep -F 'BUTLER_DEMO_PIN: ${BUTLER_DEMO_PIN:-}' demo/docker-compose.yml
+          grep -E '^\s+BUTLER_DEMO_PIN: ' "$RUNNER_TEMP/compose.yml"
+          if git grep -nE "BUTLER_DEMO_PIN[\"']?[[:space:]]*[:=][[:space:]]*[\"']?[0-9]{4,6}" -- '*.json' '*.yml' '*.yaml' '*.env' '*.props' '*.csproj'; then
+            echo "a BUTLER_DEMO_PIN value is committed in a config file" >&2
+            exit 1
+          fi
+
       # AC8: prerequisites and the up/down commands are documented.
       - name: Assert demo README documents prerequisites and commands
         run: |
@@ -160,6 +185,21 @@ jobs:
               printf '%s\n' "$sh_out" | grep -qE "^  $cmd " || { echo "usage does not list '$cmd'" >&2; exit 1; }
             done
           done
+          # #105: `up` with no BUTLER_DEMO_PIN (no demo/.env, none in the
+          # environment) fails fast - before npm or docker run - with the same
+          # message and exit code from both scripts.
+          test ! -e demo/.env
+          set +e
+          sh_out="$(env -u BUTLER_DEMO_PIN bash demo/demo.sh up 2>&1)"; sh_rc=$?
+          ps_out="$(env -u BUTLER_DEMO_PIN pwsh -NoProfile -File demo/demo.ps1 up 2>&1)"; ps_rc=$?
+          set -e
+          echo "up without a PIN: demo.sh exit=$sh_rc demo.ps1 exit=$ps_rc"
+          printf '%s\n' "$sh_out"
+          expected='demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.'
+          [ "$sh_rc" -eq 1 ] && [ "$ps_rc" -eq 1 ] || { echo "up without a PIN must exit 1" >&2; exit 1; }
+          [ "$sh_out" = "$expected" ] || { echo "demo.sh printed the wrong PIN message" >&2; exit 1; }
+          [ "$ps_out" = "$expected" ] || { echo "demo.ps1 printed the wrong PIN message" >&2; exit 1; }
+          test ! -e Butler.UI/node_modules
           # AC10: every subcommand in the usage is documented in demo/README.md.
           set +e
           names="$(bash demo/demo.sh 2>&1 | awk '/^  [a-z]/{print $1}')"
@@ -211,6 +251,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # #105: the Demo API signs the organizer in with a PIN and will not start
+      # without one. Generate a random CI-only PIN, mask it, and put it where
+      # the demo reads it (the git-ignored demo/.env) and in the job env so
+      # later steps (and the Playwright flow) can sign in with it.
+      - name: Generate a CI-only organizer PIN
+        run: |
+          pin="$(shuf -i 1000-999999 -n 1)"
+          echo "::add-mask::$pin"
+          printf 'BUTLER_DEMO_PIN=%s\n' "$pin" > demo/.env
+          echo "BUTLER_DEMO_PIN=$pin" >> "$GITHUB_ENV"
+          git check-ignore -q demo/.env
+
       # Same Node pin and npm cache as ui-ci.yml.
       - name: Set up Node (LTS)
         uses: actions/setup-node@v4
@@ -221,11 +273,13 @@ jobs:
 
       # The web service serves the host-built export; build:web (not a bare
       # expo export) also injects the precache list into dist/sw.js. The /api
-      # base is inlined at bundle time so the hub calls the API same-origin.
+      # base is inlined at bundle time so the hub calls the API same-origin, and
+      # the PIN provider so the hub signs the organizer in on the PIN pad (#105).
       - name: Build the hub export
         working-directory: Butler.UI
         env:
           EXPO_PUBLIC_API_BASE_URL: /api
+          EXPO_PUBLIC_AUTH_PROVIDER: pin
         run: |
           npm ci
           npm run build:web
@@ -263,7 +317,11 @@ jobs:
       # allow a few seconds for it to land.
       - name: "API writes request logs to demo/.data/logs (#107)"
         run: |
-          body="$(curl -sS "$API_URL/households/ci-log-probe")"
+          # An organizer read (#105: sign in with the PIN first) of an unknown
+          # household is a 404 problem carrying the traceId.
+          token="$(curl -fsS -X POST "$API_URL/auth/pin/sign-in" -H 'Content-Type: application/json' \
+            -d "{\"pin\":\"$BUTLER_DEMO_PIN\"}" | jq -er '.token')"
+          body="$(curl -sS -H "Authorization: Bearer $token" "$API_URL/households/ci-log-probe")"
           echo "$body"
           trace="$(printf '%s' "$body" | jq -er '.traceId')"
           echo "traceId: $trace"
@@ -321,11 +379,15 @@ jobs:
           # AC5: /api/* reaches the API with the prefix stripped.
           curl -fsS "$HUB_URL/api/health" | jq -e '.status == "ok"'
           curl -fsS -o /dev/null "$HUB_URL/api/api/system/ping"
+          # #105: organizer calls carry a PIN-issued bearer, signed in through the proxy.
+          token="$(curl -fsS -X POST "$HUB_URL/api/auth/pin/sign-in" -H 'Content-Type: application/json' \
+            -d "{\"pin\":\"$BUTLER_DEMO_PIN\"}" | jq -er '.token')"
           id="$(curl -fsS -X POST "$HUB_URL/api/households" \
+            -H "Authorization: Bearer $token" \
             -H 'Content-Type: application/json' \
             -d '{"name":"Demo CI Proxy Household"}' | jq -er '.householdId')"
           echo "created household $id through the proxy"
-          curl -fsS "$HUB_URL/api/households/$id" | jq -e '.name == "Demo CI Proxy Household"'
+          curl -fsS -H "Authorization: Bearer $token" "$HUB_URL/api/households/$id" | jq -e '.name == "Demo CI Proxy Household"'
           # The bundle was built with the relative /api base.
           if ! grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/; then
             echo "hub bundle does not contain the /api base - was EXPO_PUBLIC_API_BASE_URL set?" >&2
@@ -356,7 +418,14 @@ jobs:
       # AC3: a household created before `down` is still there after `up`.
       - name: Household survives down/up
         run: |
+          # #105: PIN tokens live in API memory, so sign in again after the restart.
+          sign_in() {
+            curl -fsS -X POST "$API_URL/auth/pin/sign-in" -H 'Content-Type: application/json' \
+              -d "{\"pin\":\"$BUTLER_DEMO_PIN\"}" | jq -er '.token'
+          }
+          token="$(sign_in)"
           id="$(curl -fsS -X POST "$API_URL/households" \
+            -H "Authorization: Bearer $token" \
             -H 'Content-Type: application/json' \
             -d '{"name":"Demo CI Household"}' | jq -er '.householdId')"
           echo "created household $id"
@@ -370,7 +439,8 @@ jobs:
             if [ "$i" = 60 ]; then echo "API did not come back within 60s" >&2; exit 1; fi
             sleep 1
           done
-          curl -fsS "$API_URL/households/$id" | jq -e '.name == "Demo CI Household"'
+          token="$(sign_in)"
+          curl -fsS -H "Authorization: Bearer $token" "$API_URL/households/$id" | jq -e '.name == "Demo CI Household"'
 
       # #101 AC7: with share on (stub tailscale), and again after unshare,
       # Caddy still serves the hub, its service worker and the API on :8080.
@@ -378,8 +448,9 @@ jobs:
         run: bash demo/ci/check-share.sh stack
 
       # #102 AC1-AC6, AC8: the demo CLI against the running stack. The export
-      # is fresh here; EXPO_PUBLIC_API_BASE_URL is deliberately not set, so the
-      # stale-export rebuild proves the script sets it.
+      # is fresh here; EXPO_PUBLIC_API_BASE_URL and EXPO_PUBLIC_AUTH_PROVIDER
+      # are deliberately not set, so the stale-export rebuild proves the script
+      # sets them.
       - name: "demo CLI: status, logs, down, stale-export up"
         run: |
           # AC4 + AC5 + AC8: status from both scripts (direct call proves the
@@ -423,8 +494,16 @@ jobs:
             exit 1
           fi
 
-          # AC3: down stops everything and keeps the Azurite data.
+          # AC3: down stops everything and keeps the Azurite data. Organizer
+          # calls carry a PIN-issued bearer (#105), signed in again after each
+          # restart because tokens live in API memory.
+          sign_in() {
+            curl -fsS -X POST "$API_URL/auth/pin/sign-in" -H 'Content-Type: application/json' \
+              -d "{\"pin\":\"$BUTLER_DEMO_PIN\"}" | jq -er '.token'
+          }
+          token="$(sign_in)"
           id="$(curl -fsS -X POST "$API_URL/households" \
+            -H "Authorization: Bearer $token" \
             -H 'Content-Type: application/json' \
             -d '{"name":"Demo CLI Household"}' | jq -er '.householdId')"
           echo "created household $id"
@@ -443,11 +522,14 @@ jobs:
           printf '%s\n' "$out" | grep -qF 'Hub export is older than its sources'
           [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo stack is up and healthy: http://localhost:8080' ]
           grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
+          # #105: the rebuilt hub still offers the PIN pad (the script set the provider).
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" PW_CHANNEL=chrome node demo/ci/check-household-flow.cjs "$HUB_URL/"
           health="$(docker compose -f "$COMPOSE_FILE_PATH" ps --format '{{.Service}} {{.Health}}')"
           echo "$health"
           [ "$(printf '%s\n' "$health" | grep -c ' healthy$')" -eq 3 ] || { echo "not every service is healthy right after up" >&2; exit 1; }
           curl -fsS "$HUB_URL/" | grep -qi '<html'
-          curl -fsS "$API_URL/households/$id" | jq -e '.name == "Demo CLI Household"'
+          token="$(sign_in)"
+          curl -fsS -H "Authorization: Bearer $token" "$API_URL/households/$id" | jq -e '.name == "Demo CLI Household"'
 
           # AC1: an up-to-date export is not rebuilt.
           out="$(demo/demo.sh up)"

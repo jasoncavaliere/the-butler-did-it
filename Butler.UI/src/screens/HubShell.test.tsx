@@ -17,7 +17,7 @@ import {
   saveWriteQueue,
 } from '../offline/writeQueue';
 import { HouseholdProvider } from '../state/HouseholdContext';
-import { OrganizerProvider } from '../state/OrganizerContext';
+import { OrganizerProvider, useOrganizer } from '../state/OrganizerContext';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
@@ -605,6 +605,102 @@ describe('HubShell', () => {
         selected: true,
       });
       expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+    });
+
+    /**
+     * #105 AC24: on a paired hub the API client swaps from the organizer bearer
+     * to the device header when the organizer signs out or the token expires
+     * (the real client clears the organizer and retries as the device). The hub
+     * keeps its household, tiles, and board, never shows its error state, and
+     * hides the sensitive actions.
+     */
+    describe('participant-only mode on a paired hub (#105)', () => {
+      const pinProvider = (): IAuthProvider => ({ ...fakeProvider(), kind: 'pin' });
+
+      async function signInWithPin() {
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('organizer-sign-in'));
+        });
+        for (const digit of '2468') {
+          await act(async () => {
+            fireEvent.press(screen.getByTestId(`pin-digit-${digit}`));
+          });
+        }
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('pin-submit'));
+        });
+      }
+
+      function expectParticipantOnly(deviceClient: ApiClient) {
+        expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Home');
+        expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen();
+        expect(screen.getByTestId('name-tile-p2')).toBeOnTheScreen();
+        expect(screen.queryByTestId('hub-error')).toBeNull();
+        expect(screen.queryByTestId('organizer-actions')).toBeNull();
+        expect(screen.queryByTestId('affordance-confirm-order')).toBeNull();
+        expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+        expect(deviceClient.get).toHaveBeenCalledWith('/households/hh-1');
+      }
+
+      it('paired hub keeps tiles and board after organizer sign-out, without hub-error or sensitive actions', async () => {
+        const deviceClient = interactiveClient();
+        const organizerClient = interactiveClient();
+        useApiClientMock.mockImplementation(() => (useOrganizer().token ? organizerClient : deviceClient));
+
+        await renderHubWithOrganizer(pinProvider());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await signInWithPin();
+        await waitFor(() => expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen());
+        (deviceClient.get as jest.Mock).mockClear();
+
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('organizer-sign-out'));
+        });
+
+        await waitFor(() => expect(deviceClient.get).toHaveBeenCalledWith('/households/hh-1'));
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        expectParticipantOnly(deviceClient);
+      });
+
+      it('paired hub keeps tiles and board after organizer token expiry, without hub-error or sensitive actions', async () => {
+        const deviceClient = interactiveClient();
+        const base = interactiveClient();
+        const clear: { current: () => void } = { current: () => undefined };
+        let expired = false;
+        // Stands in for the real client: once the organizer token has expired it
+        // is rejected, so the client clears the organizer and answers the request
+        // as the device.
+        const organizerClient: ApiClient = {
+          ...base,
+          update: jest.fn(async (path: string, body: unknown, options?: UpdateOptions) => {
+            if (!expired) {
+              return base.update(path, body, options);
+            }
+            clear.current();
+            return deviceClient.update(path, body, options);
+          }) as unknown as ApiClient['update'],
+        };
+        useApiClientMock.mockImplementation(() => {
+          const { token, clearSession } = useOrganizer();
+          clear.current = clearSession;
+          return token ? organizerClient : deviceClient;
+        });
+
+        await renderHubWithOrganizer(pinProvider());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await signInWithPin();
+        await waitFor(() => expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen());
+        (deviceClient.get as jest.Mock).mockClear();
+
+        // The next write after the idle expiry: a participant taps their tile.
+        expired = true;
+        await pressTile('p1');
+
+        await waitFor(() => expect(screen.queryByTestId('organizer-actions')).toBeNull());
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        expectParticipantOnly(deviceClient);
+        expect(screen.getByText("Alex's day")).toBeOnTheScreen();
+      });
     });
 
     /**

@@ -220,15 +220,17 @@ Application code lives under `src/`, layered so later capability tickets have a 
 App.tsx                     # thin composition root: providers + navigation
 src/
   api/        config.ts     # typed API base config (env-driven, dev default) + AuthConfig (T4)
-              client.ts     # typed fetch client (ApiClient) - the data-access seam; attaches the organizer bearer (T4)
-              useApiClient.ts # hook that binds the client to AppConfigContext's base URL + OrganizerContext's token
+              client.ts     # typed fetch client (ApiClient) - the data-access seam; one credential per request: organizer bearer or X-Device-Token (T4, #105)
+              useApiClient.ts # hook that binds the client to the base URL, the organizer token, the device token and clearSession
               models.ts     # typed request/response shapes for the H1-H4 endpoints
               errors.ts     # describeApiError: an ApiError -> one readable line
   auth/       OrganizerGate.tsx    # gates children behind an authenticated organizer (probes /me)
               authProvider.ts     # IAuthProvider seam: OrganizerIdentity/OrganizerSession (T4)
-              createAuthProvider.ts # config-driven provider selection (dev vs Entra) (T4)
+              createAuthProvider.ts # config-driven provider selection (dev, Entra, or PIN) (T4, #105)
               devAuthProvider.ts  # dev-mode provider - the deterministic F6 dev organizer, no token (T4)
               entraAuthProvider.ts # Entra External ID OIDC/PKCE provider - the v1 IAuthProvider (T4)
+              pinAuthProvider.ts  # demo PIN provider - POST /auth/pin/sign-in, short-lived bearer (#105)
+              PinPad.tsx          # organizer PIN pad (digits, backspace, 4-6 digit submit, masked) (#105)
               OrganizerBar.tsx    # hub control strip: sign in/out + gated sensitive affordances (T4)
               HubPairing.tsx      # organizer-only "pair this tablet" affordance (T5)
   components/ Screen.tsx     # shared layout primitives
@@ -377,16 +379,23 @@ Engineering Contract 7.4: the organizer is the product's only authenticated user
 through an IdP-agnostic `IAuthProvider` seam (`src/auth/authProvider.ts`) rather than any Entra-specific
 SDK, mirroring the server's generic `AddJwtBearer` and the `IStoreConnector` philosophy. `createAuthProvider`
 (`src/auth/createAuthProvider.ts`) selects the concrete provider from `AuthConfig`
-(`src/api/config.ts`): in dev mode (`EXPO_PUBLIC_DISABLE_AUTH`, defaults to `true` when unset) it
-builds `devAuthProvider.ts`'s deterministic dev organizer (matching the API's `DevOrganizerSubject`/
-`DevOrganizerName`, no token, no live tenant needed); otherwise it builds `entraAuthProvider.ts`'s
-standard OIDC Authorization Code + PKCE flow against `EXPO_PUBLIC_AUTH_AUTHORITY`,
-`EXPO_PUBLIC_AUTH_CLIENT_ID`, `EXPO_PUBLIC_AUTH_REDIRECT_URI`, and `EXPO_PUBLIC_AUTH_SCOPES` (space
-separated, defaults to `openid profile`). `OrganizerProvider` (wrapping the app in `App.tsx`, above
-`HouseholdProvider`) holds the resulting `OrganizerSession` and exposes it through `useOrganizer()` as
-`{ organizer, token, isSignedIn, signIn, signOut }`; `useApiClient()` reads `token` and the client
-(`src/api/client.ts`) attaches it as `Authorization: Bearer` only when present, so participant reads stay
-unauthenticated. `OrganizerBar` (rendered at the top of `HubShell`) offers only a sign-in button with no
+(`src/api/config.ts`) by `EXPO_PUBLIC_AUTH_PROVIDER` (`dev`, `entra` or `pin`; when unset it falls back
+to `EXPO_PUBLIC_DISABLE_AUTH`, which defaults to dev). `dev` builds `devAuthProvider.ts`'s deterministic
+dev organizer (matching the API's `DevOrganizerSubject`/`DevOrganizerName`, no token, no live tenant
+needed); `entra` builds `entraAuthProvider.ts`'s standard OIDC Authorization Code + PKCE flow against
+`EXPO_PUBLIC_AUTH_AUTHORITY`, `EXPO_PUBLIC_AUTH_CLIENT_ID`, `EXPO_PUBLIC_AUTH_REDIRECT_URI`, and
+`EXPO_PUBLIC_AUTH_SCOPES` (space separated, defaults to `openid profile`); `pin` (the demo stack, #105)
+builds `pinAuthProvider.ts`, which posts the PIN typed on `PinPad.tsx` to `POST /auth/pin/sign-in` and
+keeps the short-lived token in memory (a reload signs the organizer out). `OrganizerProvider` (wrapping
+the app in `App.tsx`, above `HouseholdProvider`) holds the resulting `OrganizerSession` and exposes it
+through `useOrganizer()` as `{ organizer, token, isSignedIn, signIn, signOut, clearSession, providerKind }`.
+`useApiClient()` hands the client (`src/api/client.ts`) exactly one credential per request: the organizer
+token as `Authorization: Bearer` when signed in, otherwise the paired hub's device token on
+`X-Device-Token` (never as a bearer), otherwise none, so participant reads stay unauthenticated. When the
+API answers a request that carried the organizer bearer with `401` (the PIN token expired after 15 idle
+minutes), the client calls `clearSession` and retries that request once on `X-Device-Token`, so a paired
+hub drops to participant-only mode without an error. With the PIN provider, `OrganizerGate` shows the
+`PinPad` when `/me` is `401`/`403`, and `OrganizerBar`'s sign-in button opens it inline. `OrganizerBar` (rendered at the top of `HubShell`) offers only a sign-in button with no
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
@@ -405,8 +414,8 @@ through the typed API client; the hidden affordance is convenience, not the secu
 API enforces the `Organizer` policy server-side (T5 API side). A successful pair stores the returned
 long-lived device token in `HubDeviceProvider` (wired in `App.tsx`, alongside `OrganizerProvider` and
 `HouseholdProvider`) via `useHubDevice()`'s `setDeviceToken`; the token lives in memory for the process
-lifetime, mirroring the other hub session state. Presenting the device token on later requests (the
-`X-Device-Token` header) is a later ticket - this ticket only pairs and stores it.
+lifetime, mirroring the other hub session state. The API client presents it on the `X-Device-Token`
+header whenever no organizer is signed in (#105).
 
 **API base URL** comes from `src/api/config.ts`: it reads `EXPO_PUBLIC_API_BASE_URL` (inlined by Expo
 at build time) and falls back to `http://localhost:5108` for local dev. The base may be absolute or a

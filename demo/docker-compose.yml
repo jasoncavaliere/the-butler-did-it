@@ -62,6 +62,11 @@ services:
       # UseDevelopmentStorage=true here - inside this container it resolves
       # to 127.0.0.1, i.e. the api container itself.
       Storage__ConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+      # The organizer PIN (#105). Demo signs the organizer in with a 4-6 digit
+      # PIN and refuses to start without one. Compose reads it from the shell or
+      # from the git-ignored demo/.env (BUTLER_DEMO_PIN=...); it is never
+      # committed. demo.sh / demo.ps1 up checks it is set before starting.
+      BUTLER_DEMO_PIN: ${BUTLER_DEMO_PIN:-}
     volumes:
       # Demo file logging (#107): DemoLogging:DirectoryPath "logs" resolves to
       # /app/logs. The container runs as non-root (uid 1654), so the demo CLI

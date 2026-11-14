@@ -8,6 +8,7 @@ import {
 import type { EntraAuthDeps } from './entraAuthProvider';
 
 const DEV_CONFIG: AuthConfig = {
+  provider: 'dev',
   disableAuthentication: true,
   authority: '',
   clientId: '',
@@ -16,6 +17,7 @@ const DEV_CONFIG: AuthConfig = {
 };
 
 const LIVE_CONFIG: AuthConfig = {
+  provider: 'entra',
   disableAuthentication: false,
   authority: 'https://tenant.ciamlogin.com/tid/v2.0',
   clientId: 'client-123',
@@ -41,6 +43,27 @@ describe('createAuthProvider', () => {
 
   it('selects the Entra provider with injected deps when auth is enabled', () => {
     expect(createAuthProvider(LIVE_CONFIG, fakeDeps()).kind).toBe('entra');
+  });
+
+  it('selects the PIN provider with the injected API base URL', async () => {
+    const fetchImpl = jest.fn(async () =>
+      new Response(JSON.stringify({ token: 't', subject: 's', name: 'Demo Organizer', idleTimeoutSeconds: 900 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const provider = createAuthProvider({ ...DEV_CONFIG, provider: 'pin', disableAuthentication: false }, undefined, {
+      apiBaseUrl: 'https://api.test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(provider.kind).toBe('pin');
+    await provider.signIn({ pin: '1234' });
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.test/auth/pin/sign-in', expect.anything());
+  });
+
+  it('defaults the PIN provider to the build API base URL', () => {
+    expect(createAuthProvider({ ...DEV_CONFIG, provider: 'pin', disableAuthentication: false }).kind).toBe('pin');
   });
 
   it('falls back to the default browser deps when none are injected', () => {
