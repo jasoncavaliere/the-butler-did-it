@@ -98,5 +98,5 @@ which will clarify scope, post a plan, work in an isolated worktree, add tests, 
 - **No material assumptions.** Scope, data model, persistence, auth, and the grocery flow are all pre-decided in the master BRD's Engineering Contract, and each ticket links to it.
 - **Repo scope is explicit** (single repo `the-butler-did-it`; the ticket names which sub-service and gates apply).
 - **Gates are named** so `/implement-issue` Phase 2 detection and Phase 4 verification have something concrete to run.
-- **Coverage is a hard gate: 98 percent on lines, methods, and branches** in both sub-services, enforced by the build/CI (see [Engineering Contract 7.7](engineering-contract/77-testing-and-definition-of-done.md)). Foundations F2/F4 stand up the tooling and F5 enforces it in CI, so every later ticket inherits the bar.
+- **Coverage is a hard gate: 98 percent on lines, methods, and branches** in both sub-services, enforced by the build/CI, except UI presentation code (`src/components/`, `src/screens/`), which is gated at 90 percent during the demo push (see [Engineering Contract 7.7](engineering-contract/77-testing-and-definition-of-done.md)). Foundations F2/F4 stand up the tooling and F5 enforces it in CI, so every later ticket inherits the bar.
 - **Vertically sliced, ~1 PR each,** with `Blocked by` making the order safe for parallel sessions.
