@@ -1,0 +1,314 @@
+{
+  "version": 1,
+  "rooms": [
+    {
+      "id": "kitchen",
+      "name": "Kitchen",
+      "aliases": [
+        "kitchenette"
+      ],
+      "templates": [
+        {
+          "id": "kitchen-dishwasher",
+          "title": "Load and run the dishwasher",
+          "cadence": "Daily",
+          "effort": 2,
+          "minAge": 8
+        },
+        {
+          "id": "kitchen-unload-dishwasher",
+          "title": "Unload the dishwasher",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "kitchen-counters",
+          "title": "Wipe the counters",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "kitchen-trash",
+          "title": "Take out the kitchen trash",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "kitchen-sweep",
+          "title": "Sweep the kitchen floor",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": null
+        },
+        {
+          "id": "kitchen-fridge",
+          "title": "Clean out the fridge",
+          "cadence": "Weekly",
+          "effort": 3,
+          "minAge": 12
+        }
+      ]
+    },
+    {
+      "id": "living-room",
+      "name": "Living Room",
+      "aliases": [
+        "living",
+        "lounge",
+        "family room"
+      ],
+      "templates": [
+        {
+          "id": "living-room-tidy",
+          "title": "Tidy the living room",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "living-room-vacuum",
+          "title": "Vacuum the living room",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 10
+        },
+        {
+          "id": "living-room-dust",
+          "title": "Dust the shelves and surfaces",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": null
+        }
+      ]
+    },
+    {
+      "id": "bathroom",
+      "name": "Bathroom",
+      "aliases": [
+        "bath",
+        "restroom",
+        "washroom",
+        "powder room",
+        "half bath"
+      ],
+      "templates": [
+        {
+          "id": "bathroom-sink",
+          "title": "Wipe the sink and mirror",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "bathroom-toilet",
+          "title": "Clean the toilet",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 10
+        },
+        {
+          "id": "bathroom-shower",
+          "title": "Scrub the shower or tub",
+          "cadence": "Weekly",
+          "effort": 3,
+          "minAge": 12
+        },
+        {
+          "id": "bathroom-towels",
+          "title": "Swap out the towels",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "bathroom-mop",
+          "title": "Mop the bathroom floor",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 10
+        }
+      ]
+    },
+    {
+      "id": "bedroom",
+      "name": "Bedroom",
+      "aliases": [
+        "primary bedroom",
+        "master bedroom",
+        "kids room",
+        "guest room"
+      ],
+      "templates": [
+        {
+          "id": "bedroom-make-bed",
+          "title": "Make the bed",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "bedroom-clothes",
+          "title": "Put clothes away",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "bedroom-sheets",
+          "title": "Change the sheets",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 10
+        },
+        {
+          "id": "bedroom-vacuum",
+          "title": "Vacuum the bedroom",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 10
+        }
+      ]
+    },
+    {
+      "id": "laundry",
+      "name": "Laundry",
+      "aliases": [
+        "laundry room",
+        "utility room",
+        "utility"
+      ],
+      "templates": [
+        {
+          "id": "laundry-run-load",
+          "title": "Run a load of laundry",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 12
+        },
+        {
+          "id": "laundry-fold",
+          "title": "Fold and put away laundry",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": null
+        },
+        {
+          "id": "laundry-lint-trap",
+          "title": "Clean the dryer lint trap",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": 8
+        }
+      ]
+    },
+    {
+      "id": "dining-room",
+      "name": "Dining Room",
+      "aliases": [
+        "dining",
+        "dining area"
+      ],
+      "templates": [
+        {
+          "id": "dining-room-clear-table",
+          "title": "Clear and wipe the table",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "dining-room-set-table",
+          "title": "Set the table",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        }
+      ]
+    },
+    {
+      "id": "entryway",
+      "name": "Entryway",
+      "aliases": [
+        "entry",
+        "hallway",
+        "hall",
+        "mudroom",
+        "foyer"
+      ],
+      "templates": [
+        {
+          "id": "entryway-shoes",
+          "title": "Tidy shoes and coats",
+          "cadence": "Daily",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "entryway-sweep",
+          "title": "Sweep the entryway",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": null
+        }
+      ]
+    },
+    {
+      "id": "garage",
+      "name": "Garage",
+      "aliases": [],
+      "templates": [
+        {
+          "id": "garage-recycling",
+          "title": "Take out the recycling",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "garage-sweep",
+          "title": "Sweep the garage",
+          "cadence": "Weekly",
+          "effort": 3,
+          "minAge": 12
+        }
+      ]
+    },
+    {
+      "id": "yard",
+      "name": "Yard",
+      "aliases": [
+        "backyard",
+        "front yard",
+        "garden",
+        "patio",
+        "outdoors"
+      ],
+      "templates": [
+        {
+          "id": "yard-water",
+          "title": "Water the plants",
+          "cadence": "Weekly",
+          "effort": 1,
+          "minAge": null
+        },
+        {
+          "id": "yard-mow",
+          "title": "Mow the lawn",
+          "cadence": "Weekly",
+          "effort": 3,
+          "minAge": 14
+        },
+        {
+          "id": "yard-weeds",
+          "title": "Pull weeds",
+          "cadence": "Weekly",
+          "effort": 2,
+          "minAge": 8
+        }
+      ]
+    }
+  ]
+}

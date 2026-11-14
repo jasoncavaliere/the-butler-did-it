@@ -4,6 +4,7 @@ import { Text } from 'react-native';
 import { HouseholdSetup } from './HouseholdSetup';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import { useApiClient } from '../api/useApiClient';
+import { templatesForRoom } from '../setup/starterTemplates';
 import { HouseholdProvider, useHousehold } from '../state/HouseholdContext';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
@@ -60,6 +61,92 @@ function renderSetup() {
     </HouseholdProvider>,
   );
 }
+
+/**
+ * Drive the flow to the chores step with one room per name. The rooms mock
+ * answers `room-<lowercased name>`; the chores mock echoes the body with a
+ * generated choreId, unless `chores` overrides it.
+ */
+async function reachChoresStep(
+  roomNames: string[],
+  chores?: (body: Record<string, unknown>, call: number) => ApiResult<unknown>,
+): Promise<ApiClient> {
+  let choreCalls = 0;
+  const client = clientWith(async (path, body) => {
+    const fields = body as Record<string, unknown>;
+    if (path === '/households') {
+      return ok({
+        householdId: 'hh-1',
+        name: 'H',
+        organizerObjectId: 'o',
+        createdUtc: 'x',
+        etag: '"h"',
+      });
+    }
+    if (path.endsWith('/rooms')) {
+      const name = String(fields.name);
+      return ok({
+        roomId: `room-${name.toLowerCase()}`,
+        name,
+        sortOrder: fields.sortOrder,
+        etag: '"r"',
+      });
+    }
+    if (path.endsWith('/chores')) {
+      choreCalls += 1;
+      if (chores) {
+        return chores(fields, choreCalls);
+      }
+      return ok({
+        choreId: `c-${choreCalls}`,
+        ...fields,
+        active: true,
+        etag: '"c"',
+      });
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+  useApiClientMock.mockReturnValue(client);
+
+  await renderSetup();
+  await type('input-household-name', 'H');
+  await press('submit-household');
+  await waitFor(() => expect(screen.getByTestId('step-rooms')).toBeOnTheScreen());
+  for (const name of roomNames) {
+    await type('input-room-name', name);
+    await press('add-room');
+    await waitFor(() =>
+      expect(screen.getByTestId(`room-item-room-${name.toLowerCase()}`)).toBeOnTheScreen(),
+    );
+  }
+  await press('continue-rooms');
+  await waitFor(() => expect(screen.getByTestId('step-people')).toBeOnTheScreen());
+  await press('continue-people');
+  await waitFor(() => expect(screen.getByTestId('step-chores')).toBeOnTheScreen());
+  return client;
+}
+
+/** The POSTs the client made to the chores endpoint, in order. */
+function choreCalls(client: ApiClient): unknown[][] {
+  return (client.update as jest.Mock).mock.calls.filter(([path]) =>
+    String(path).endsWith('/chores'),
+  );
+}
+
+function isSelected(testID: string): boolean | undefined {
+  return screen.getByTestId(testID).props.accessibilityState?.selected;
+}
+
+const payload = (
+  roomId: string,
+  t: { title: string; cadence: string; effort: number; minAge: number | null },
+) => ({
+  title: t.title,
+  roomId,
+  cadence: t.cadence,
+  effort: t.effort,
+  minAge: t.minAge,
+});
 
 afterEach(() => {
   useApiClientMock.mockReset();
@@ -406,5 +493,208 @@ describe('HouseholdSetup', () => {
       await pending;
     });
     await waitFor(() => expect(screen.getByTestId('step-rooms')).toBeOnTheScreen());
+  });
+
+  describe('starter templates', () => {
+    const kitchen = templatesForRoom('Kitchen');
+    const bathroom = templatesForRoom('Bathroom');
+
+    it('shows starter templates under a room matched by an alias', async () => {
+      await reachChoresStep(['Bath']);
+
+      expect(screen.getByTestId('template-room-room-bath')).toHaveTextContent(/Bath/);
+      for (const template of bathroom) {
+        expect(screen.getByTestId(`template-room-bath-${template.id}`)).toBeOnTheScreen();
+        expect(isSelected(`template-room-bath-${template.id}`)).toBe(false);
+      }
+      expect(screen.getByTestId('add-templates')).toBeOnTheScreen();
+    });
+
+    it('labels a template with its cadence, effort and minimum age', async () => {
+      await reachChoresStep(['Kitchen']);
+
+      const open = kitchen.find((t) => t.minAge === null)!;
+      const aged = kitchen.find((t) => t.minAge !== null)!;
+      expect(screen.getByTestId(`template-room-kitchen-${open.id}`)).toHaveTextContent(
+        `${open.title} (${open.cadence}, effort ${open.effort})`,
+      );
+      expect(screen.getByTestId(`template-room-kitchen-${aged.id}`)).toHaveTextContent(
+        `${aged.title} (${aged.cadence}, effort ${aged.effort}, age ${aged.minAge}+)`,
+      );
+    });
+
+    it('shows no starter templates for an unmatched room', async () => {
+      await reachChoresStep(['Den']);
+
+      expect(screen.queryByTestId('template-room-room-den')).toBeNull();
+      expect(screen.queryByTestId('add-templates')).toBeNull();
+      expect(screen.queryByText('Starter chores')).toBeNull();
+      // The custom-chore form is still there.
+      expect(screen.getByTestId('input-chore-title')).toBeOnTheScreen();
+      expect(screen.getByTestId('chore-room-room-den')).toBeOnTheScreen();
+    });
+
+    it('only groups the matched rooms when some rooms are unmatched', async () => {
+      await reachChoresStep(['Den', 'Kitchen']);
+
+      expect(screen.queryByTestId('template-room-room-den')).toBeNull();
+      expect(screen.getByTestId('template-room-room-kitchen')).toBeOnTheScreen();
+    });
+
+    it('creates each selected template with the matched room id and exact payload', async () => {
+      const client = await reachChoresStep(['Kitchen', 'Bath']);
+
+      // Select out of order: creation still follows rooms order, then catalog order.
+      await press(`template-room-bath-${bathroom[1].id}`);
+      await press(`template-room-kitchen-${kitchen[5].id}`);
+      await press(`template-room-kitchen-${kitchen[0].id}`);
+      expect(isSelected(`template-room-kitchen-${kitchen[0].id}`)).toBe(true);
+      await press('add-templates');
+
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-3')).toBeOnTheScreen());
+      expect(choreCalls(client)).toEqual([
+        ['/households/hh-1/chores', payload('room-kitchen', kitchen[0]), { method: 'POST' }],
+        ['/households/hh-1/chores', payload('room-kitchen', kitchen[5]), { method: 'POST' }],
+        ['/households/hh-1/chores', payload('room-bath', bathroom[1]), { method: 'POST' }],
+      ]);
+      expect(screen.getByTestId('chore-item-c-1')).toHaveTextContent(kitchen[0].title);
+      expect(screen.getByTestId('chore-item-c-2')).toHaveTextContent(kitchen[5].title);
+      expect(screen.getByTestId('chore-item-c-3')).toHaveTextContent(bathroom[1].title);
+      // Added templates leave the list so they cannot be created twice; the rest stay.
+      expect(screen.queryByTestId(`template-room-kitchen-${kitchen[0].id}`)).toBeNull();
+      expect(screen.queryByTestId(`template-room-bath-${bathroom[1].id}`)).toBeNull();
+      expect(isSelected(`template-room-kitchen-${kitchen[1].id}`)).toBe(false);
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+
+      // Pressing add again with nothing selected makes no further call.
+      await press('add-templates');
+      expect(screen.getByTestId('setup-error')).toHaveTextContent(
+        'Pick at least one starter chore.',
+      );
+      expect(choreCalls(client)).toHaveLength(3);
+
+      await press('finish-setup');
+      await waitFor(() => expect(screen.getByTestId('setup-done')).toBeOnTheScreen());
+      expect(screen.getByTestId('setup-done')).toHaveTextContent(
+        'Your household is ready: 2 rooms, 0 people, and 3 chores are set up.',
+      );
+    });
+
+    it('hides a room group once all of its templates are added', async () => {
+      const client = await reachChoresStep(['Garage']);
+      const garage = templatesForRoom('Garage');
+
+      for (const template of garage) {
+        await press(`template-room-garage-${template.id}`);
+      }
+      await press('add-templates');
+
+      await waitFor(() => expect(screen.queryByTestId('template-room-room-garage')).toBeNull());
+      expect(screen.queryByTestId('add-templates')).toBeNull();
+      expect(choreCalls(client)).toHaveLength(garage.length);
+    });
+
+    it('does not create a template that was deselected before adding', async () => {
+      const client = await reachChoresStep(['Kitchen']);
+      const [a, b] = kitchen;
+
+      await press(`template-room-kitchen-${a.id}`);
+      await press(`template-room-kitchen-${b.id}`);
+      expect(isSelected(`template-room-kitchen-${b.id}`)).toBe(true);
+      await press(`template-room-kitchen-${b.id}`);
+      expect(isSelected(`template-room-kitchen-${b.id}`)).toBe(false);
+      await press('add-templates');
+
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-1')).toBeOnTheScreen());
+      expect(choreCalls(client)).toEqual([
+        ['/households/hh-1/chores', payload('room-kitchen', a), { method: 'POST' }],
+      ]);
+      expect(client.update).not.toHaveBeenCalledWith(
+        '/households/hh-1/chores',
+        payload('room-kitchen', b),
+        { method: 'POST' },
+      );
+      expect(screen.getByTestId(`template-room-kitchen-${b.id}`)).toBeOnTheScreen();
+    });
+
+    it('asks for a selection when add is pressed with nothing selected', async () => {
+      const client = await reachChoresStep(['Kitchen']);
+
+      await press('add-templates');
+
+      expect(screen.getByTestId('setup-error')).toHaveTextContent(
+        'Pick at least one starter chore.',
+      );
+      expect(choreCalls(client)).toHaveLength(0);
+    });
+
+    it('stops on the first failed template create and keeps the rest selected', async () => {
+      const client = await reachChoresStep(['Kitchen'], (body, call) =>
+        call === 2
+          ? {
+              ok: false,
+              error: {
+                kind: 'problem',
+                status: 400,
+                title: 'Bad Request',
+                detail: 'Effort must be positive.',
+              },
+            }
+          : ok({ choreId: `c-${call}`, ...body, active: true, etag: '"c"' }),
+      );
+      const [a, b, c] = kitchen;
+
+      await press(`template-room-kitchen-${a.id}`);
+      await press(`template-room-kitchen-${b.id}`);
+      await press(`template-room-kitchen-${c.id}`);
+      await press('add-templates');
+
+      await waitFor(() =>
+        expect(screen.getByTestId('setup-error')).toHaveTextContent('Effort must be positive.'),
+      );
+      // The first succeeded, the second failed, the third was never tried.
+      expect(choreCalls(client)).toEqual([
+        ['/households/hh-1/chores', payload('room-kitchen', a), { method: 'POST' }],
+        ['/households/hh-1/chores', payload('room-kitchen', b), { method: 'POST' }],
+      ]);
+      expect(screen.getByTestId('chore-item-c-1')).toHaveTextContent(a.title);
+      expect(screen.queryByTestId(`template-room-kitchen-${a.id}`)).toBeNull();
+      expect(isSelected(`template-room-kitchen-${b.id}`)).toBe(true);
+      expect(isSelected(`template-room-kitchen-${c.id}`)).toBe(true);
+      expect(screen.getByTestId('add-templates').props.accessibilityState?.disabled).toBe(false);
+
+      // A retry re-attempts the failed and untried ones only.
+      await press('add-templates');
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-4')).toBeOnTheScreen());
+      expect(choreCalls(client).slice(2)).toEqual([
+        ['/households/hh-1/chores', payload('room-kitchen', b), { method: 'POST' }],
+        ['/households/hh-1/chores', payload('room-kitchen', c), { method: 'POST' }],
+      ]);
+      expect(screen.queryByTestId('setup-error')).toBeNull();
+    });
+
+    it('still adds a custom chore alongside starter templates', async () => {
+      const client = await reachChoresStep(['Kitchen']);
+
+      await press(`template-room-kitchen-${kitchen[0].id}`);
+      await press('add-templates');
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-1')).toBeOnTheScreen());
+
+      await type('input-chore-title', 'Feed the cat');
+      await press('chore-room-room-kitchen');
+      await press('add-chore');
+      await waitFor(() => expect(screen.getByTestId('chore-item-c-2')).toBeOnTheScreen());
+      expect(client.update).toHaveBeenLastCalledWith(
+        '/households/hh-1/chores',
+        {
+          title: 'Feed the cat',
+          roomId: 'room-kitchen',
+          cadence: 'Weekly',
+          effort: 1,
+          minAge: null,
+        },
+        { method: 'POST' },
+      );
+    });
   });
 });

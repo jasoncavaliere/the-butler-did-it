@@ -244,6 +244,8 @@ src/
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
+  setup/      starterChoreTemplates.json # versioned starter-chore catalog: 30 templates across 9 rooms with aliases (#111)
+              starterTemplates.ts # catalog types, room-name/alias matching, template -> CreateChoreRequest (#111)
   offline/    storage.ts    # shared, feature-detected Web Storage seam both offline modules persist through, plus the queue's session-memory fallback (O2/O3)
               glanceCache.ts # last-known glance read cache in browser storage, keyed by householdId (O2)
               useReconnect.ts # `online`-event signal that refetches a degraded surface; no-op off web (O2)
@@ -368,7 +370,13 @@ records intent only.
 **Organizer onboarding** (`src/screens/HouseholdSetup.tsx`, H5) is a multi-step wizard - create
 household, add rooms, add people (each with a child flag and claim colour), map starter chores to
 rooms - driven entirely through the typed API client. Each step POSTs to its H1-H4 endpoint; a
-failure surfaces the API's problem-details as an in-screen message and does not advance. The new
+failure surfaces the API's problem-details as an in-screen message and does not advance. The
+chores step also offers starter chores (#111) from the versioned catalog in
+`src/setup/starterChoreTemplates.json`: a created room whose name equals a catalog room's name or
+one of its aliases (trimmed, case-insensitive, exact - so `Bath` matches Bathroom but `Den` matches
+nothing) lists that room's templates as toggles, off by default, and an unmatched room lists none.
+"Add selected" POSTs each selected template to the chores endpoint one at a time, in room then
+catalog order, stopping on the first failure with the failed and untried ones left selected. The new
 `householdId` is published to `HouseholdContext` on completion. The flow is wrapped in
 `OrganizerGate` (`src/auth/OrganizerGate.tsx`), which probes the organizer-only `GET /me` (the F6
 auth seam) so only an authenticated organizer reaches it; the Entra sign-in UI itself is a later

@@ -59,7 +59,7 @@ Offline/PWA internals (service worker, last-known cache, write queue) and the pe
 
 ## Project structure
 
-`src/api` (typed client, config) | `src/auth` (organizer/hub auth providers) | `src/components` (hub widgets) | `src/screens` (HubShell, HouseholdSetup) | `src/state` (React contexts) | `src/offline` (cache + write queue) | `src/pwa` (service-worker registration) | `scripts/` (PWA export). Details: [ARCHITECTURE.md](ARCHITECTURE.md).
+`src/api` (typed client, config) | `src/auth` (organizer/hub auth providers) | `src/components` (hub widgets) | `src/screens` (HubShell, HouseholdSetup) | `src/setup` (starter-chore catalog) | `src/state` (React contexts) | `src/offline` (cache + write queue) | `src/pwa` (service-worker registration) | `scripts/` (PWA export). Details: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Quality gates
 
