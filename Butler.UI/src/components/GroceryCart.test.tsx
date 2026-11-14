@@ -4,6 +4,7 @@ import {
   GroceryCart,
   customOfferLabel,
   estimatedTotalLabel,
+  heardLabel,
   readSuggestions,
   unpricedNote,
 } from './GroceryCart';
@@ -23,6 +24,7 @@ const WEEK = '2026-W29';
 const CART_ETAG = 'W/"cart-1"';
 const CART_PATH = `/households/${HOUSEHOLD}/carts/current`;
 const CAPTURE_PATH = `/households/${HOUSEHOLD}/capture/text`;
+const VOICE_PATH = `/households/${HOUSEHOLD}/capture/voice`;
 const CONFIRM_PATH = `/households/${HOUSEHOLD}/carts/${WEEK}/confirm`;
 const ITEMS_PATH = `/households/${HOUSEHOLD}/carts/${WEEK}/items`;
 
@@ -176,10 +178,21 @@ const captureAdded = ok({
   suggestions: [],
 });
 
+const voiceAdded = ok({
+  outcome: 'Added',
+  captureSource: 'simulated-voice',
+  resolvedTerm: 'oat milk',
+  weekIso: WEEK,
+  item: oatMilk,
+  suggestions: [],
+});
+
 type ClientOpts = {
   /** Successive answers to the cart read; the last one repeats. */
   reads?: ApiResult<unknown>[];
   capture?: ApiResult<unknown>;
+  /** The answer to the voice capture (#116); defaults to the same Added answer. */
+  voiceCapture?: ApiResult<unknown>;
   confirm?: ApiResult<unknown>;
   /** The answer to the custom-item post (#113). */
   customItem?: ApiResult<unknown>;
@@ -210,6 +223,9 @@ function cartClient(opts: ClientOpts = {}): ApiClient {
       }
       if (path.endsWith('/capture/text')) {
         return opts.capture ?? captureAdded;
+      }
+      if (path.endsWith('/capture/voice')) {
+        return opts.voiceCapture ?? voiceAdded;
       }
       if (path.endsWith('/items')) {
         return opts.customItem ?? ok(quinoa);
@@ -761,9 +777,384 @@ describe('GroceryCart', () => {
   });
 });
 
+/**
+ * A stand-in for the browser's speech recognizer (#116). Every instance is
+ * recorded so a test can fire its events and check how it was driven.
+ */
+class FakeRecognition {
+  static instances: FakeRecognition[] = [];
+
+  lang = '';
+  continuous = true;
+  interimResults = true;
+  maxAlternatives = 0;
+  onresult: ((event: unknown) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  onnomatch: ((event: unknown) => void) | null = null;
+  onend: ((event: unknown) => void) | null = null;
+  start = jest.fn();
+  stop = jest.fn();
+  abort = jest.fn();
+
+  constructor() {
+    FakeRecognition.instances.push(this);
+  }
+}
+
+type SpeechGlobals = { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+
+/** Give the "browser" a recognizer, under the prefixed name unless told otherwise. */
+function installSpeech(name: keyof SpeechGlobals = 'webkitSpeechRecognition') {
+  (globalThis as SpeechGlobals)[name] = FakeRecognition;
+}
+
+/** The recognizer the latest Speak tap created. */
+function recognizer(): FakeRecognition {
+  return FakeRecognition.instances[FakeRecognition.instances.length - 1];
+}
+
+/** The browser hearing `transcript`, then ending the session as Chrome does. */
+async function hear(transcript: string) {
+  const rec = recognizer();
+  await act(async () => {
+    rec.onresult?.({ resultIndex: 0, results: [[{ transcript }]] });
+    rec.onend?.({});
+  });
+}
+
+describe('GroceryCart voice capture', () => {
+  afterEach(() => {
+    FakeRecognition.instances = [];
+    delete (globalThis as SpeechGlobals).SpeechRecognition;
+    delete (globalThis as SpeechGlobals).webkitSpeechRecognition;
+  });
+
+  it('voice-unsupported: no speech recognition renders no mic button, and typing still adds', async () => {
+    const client = cartClient({ reads: [ok(building()), ok(building([oatMilk]))] });
+    await renderCart(client);
+    await whenLoaded();
+
+    expect(screen.queryByTestId('grocery-voice')).toBeNull();
+    expect(screen.getByTestId('grocery-add-submit')).toBeOnTheScreen();
+
+    await type('oat milk');
+    await press('grocery-add-submit');
+
+    expect(client.update).toHaveBeenCalledWith(
+      CAPTURE_PATH,
+      { utterance: 'oat milk', personId: 'p1', weekIso: WEEK, quantity: 1 },
+      { method: 'POST' },
+    );
+    await waitFor(() => expect(screen.getByTestId('grocery-item-item-1')).toBeOnTheScreen());
+  });
+
+  it('voice-supported: a building cart renders the Speak button when webkitSpeechRecognition exists', async () => {
+    installSpeech('webkitSpeechRecognition');
+    await renderCart(cartClient());
+    await whenLoaded();
+
+    expect(screen.getByTestId('grocery-voice')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-voice')).toHaveTextContent('Speak');
+    expect(screen.getByLabelText('Add an item by voice')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-voice')).not.toBeDisabled();
+    // Nothing listens until the button is pressed.
+    expect(FakeRecognition.instances).toHaveLength(0);
+  });
+
+  it('voice-supported: the standard SpeechRecognition renders the Speak button too', async () => {
+    installSpeech('SpeechRecognition');
+    await renderCart(cartClient());
+    await whenLoaded();
+
+    expect(screen.getByTestId('grocery-voice')).toBeOnTheScreen();
+  });
+
+  it('voice-supported: there is no mic on a confirmed week, with nothing to add to', async () => {
+    installSpeech();
+    await renderCart(cartClient({ reads: [alreadyConfirmed] }));
+
+    await waitFor(() => expect(screen.getByTestId('grocery-cart-week-confirmed')).toBeOnTheScreen());
+    expect(screen.queryByTestId('grocery-voice')).toBeNull();
+  });
+
+  it('voice-listening: pressing Speak shows Listening... and disables the mic until recognition ends', async () => {
+    installSpeech();
+    const client = cartClient();
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+
+    expect(recognizer().start).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('grocery-voice-listening')).toHaveTextContent('Listening...');
+    expect(screen.getByTestId('grocery-voice')).toBeDisabled();
+
+    // Recognition ends (here with nothing heard): the listening state goes away.
+    await act(async () => {
+      recognizer().onend?.({});
+    });
+
+    expect(screen.queryByTestId('grocery-voice-listening')).toBeNull();
+    expect(screen.getByTestId('grocery-voice')).toHaveTextContent('Speak');
+    expect(screen.getByTestId('grocery-voice')).not.toBeDisabled();
+  });
+
+  it('voice-one-utterance: one recognized utterance stops recognition; a second press starts a new session', async () => {
+    installSpeech();
+    const client = cartClient({ reads: [ok(building()), ok(building([oatMilk]))] });
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    const first = recognizer();
+    // One final result, one alternative: never continuous or interim.
+    expect(first.continuous).toBe(false);
+    expect(first.interimResults).toBe(false);
+    expect(first.maxAlternatives).toBe(1);
+    expect(first.lang).toBe('en-US');
+
+    await act(async () => {
+      first.onresult?.({ resultIndex: 0, results: [[{ transcript: 'oat milk' }]] });
+    });
+    expect(first.stop).toHaveBeenCalledTimes(1);
+
+    // A late second result before the session ends posts nothing more.
+    await act(async () => {
+      first.onresult?.({ resultIndex: 0, results: [[{ transcript: 'eggs' }]] });
+      first.onend?.({});
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent('Added H-E-B Oat Milk.'),
+    );
+    expect(client.update).toHaveBeenCalledTimes(1);
+
+    // Only a new press listens again, on a new recognizer.
+    await press('grocery-voice');
+    expect(FakeRecognition.instances).toHaveLength(2);
+    expect(recognizer().start).toHaveBeenCalledTimes(1);
+    expect(first.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('voice-transcript-shown: the heard transcript is on screen while the voice capture is in flight and after it settles', async () => {
+    installSpeech();
+    const pending = deferred<ApiResult<unknown>>();
+    const client = cartClient({ updateImpl: () => pending.promise });
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('  oat milk ');
+
+    // Shown as the send starts, and what was sent is exactly what is shown.
+    expect(screen.getByTestId('grocery-voice-transcript')).toHaveTextContent('Heard "oat milk"');
+    expect(client.update).toHaveBeenCalledWith(
+      VOICE_PATH,
+      { utterance: 'oat milk', personId: 'p1', weekIso: WEEK, quantity: 1 },
+      { method: 'POST' },
+    );
+    // While it is in flight, nothing can be sent twice.
+    expect(screen.getByTestId('grocery-voice')).toBeDisabled();
+    expect(screen.getByTestId('grocery-add-submit')).toBeDisabled();
+
+    await act(async () => {
+      pending.resolve(voiceAdded);
+      await pending.promise;
+    });
+
+    await waitFor(() => expect(screen.getByTestId('grocery-voice')).not.toBeDisabled());
+    expect(screen.getByTestId('grocery-voice-transcript')).toHaveTextContent('Heard "oat milk"');
+  });
+
+  it('voice-capture-posts: a transcript posts to /capture/voice and the added line renders like a typed add', async () => {
+    installSpeech();
+    const client = cartClient({ reads: [ok(building()), ok(building([oatMilk]))] });
+    await renderCart(client);
+    await whenLoaded();
+
+    // Something half-typed stays where it is: the mic does not own the field.
+    await type('eggs');
+    await press('grocery-voice');
+    await hear('please add oat milk to the list');
+
+    expect(client.update).toHaveBeenCalledTimes(1);
+    expect(client.update).toHaveBeenCalledWith(
+      VOICE_PATH,
+      {
+        utterance: 'please add oat milk to the list',
+        personId: 'p1',
+        weekIso: WEEK,
+        quantity: 1,
+      },
+      { method: 'POST' },
+    );
+    await waitFor(() => expect(screen.getByTestId('grocery-item-item-1')).toBeOnTheScreen());
+    expect(client.get).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('grocery-item-quantity-item-1')).toHaveTextContent('x1');
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent('Added H-E-B Oat Milk.');
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', 'eggs');
+  });
+
+  it('voice-no-match: a NoMatch voice capture offers the custom item like text does', async () => {
+    installSpeech();
+    const client = cartClient({ voiceCapture: noMatch });
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('quinoa flakes');
+
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+    expect(screen.getByTestId('grocery-add-custom')).toHaveTextContent(
+      'Add "quinoa flakes" as a custom item',
+    );
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'The store has nothing matching "quinoa flakes".',
+    );
+    expect(client.get).toHaveBeenCalledTimes(1);
+
+    await press('grocery-add-custom');
+    expect(client.update).toHaveBeenCalledWith(
+      ITEMS_PATH,
+      { displayName: 'quinoa flakes', personId: 'p1', quantity: 1 },
+      { method: 'POST' },
+    );
+  });
+
+  it('voice-ambiguous: an ambiguous voice capture shows the suggestions like text does', async () => {
+    installSpeech();
+    await renderCart(cartClient({ voiceCapture: ambiguous }));
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('milk');
+
+    await waitFor(() => expect(screen.getByTestId('grocery-suggestions')).toBeOnTheScreen());
+    expect(screen.getByTestId('grocery-suggestion-heb-0001')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-suggestion-heb-0016')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(/Did you mean one of these\?/);
+  });
+
+  it('voice-error: a recognition error posts nothing, says so, and the cart stays usable', async () => {
+    installSpeech();
+    const client = cartClient({ reads: [ok(building()), ok(building([oatMilk]))] });
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    const rec = recognizer();
+    // Chrome fires the error and then ends the session.
+    await act(async () => {
+      rec.onerror?.({ error: 'not-allowed' });
+      rec.onend?.({});
+    });
+
+    expect(client.update).not.toHaveBeenCalled();
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'I did not catch that. Tap Speak to try again, or type it.',
+    );
+    expect(screen.queryByTestId('grocery-voice-transcript')).toBeNull();
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('editable', true);
+    expect(screen.getByTestId('grocery-add-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('grocery-voice')).not.toBeDisabled();
+
+    // Typing still works straight after.
+    await type('oat milk');
+    await press('grocery-add-submit');
+    expect(client.update).toHaveBeenCalledWith(
+      CAPTURE_PATH,
+      { utterance: 'oat milk', personId: 'p1', weekIso: WEEK, quantity: 1 },
+      { method: 'POST' },
+    );
+    await waitFor(() => expect(screen.getByTestId('grocery-item-item-1')).toBeOnTheScreen());
+  });
+
+  it('voice-empty: an empty transcript posts nothing and the cart stays usable', async () => {
+    installSpeech();
+    const client = cartClient();
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('   ');
+
+    expect(client.update).not.toHaveBeenCalled();
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'I did not catch that. Tap Speak to try again, or type it.',
+    );
+    expect(screen.queryByTestId('grocery-voice-transcript')).toBeNull();
+    expect(screen.getByTestId('grocery-voice')).not.toBeDisabled();
+    expect(screen.getByTestId('grocery-add-submit')).not.toBeDisabled();
+  });
+
+  it('voice-empty: a session that ends with no result posts nothing', async () => {
+    installSpeech();
+    const client = cartClient();
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await act(async () => {
+      recognizer().onend?.({});
+    });
+
+    expect(client.update).not.toHaveBeenCalled();
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'I did not catch that. Tap Speak to try again, or type it.',
+    );
+    expect(screen.getByTestId('grocery-voice')).not.toBeDisabled();
+  });
+
+  it('voice-no-participant: with nobody claimed the mic asks for a name and does not listen', async () => {
+    installSpeech();
+    const client = cartClient();
+    await renderCart(client, { activePersonId: null });
+    await whenLoaded();
+
+    await press('grocery-voice');
+
+    expect(FakeRecognition.instances).toHaveLength(0);
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'Tap your name first, then add to the list.',
+    );
+    expect(client.update).not.toHaveBeenCalled();
+  });
+
+  it('a typed add clears what the mic heard', async () => {
+    installSpeech();
+    await renderCart(cartClient());
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('oat milk');
+    await waitFor(() => expect(screen.getByTestId('grocery-voice-transcript')).toBeOnTheScreen());
+
+    await type('eggs');
+    await press('grocery-add-submit');
+
+    expect(screen.queryByTestId('grocery-voice-transcript')).toBeNull();
+  });
+
+  it('unmounting while listening aborts recognition', async () => {
+    installSpeech();
+    const view = await renderCart(cartClient());
+    await whenLoaded();
+
+    await press('grocery-voice');
+    const rec = recognizer();
+
+    await view.unmount();
+
+    expect(rec.abort).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('cart copy helpers', () => {
   it('words the custom offer as AC3 fixes it', () => {
     expect(customOfferLabel('unicorn steaks')).toBe('Add "unicorn steaks" as a custom item');
+  });
+
+  it('shows what the mic heard in quotes', () => {
+    expect(heardLabel('oat milk')).toBe('Heard "oat milk"');
   });
 
   it('formats the estimated total to the cent', () => {

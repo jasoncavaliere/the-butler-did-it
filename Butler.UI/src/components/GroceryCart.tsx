@@ -12,6 +12,7 @@ import type {
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { useOrganizer } from '../state/OrganizerContext';
+import { useSpeechCapture } from '../voice/useSpeechCapture';
 import { colors } from './Screen';
 
 /**
@@ -47,6 +48,14 @@ import { colors } from './Screen';
  *   it never confirms on its own. A successful confirm also hands the confirm
  *   response to `onConfirmed`, which {@link HubShell} uses to show the order
  *   receipt (#115); the region's own Confirmed state is the same either way.
+ * - **Voice (#116).** Where the browser has speech recognition (`SpeechRecognition`
+ *   or `webkitSpeechRecognition`), a Speak button sits beside Add; where it does
+ *   not, the button is absent, not disabled. One tap listens for one utterance
+ *   (the region says `Listening...` until recognition ends), shows what it heard,
+ *   and posts that transcript to `/capture/voice` with no confirm tap. The answer
+ *   is handled exactly as a typed add's is (added, suggestions, or the custom-item
+ *   offer). A recognition error or an empty result posts nothing and says so, and
+ *   the cart stays usable.
  *
  * Nothing here places a real order and no money moves (BRD decision D-8) - the
  * backing connector is the simulated G1 one, so the demo runs fully offline of
@@ -66,6 +75,7 @@ const COPY = {
   needsTerm: 'Type what to add, for example "oat milk".',
   needsParticipant: 'Tap your name first, then add to the list.',
   ambiguous: 'Did you mean one of these? Type the one you want.',
+  voiceMissed: 'I did not catch that. Tap Speak to try again, or type it.',
   confirmFailed: 'That did not go through. Tap Confirm order to try again.',
   weekConfirmed: "This week's list is confirmed. Nothing more to add.",
 } as const;
@@ -73,6 +83,11 @@ const COPY = {
 /** The no-match offer's button copy (AC3 fixes its wording). */
 export function customOfferLabel(displayName: string): string {
   return `Add "${displayName}" as a custom item`;
+}
+
+/** The line showing what the mic heard, before and while it is sent (#116). */
+export function heardLabel(transcript: string): string {
+  return `Heard "${transcript}"`;
 }
 
 /** The estimated-total line, in dollars to the cent. */
@@ -139,6 +154,9 @@ export function GroceryCart({
   const [suggestions, setSuggestions] = useState<StoreProductView[]>([]);
   const [customOffer, setCustomOffer] = useState<CustomOffer | null>(null);
   const [busy, setBusy] = useState(false);
+  // The last transcript the mic heard (#116), shown above the notice.
+  const [heard, setHeard] = useState<string | null>(null);
+  const voice = useSpeechCapture();
 
   // The single read the region ever does. It is also what an add reconciles
   // against, so the rendered list and the confirm's `If-Match` can never drift
@@ -168,20 +186,13 @@ export function GroceryCart({
     };
   }, [readCart]);
 
-  // Adding: resolve the typed term through G3 and re-read the cart. The line is
-  // attributed to the active participant, because the shared tablet authenticates
-  // as a device or organizer rather than as a person - with nobody claimed, say
-  // so plainly instead of spending a round trip on a 400.
-  const add = useCallback(
-    async (cart: CartResponse) => {
-      const utterance = term.trim();
-      setSuggestions([]);
-      // A new add replaces whatever an earlier no-match offered.
-      setCustomOffer(null);
-      if (utterance === '') {
-        setNotice(COPY.needsTerm);
-        return;
-      }
+  // Capturing: resolve an utterance through G3 (typed to `/capture/text`, spoken
+  // to `/capture/voice`) and re-read the cart. The line is attributed to the
+  // active participant, because the shared tablet authenticates as a device or
+  // organizer rather than as a person - with nobody claimed, say so plainly
+  // instead of spending a round trip on a 400.
+  const submitCapture = useCallback(
+    async (route: 'text' | 'voice', utterance: string, cart: CartResponse) => {
       if (activePersonId === null) {
         setNotice(COPY.needsParticipant);
         return;
@@ -190,7 +201,7 @@ export function GroceryCart({
       setNotice('');
       setBusy(true);
       const result = await client.update<CaptureResponse>(
-        `/households/${householdId}/capture/text`,
+        `/households/${householdId}/capture/${route}`,
         { utterance, personId: activePersonId, weekIso: cart.weekIso, quantity: 1 },
         { method: 'POST' },
       );
@@ -207,7 +218,7 @@ export function GroceryCart({
 
       const captured = result.data;
       if (captured.outcome === 'NoMatch' || captured.item === null) {
-        // Nothing in the catalog: offer the term itself as a custom item. The
+        // Nothing in the catalog: offer the term itself as a custom item. A typed
         // term stays in the field so it can be refined instead.
         setCustomOffer({ displayName: captured.resolvedTerm, personId: activePersonId });
         setNotice(`The store has nothing matching "${captured.resolvedTerm}".`);
@@ -215,12 +226,56 @@ export function GroceryCart({
         return;
       }
 
-      setTerm('');
+      // Only a typed add owns the field; a spoken one leaves whatever is typed.
+      if (route === 'text') {
+        setTerm('');
+      }
       setNotice(`Added ${captured.item.displayName}.`);
       setState(await readCart());
       setBusy(false);
     },
-    [activePersonId, client, householdId, readCart, term],
+    [activePersonId, client, householdId, readCart],
+  );
+
+  // Adding a typed term.
+  const add = useCallback(
+    async (cart: CartResponse) => {
+      const utterance = term.trim();
+      setSuggestions([]);
+      // A new add replaces whatever an earlier no-match offered or the mic heard.
+      setCustomOffer(null);
+      setHeard(null);
+      if (utterance === '') {
+        setNotice(COPY.needsTerm);
+        return;
+      }
+      await submitCapture('text', utterance, cart);
+    },
+    [submitCapture, term],
+  );
+
+  // Adding by voice (#116): listen for one utterance, show it, and send it with
+  // no confirm tap. A miss (an error, nothing heard) never calls the API and
+  // never blocks the cart - it says so and the mic and the field stay ready.
+  const listen = useCallback(
+    (cart: CartResponse) => {
+      setSuggestions([]);
+      setCustomOffer(null);
+      setHeard(null);
+      if (activePersonId === null) {
+        setNotice(COPY.needsParticipant);
+        return;
+      }
+      setNotice('');
+      voice.start({
+        onTranscript: (transcript) => {
+          setHeard(transcript);
+          void submitCapture('voice', transcript, cart);
+        },
+        onFailure: () => setNotice(COPY.voiceMissed),
+      });
+    },
+    [activePersonId, submitCapture, voice],
   );
 
   // Adding the no-match term as a custom line (#113): no product and no price,
@@ -334,6 +389,9 @@ export function GroceryCart({
             onSubmit={() => {
               void add(cart);
             }}
+            voiceSupported={voice.supported}
+            listening={voice.listening}
+            onListen={() => listen(cart)}
           />
           {customOffer !== null ? (
             <Pressable
@@ -407,6 +465,12 @@ export function GroceryCart({
         </View>
       ) : null}
 
+      {heard !== null ? (
+        <Text style={styles.heard} testID="grocery-voice-transcript">
+          {heardLabel(heard)}
+        </Text>
+      ) : null}
+
       {notice !== '' ? (
         <Text style={styles.notice} testID="grocery-cart-notice">
           {notice}
@@ -439,19 +503,28 @@ export function GroceryCart({
  * The add-an-item control: a labelled field plus its button, both driving the
  * same submit so typing Enter and tapping Add are the same gesture. The label is
  * a real visible label (never the placeholder), and both controls clear the 44px
- * minimum touch target.
+ * minimum touch target. Where the browser can recognize speech, a Speak button
+ * sits beside Add (absent, not disabled, where it cannot); while it listens its
+ * label reads `Listening...`, so the state is carried by a word, not colour.
  */
 function AddItemRow({
   term,
   busy,
   onChangeTerm,
   onSubmit,
+  voiceSupported,
+  listening,
+  onListen,
 }: {
   term: string;
   busy: boolean;
   onChangeTerm: (next: string) => void;
   onSubmit: () => void;
+  voiceSupported: boolean;
+  listening: boolean;
+  onListen: () => void;
 }) {
+  const micDisabled = busy || listening;
   return (
     <View style={styles.addRow}>
       <Text style={styles.label}>Add an item</Text>
@@ -478,6 +551,25 @@ function AddItemRow({
         >
           <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
+        {voiceSupported ? (
+          <Pressable
+            testID="grocery-voice"
+            accessibilityRole="button"
+            accessibilityLabel="Add an item by voice"
+            accessibilityState={{ disabled: micDisabled, busy: listening }}
+            disabled={micDisabled}
+            style={[styles.addButton, micDisabled && styles.buttonBusy]}
+            onPress={onListen}
+          >
+            {listening ? (
+              <Text style={styles.addButtonText} testID="grocery-voice-listening">
+                Listening...
+              </Text>
+            ) : (
+              <Text style={styles.addButtonText}>Speak</Text>
+            )}
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -581,6 +673,7 @@ const styles = StyleSheet.create({
   suggestions: { gap: 6 },
   suggestion: { color: colors.ink, fontSize: 16 },
   notice: { color: colors.muted, fontSize: 16 },
+  heard: { color: colors.ink, fontSize: 16 },
   confirmButton: {
     minHeight: 44,
     alignSelf: 'flex-start',
