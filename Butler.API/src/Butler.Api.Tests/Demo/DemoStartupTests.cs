@@ -1,3 +1,4 @@
+using System.Net;
 using Butler.Api.Application.Demo;
 using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.Hosting;
@@ -13,11 +14,12 @@ using Microsoft.Extensions.Hosting;
 namespace Butler.Api.Tests.Demo;
 
 /// <summary>
-/// Criteria (#97 AC2, AC4): starting the API with <c>--seed-demo</c> (which
-/// <see cref="DemoCommandLine.Normalize"/> rewrites to
+/// Criteria (#97 AC2, AC4; #106 AC1, AC5): starting the API with
+/// <c>--seed-demo</c> (which <see cref="DemoCommandLine.Normalize"/> rewrites to
 /// <c>Demo:SeedOnStartup=true</c>) seeds the demo household before the app
 /// serves; a plain boot seeds nothing; and outside Development and Demo the host
-/// refuses to start.
+/// refuses to start with an error naming <c>Demo:SeedOnStartup</c>, while a
+/// plain boot there starts normally.
 /// </summary>
 public sealed class DemoStartupTests
 {
@@ -63,24 +65,44 @@ public sealed class DemoStartupTests
         Assert.Empty(await DemoTestHost.RowsAsync<HouseholdEntity>(factory));
     }
 
-    [Fact]
-    public void Startup_with_seed_flag_outside_Development_or_Demo_fails_fast()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public void Startup_with_seed_flag_outside_Development_or_Demo_fails_naming_the_setting(string environment)
     {
-        using var factory = CreateFactory(Environments.Production, seedOnStartup: true).WithWebHostBuilder(builder =>
-        {
-            builder.UseSetting("Authentication:DisableAuthentication", "false");
-            builder.UseSetting(
-                "Authentication:Authority",
-                "https://login.example.com/00000000-0000-0000-0000-000000000000/v2.0");
-            builder.UseSetting("Authentication:Audience", "api://butler-test");
-        });
+        using var factory = CreateFactory(environment, seedOnStartup: true).WithWebHostBuilder(EnableAuthentication);
 
         var exception = Record.Exception(() => factory.CreateClient());
 
         Assert.NotNull(exception);
         var refusal = Unwrap(exception).OfType<DemoSeedingNotAllowedException>().FirstOrDefault();
         Assert.NotNull(refusal);
-        Assert.Contains("Production", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(DemoCommandLine.SeedOnStartupKey, refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(environment, refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public async Task Default_boot_outside_Development_or_Demo_starts_without_seeding(string environment)
+    {
+        using var factory = CreateFactory(environment, seedOnStartup: false).WithWebHostBuilder(EnableAuthentication);
+        using var client = factory.CreateClient();
+
+        using var health = await client.GetAsync(new Uri("/health", UriKind.Relative));
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        Assert.Empty(await DemoTestHost.RowsAsync<HouseholdEntity>(factory));
+    }
+
+    // Non-demo environments refuse to start with the auth bypass on, so turn
+    // real (JWT) authentication on for them.
+    private static void EnableAuthentication(IWebHostBuilder builder)
+    {
+        builder.UseSetting("Authentication:DisableAuthentication", "false");
+        builder.UseSetting(
+            "Authentication:Authority",
+            "https://login.example.com/00000000-0000-0000-0000-000000000000/v2.0");
+        builder.UseSetting("Authentication:Audience", "api://butler-test");
     }
 
     // The deferred host may wrap the entry point's exception; walk the chain.

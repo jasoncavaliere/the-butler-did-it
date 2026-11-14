@@ -343,6 +343,8 @@ The seed runs in this order:
 
 1. Refuse with `DemoSeedingNotAllowedException` unless the host is Development or Demo, before any
    I/O. `ApiExceptionHandler` maps it to `404`, so the endpoint looks absent rather than forbidden.
+   Since #106 both triggers are already blocked outside those environments (see Triggers), so this
+   check is defense in depth.
 2. Read the injected clock once. Its ISO week is the current week; the three weeks before it hold
    the history.
 3. Regenerate the dataset id (`IDatasetService.RegenerateAsync`, #100). It runs before the purge, so
@@ -374,3 +376,14 @@ no delete). `HubDevices` is not purged, so a paired tablet survives a re-seed.
 argument as the switch's value. `app.SeedDemoIfRequestedAsync()` runs just before `app.Run()` and
 seeds as the dev organizer when `Demo:SeedOnStartup` is true. `DemoClockGuardTests` scans the
 feature's IL for direct `DateTime.Now` / `UtcNow` reads.
+
+**Guardrails outside Development and Demo (#106).** `DemoController` carries `[DemoOnly]`
+(`Infrastructure/Hosting/DemoOnlyAttribute`). `AddDemoFeature(environment)` appends
+`DemoOnlyControllerFeatureProvider` to the MVC application part manager, after the default
+controller provider; in any other environment it removes every `[DemoOnly]` controller, so the
+`/demo/*` routes are never mapped. With no endpoint, authorization never runs and every caller gets
+`404`, with or without a token, and the routes drop out of Swagger. On start-up,
+`SeedDemoIfRequestedAsync` checks the environment right after reading `Demo:SeedOnStartup` and
+before provisioning any table; outside Development and Demo it throws
+`DemoSeedingNotAllowedException.ForSeedOnStartup`, whose message names `Demo:SeedOnStartup`, and the
+host fails to start (fail closed, like the `Authentication:DisableAuthentication` guard).

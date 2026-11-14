@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Butler.Api.Application.Auth;
 using Butler.Api.Application.Demo;
+using Butler.Api.Infrastructure.Hosting;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,11 +9,13 @@ using Microsoft.AspNetCore.Mvc;
 namespace Butler.Api.Controllers;
 
 /// <summary>
-/// Thin controller for the demo seeder (#97). Organizer-only. Outside the
-/// Development and Demo environments the seeder refuses and the request is a
-/// <c>404</c>.
+/// Thin controller for the demo seeder (#97). Organizer-only, and registered
+/// only in the Development and Demo environments (<see cref="DemoOnlyAttribute"/>,
+/// #106): everywhere else it is not mapped, so every request is a <c>404</c>
+/// regardless of credentials.
 /// </summary>
 [ApiController]
+[DemoOnly]
 [Route("demo")]
 [Tags("Demo")]
 public sealed class DemoController : ControllerBase

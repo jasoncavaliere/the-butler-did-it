@@ -156,8 +156,10 @@ curl -X POST http://localhost:5108/demo/seed
   again, so there are never duplicates. Paired hub devices are kept, so a tablet stays paired.
 - All dates come from the clock: the current ISO week gets the assignments, and the three weeks
   before it get the history.
-- Outside Development and Demo the seeder refuses: `POST /demo/seed` is a `404`, and `--seed-demo`
-  stops the host from starting.
+- Outside Development and Demo the demo endpoints are not mapped: `POST /demo/seed` is a `404` for
+  every caller, with or without a token (never `401` or `403`). `--seed-demo` (or
+  `Demo__SeedOnStartup=true`) stops the host from starting with an error that names
+  `Demo:SeedOnStartup`, before any table is provisioned.
 
 ## Smoke tests
 

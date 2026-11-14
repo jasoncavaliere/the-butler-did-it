@@ -1,4 +1,5 @@
 using Butler.Api.Application.Auth;
+using Butler.Api.Infrastructure.Hosting;
 using Butler.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
@@ -12,7 +13,8 @@ namespace Butler.Api.Application.Demo;
 /// <c>--seed-demo</c> (or with <c>Demo__SeedOnStartup=true</c> in the
 /// environment) seeds the demo household as the dev organizer just before the
 /// app starts serving; the app then keeps running. Outside Development and Demo
-/// the seeder refuses and the host fails to start.
+/// the host refuses to start with an error naming <c>Demo:SeedOnStartup</c>
+/// (#106), before any table is provisioned.
 /// </summary>
 public static partial class DemoCommandLine
 {
@@ -48,8 +50,10 @@ public static partial class DemoCommandLine
     /// <c>true</c>, as the dev organizer, and logs the household id. Does
     /// nothing otherwise. This runs before <c>app.Run()</c> starts the hosted
     /// services, so it provisions the registered tables itself first (#91); the
-    /// hosted service's later run is an idempotent no-op. Throws <see cref="DemoSeedingNotAllowedException"/>
-    /// outside Development and Demo, which stops the host from starting.
+    /// hosted service's later run is an idempotent no-op. Outside Development and
+    /// Demo it throws <see cref="DemoSeedingNotAllowedException"/> (naming
+    /// <see cref="SeedOnStartupKey"/>) before provisioning anything, which stops
+    /// the host from starting (#106).
     /// </summary>
     /// <param name="app">The built application.</param>
     public static async Task SeedDemoIfRequestedAsync(this WebApplication app)
@@ -59,6 +63,12 @@ public static partial class DemoCommandLine
         if (!app.Configuration.GetValue<bool>(SeedOnStartupKey))
         {
             return;
+        }
+
+        // Fail closed before any I/O: a non-demo host must not even provision tables.
+        if (!app.Environment.IsDevelopmentOrDemo())
+        {
+            throw DemoSeedingNotAllowedException.ForSeedOnStartup(app.Environment.EnvironmentName);
         }
 
         await app.Services.GetRequiredService<TableProvisioner>().ProvisionAsync().ConfigureAwait(false);
