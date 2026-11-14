@@ -44,6 +44,9 @@ $ComposeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 $LogsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'logs'
 $UiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.UI'
+# The hub export's freshness marker. A failed build deletes it (#183), so the
+# next up rebuilds instead of reporting a broken export as up to date.
+$ExportMarker = Join-Path (Join-Path $UiDir 'dist') 'index.html'
 # Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
 $EnvFile = Join-Path $PSScriptRoot '.env'
 
@@ -91,7 +94,7 @@ function Invoke-Compose([string[]]$ComposeArgs) {
 
 # Returns 'missing', 'stale' or 'fresh' for the hub export in Butler.UI/dist.
 function Get-ExportState {
-    $markerPath = Join-Path (Join-Path $UiDir 'dist') 'index.html'
+    $markerPath = $ExportMarker
     if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
         return 'missing'
     }
@@ -153,6 +156,10 @@ function Invoke-ExportBuild {
             $env:EXPO_PUBLIC_BUILD_SHA = $previousSha
         }
         if ($script:ExitCode -ne 0) {
+            # build:web runs expo export and then pwa-export.js, so a failure in the
+            # second step leaves a new index.html behind. Delete it (#183): the export
+            # is then missing, and the next up rebuilds it.
+            Remove-Item -LiteralPath $ExportMarker -Force -ErrorAction SilentlyContinue
             Write-Err 'Hub export build failed.'
         }
     }

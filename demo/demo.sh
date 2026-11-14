@@ -17,6 +17,9 @@ COMPOSE_FILE="$DEMO_DIR/docker-compose.yml"
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 LOGS_DIR="$DEMO_DIR/.data/logs"
 UI_DIR="$REPO_ROOT/Butler.UI"
+# The hub export's freshness marker. A failed build deletes it (#183), so the
+# next up rebuilds instead of reporting a broken export as up to date.
+EXPORT_MARKER="$UI_DIR/dist/index.html"
 # Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
 ENV_FILE="$DEMO_DIR/.env"
 
@@ -69,7 +72,7 @@ compose() {
 
 # Prints "missing", "stale" or "fresh" for the hub export in Butler.UI/dist.
 export_state() {
-  local marker="$UI_DIR/dist/index.html"
+  local marker="$EXPORT_MARKER"
   if [ ! -f "$marker" ]; then
     echo "missing"
     return 0
@@ -116,6 +119,10 @@ build_export() {
   (cd "$UI_DIR" && EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin \
     EXPO_PUBLIC_BUILD_SHA="${BUTLER_BUILD_SHA:-}" npm run build:web) || rc=$?
   if [ "$rc" -ne 0 ]; then
+    # build:web runs expo export and then pwa-export.js, so a failure in the
+    # second step leaves a new index.html behind. Delete it (#183): the export
+    # is then missing, and the next up rebuilds it.
+    rm -f "$EXPORT_MARKER"
     echo "Hub export build failed." >&2
     return "$rc"
   fi

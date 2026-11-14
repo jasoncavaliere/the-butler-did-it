@@ -28,6 +28,10 @@
 #            And the Fully Kiosk hub settings (#129,
 #            demo/ci/check-fully-settings.sh): placeholder-only start URL and
 #            kiosk PIN, pinned values, no secrets, every key documented.
+#            And a failed export build (#183,
+#            demo/ci/check-export-failure.sh): with a stub npm whose build:web
+#            fails after writing dist/index.html, both scripts delete that
+#            marker and the next `up` rebuilds the export.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080 (with the precache list build:web
 #            injects, demo/ci/check-precache.cjs, #178), the single origin
@@ -258,6 +262,11 @@ jobs:
       # #101 AC5: with qrencode on PATH, the QR code is its ansiutf8 output.
       - name: "demo CLI: share/unshare (qrencode)"
         run: bash demo/ci/check-share.sh static
+
+      # #183 AC1-AC2: a failed build:web leaves no dist/index.html, so the next
+      # up rebuilds; demo.sh and demo.ps1 behave the same. Stub npm and docker.
+      - name: "demo CLI: failed export build is rebuilt by the next up (#183)"
+        run: bash demo/ci/check-export-failure.sh
 
   stack:
     name: stack (Azurite + API + Caddy)
