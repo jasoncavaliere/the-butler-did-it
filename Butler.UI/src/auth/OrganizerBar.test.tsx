@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { OrganizerBar } from './OrganizerBar';
 import type { IAuthProvider, OrganizerSession } from './authProvider';
+import { PinSignInError } from './pinAuthProvider';
 import { OrganizerProvider } from '../state/OrganizerContext';
 
 const SESSION: OrganizerSession = {
@@ -162,5 +163,97 @@ describe('OrganizerBar', () => {
     expect(screen.getByTestId('affordance-edit-roster')).toBeOnTheScreen();
     expect(screen.getByTestId('affordance-household-teardown')).toBeOnTheScreen();
     expect(screen.queryByTestId('affordance-confirm-order')).toBeNull();
+  });
+
+  describe('with the demo PIN provider (#105)', () => {
+    function pinProvider(overrides: Partial<IAuthProvider> = {}): IAuthProvider {
+      return { ...fakeProvider(overrides), kind: 'pin' };
+    }
+
+    async function signInWithPin(pin: string) {
+      await press('organizer-sign-in');
+      for (const digit of pin) {
+        await press(`pin-digit-${digit}`);
+      }
+      await press('pin-submit');
+    }
+
+    it('pin provider: renders no sensitive actions until signed in through the PIN pad', async () => {
+      const signIn = jest.fn(() => Promise.resolve(SESSION));
+      await render(
+        <OrganizerProvider authProvider={pinProvider({ signIn })}>
+          <OrganizerBar onEditRoster={jest.fn()} onConfirmOrder={jest.fn()} onHouseholdTeardown={jest.fn()} />
+        </OrganizerProvider>,
+      );
+
+      expect(screen.queryByTestId('organizer-pin-pad')).toBeNull();
+      await press('organizer-sign-in');
+      expect(screen.getByTestId('organizer-pin-pad')).toBeOnTheScreen();
+      expect(signIn).not.toHaveBeenCalled();
+      for (const id of SENSITIVE) {
+        expect(screen.queryByTestId(id)).toBeNull();
+      }
+
+      for (const digit of '2468') {
+        await press(`pin-digit-${digit}`);
+      }
+      await press('pin-submit');
+
+      expect(signIn).toHaveBeenCalledWith({ pin: '2468' });
+      expect(screen.queryByTestId('organizer-pin-pad')).toBeNull();
+      for (const id of SENSITIVE) {
+        expect(screen.getByTestId(id)).toBeOnTheScreen();
+      }
+    });
+
+    it('pin provider: a wrong PIN keeps the pad open and the actions hidden', async () => {
+      await render(
+        <OrganizerProvider
+          authProvider={pinProvider({ signIn: () => Promise.reject(new PinSignInError('invalid', 'no')) })}
+        >
+          <OrganizerBar onEditRoster={jest.fn()} />
+        </OrganizerProvider>,
+      );
+
+      await signInWithPin('1111');
+
+      expect(screen.getByTestId('pin-error')).toHaveTextContent('That PIN is not right.');
+      expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
+    });
+
+    it('pin provider: the sign-in button and Cancel close the pad', async () => {
+      await render(
+        <OrganizerProvider authProvider={pinProvider()}>
+          <OrganizerBar />
+        </OrganizerProvider>,
+      );
+
+      await press('organizer-sign-in');
+      await press('organizer-sign-in');
+      expect(screen.queryByTestId('organizer-pin-pad')).toBeNull();
+
+      await press('organizer-sign-in');
+      await press('pin-cancel');
+      expect(screen.queryByTestId('organizer-pin-pad')).toBeNull();
+    });
+
+    it('pin provider: signing out returns to participant-only', async () => {
+      const signOut = jest.fn(() => Promise.resolve());
+      await render(
+        <OrganizerProvider authProvider={pinProvider({ signOut })}>
+          <OrganizerBar onEditRoster={jest.fn()} />
+        </OrganizerProvider>,
+      );
+      await signInWithPin('2468');
+      expect(screen.getByTestId('affordance-edit-roster')).toBeOnTheScreen();
+
+      await press('organizer-sign-out');
+
+      expect(signOut).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
+      expect(screen.queryByTestId('organizer-identity')).toBeNull();
+      expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+      expect(screen.queryByTestId('organizer-pin-pad')).toBeNull();
+    });
   });
 });

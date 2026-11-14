@@ -100,9 +100,16 @@ touching anything under `public/` or `scripts/`.
   when `HubShell` supplies its handler. Confirm order is wired: it scrolls the hub to `GroceryCart` and
   focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). Edit roster
   is #167 and Household teardown is #168; until they land, those buttons are not rendered.
+- `EXPO_PUBLIC_AUTH_PROVIDER` picks the organizer sign-in at bundle time: `dev` (the dev organizer, the
+  default through `EXPO_PUBLIC_DISABLE_AUTH`), `entra`, or `pin` (#105, the demo stack). With `pin`,
+  `OrganizerGate` and `OrganizerBar` show a PIN pad and the API returns a short-lived organizer token
+  (15 idle minutes). Build the demo export with
+  `EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web` (`demo/demo.sh up` does).
 - Hub device pairing (`HubPairing`, `HubDeviceContext`, T5) is wired up: a signed-in organizer can pair
-  the tablet and the resulting device token is held in memory for the process lifetime. Presenting that
-  token on later reads/completion writes is a later ticket.
+  the tablet and the resulting device token is held in memory for the process lifetime. The API client
+  sends it on the `X-Device-Token` header (never as `Authorization: Bearer`) whenever no organizer is
+  signed in; an organizer's token goes as the bearer instead, one credential per request. When the
+  organizer signs out or their token expires, the hub keeps working on the device token.
 - The web export is an installable PWA (O1): manifest, icons, and a service worker that precaches the
   app shell, so a second load of the hub works with the network off. Caching API data (O2, the
   last-known glance) and queuing writes while offline (O3, the durable write queue) both build on top

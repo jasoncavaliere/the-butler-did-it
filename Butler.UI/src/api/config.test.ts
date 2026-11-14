@@ -4,6 +4,7 @@ import {
   apiUrl,
   authConfig,
   resolveApiBaseUrl,
+  buildTimeAuthEnv,
   resolveAuthConfig,
 } from './config';
 
@@ -94,5 +95,36 @@ describe('resolveAuthConfig', () => {
 
   it('treats any non-true, non-1 value as enabling live auth', () => {
     expect(resolveAuthConfig({ EXPO_PUBLIC_DISABLE_AUTH: 'no' }).disableAuthentication).toBe(false);
+  });
+
+  it('selects the provider from EXPO_PUBLIC_AUTH_PROVIDER (case-insensitive, trimmed)', () => {
+    const pin = resolveAuthConfig({ EXPO_PUBLIC_AUTH_PROVIDER: ' PIN ', EXPO_PUBLIC_DISABLE_AUTH: 'true' });
+    expect(pin.provider).toBe('pin');
+    expect(pin.disableAuthentication).toBe(false);
+    expect(resolveAuthConfig({ EXPO_PUBLIC_AUTH_PROVIDER: 'entra' }).provider).toBe('entra');
+    const dev = resolveAuthConfig({ EXPO_PUBLIC_AUTH_PROVIDER: 'dev', EXPO_PUBLIC_DISABLE_AUTH: 'false' });
+    expect(dev.provider).toBe('dev');
+    expect(dev.disableAuthentication).toBe(true);
+  });
+
+  it('falls back to EXPO_PUBLIC_DISABLE_AUTH when the provider is unset or unknown', () => {
+    expect(resolveAuthConfig({}).provider).toBe('dev');
+    expect(resolveAuthConfig({ EXPO_PUBLIC_DISABLE_AUTH: 'false' }).provider).toBe('entra');
+    expect(resolveAuthConfig({ EXPO_PUBLIC_AUTH_PROVIDER: 'okta' }).provider).toBe('dev');
+  });
+
+  it('reads each auth variable with a direct process.env access, so Expo can inline it', () => {
+    const saved = process.env.EXPO_PUBLIC_AUTH_PROVIDER;
+    process.env.EXPO_PUBLIC_AUTH_PROVIDER = 'pin';
+    try {
+      expect(buildTimeAuthEnv().EXPO_PUBLIC_AUTH_PROVIDER).toBe('pin');
+      expect(resolveAuthConfig().provider).toBe('pin');
+    } finally {
+      if (saved === undefined) {
+        delete process.env.EXPO_PUBLIC_AUTH_PROVIDER;
+      } else {
+        process.env.EXPO_PUBLIC_AUTH_PROVIDER = saved;
+      }
+    }
   });
 });

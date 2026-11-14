@@ -1,10 +1,12 @@
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { OrganizerGate } from './OrganizerGate';
 import type { ApiClient, ApiResult } from '../api/client';
 import type { MeResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import type { IAuthProvider, OrganizerSession } from './authProvider';
+import { OrganizerProvider, useOrganizer } from '../state/OrganizerContext';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 
@@ -135,5 +137,93 @@ describe('OrganizerGate', () => {
     });
 
     expect(screen.queryByTestId('gated-child')).toBeNull();
+  });
+
+  describe('with the demo PIN provider (#105)', () => {
+    const SESSION: OrganizerSession = {
+      organizer: { subject: 'dev-organizer', name: 'Demo Organizer' },
+      token: 'tok-1',
+    };
+
+    function provider(kind: string): IAuthProvider {
+      return { kind, signIn: jest.fn(async () => SESSION), signOut: () => Promise.resolve() };
+    }
+
+    const unauthorized = (status: number) =>
+      clientReturning({ ok: false, error: { kind: 'http', status, title: 'Nope' } });
+
+    async function renderGate(kind: string) {
+      await render(
+        <OrganizerProvider authProvider={provider(kind)}>
+          <OrganizerGate>{child()}</OrganizerGate>
+        </OrganizerProvider>,
+      );
+    }
+
+    it.each([401, 403])('shows a PIN pad when the provider is pin and /me is %i', async (status) => {
+      useApiClientMock.mockReturnValue(unauthorized(status));
+
+      await renderGate('pin');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('organizer-gate-pin')).toBeOnTheScreen();
+      });
+      expect(screen.getByTestId('pin-pad')).toBeOnTheScreen();
+      expect(screen.queryByTestId('gated-child')).toBeNull();
+    });
+
+    it('shows no PIN pad for a non-pin provider', async () => {
+      useApiClientMock.mockReturnValue(unauthorized(401));
+
+      await renderGate('entra');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('organizer-gate-blocked')).toBeOnTheScreen();
+      });
+      expect(screen.queryByTestId('organizer-gate-pin')).toBeNull();
+    });
+
+    it('shows no PIN pad when the API is unreachable', async () => {
+      useApiClientMock.mockReturnValue(
+        clientReturning({ ok: false, error: { kind: 'network', status: 0, title: 'The API is unreachable.' } }),
+      );
+
+      await renderGate('pin');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('organizer-gate-blocked')).toBeOnTheScreen();
+      });
+      expect(screen.queryByTestId('organizer-gate-pin')).toBeNull();
+    });
+
+    it('renders the children once the PIN signs the organizer in', async () => {
+      const blocked = unauthorized(401);
+      const authorized = clientReturning({
+        ok: true,
+        status: 200,
+        data: { subject: 'dev-organizer', name: 'Demo Organizer' },
+        etag: null,
+      });
+      // The real hook rebuilds the client when the organizer token changes.
+      useApiClientMock.mockImplementation(() => (useOrganizer().token ? authorized : blocked));
+
+      await renderGate('pin');
+      await waitFor(() => {
+        expect(screen.getByTestId('pin-pad')).toBeOnTheScreen();
+      });
+
+      for (const digit of '2468') {
+        await act(async () => {
+          fireEvent.press(screen.getByTestId(`pin-digit-${digit}`));
+        });
+      }
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('pin-submit'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('gated-child')).toBeOnTheScreen();
+      });
+    });
   });
 });

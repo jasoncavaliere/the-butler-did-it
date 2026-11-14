@@ -17,8 +17,9 @@ internal static class SmokeCategories
     public const string Storage = "Storage";
 
     /// <summary>
-    /// Seeds the demo household through a running API (Development or Demo) backed
-    /// by Azurite; mutating, so never point it at a deployed environment.
+    /// Seeds the demo household through a running API in Development (the dev
+    /// organizer bypass; Demo signs in with a PIN, #105) backed by Azurite;
+    /// mutating, so never point it at a deployed environment.
     /// </summary>
     public const string Demo = "Demo";
 

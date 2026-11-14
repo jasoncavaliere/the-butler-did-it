@@ -6,9 +6,9 @@ namespace Butler.Api.SmokeTests;
 /// <summary>
 /// Criterion (#97 AC5): seeding the demo household twice against a running API
 /// on real Table Storage (Azurite) replaces it cleanly - no duplicate rows, no
-/// 409 from a row key that already exists. Needs the API in Development (or
-/// Demo) at <see cref="SmokeSettings.BaseUrl"/>, where the dev organizer bypass
-/// satisfies the organizer policy. Mutating: never point it at a deployed
+/// 409 from a row key that already exists. Needs the API in Development at
+/// <see cref="SmokeSettings.BaseUrl"/>, where the dev organizer bypass satisfies
+/// the organizer policy (Demo signs the organizer in with a PIN, #105). Mutating: never point it at a deployed
 /// environment.
 /// </summary>
 /// <remarks>

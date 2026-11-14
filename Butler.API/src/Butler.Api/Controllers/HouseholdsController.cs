@@ -11,12 +11,13 @@ namespace Butler.Api.Controllers;
 /// <summary>
 /// Thin controller for the Households feature (the root aggregate). It resolves
 /// the calling organizer from the authenticated principal (Engineering Contract
-/// 7.4) and hands the work to MediatR. The whole controller is organizer-gated:
-/// the organizer is the only authenticated user in v1.
+/// 7.4) and hands the work to MediatR. Creating a household is organizer-only;
+/// reading one is open to the organizer or a paired hub device (#105), so a hub
+/// with no organizer signed in still shows its household. A participant session
+/// is forbidden on both.
 /// </summary>
 [ApiController]
 [Route("households")]
-[Authorize(Policy = OrganizerAuthorization.PolicyName)]
 [Tags("Households")]
 public sealed class HouseholdsController : ControllerBase
 {
@@ -29,6 +30,7 @@ public sealed class HouseholdsController : ControllerBase
 
     /// <summary>Creates a household and seeds the calling organizer's roster row.</summary>
     [HttpPost]
+    [Authorize(Policy = OrganizerAuthorization.PolicyName)]
     [ProducesResponseType(typeof(HouseholdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -51,6 +53,7 @@ public sealed class HouseholdsController : ControllerBase
 
     /// <summary>Reads a household by id, or <c>404</c> problem details when unknown.</summary>
     [HttpGet("{householdId}")]
+    [Authorize(Policy = OrganizerAuthorization.OrganizerOrHubDevicePolicyName)]
     [ProducesResponseType(typeof(HouseholdResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]

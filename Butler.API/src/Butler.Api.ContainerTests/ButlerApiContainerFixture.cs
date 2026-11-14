@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Butler.Api.ContainerTests;
@@ -53,8 +54,15 @@ public sealed class ButlerApiContainerFixture : IAsyncLifetime
                 ["image", "inspect", "--format", "{{json .Config}}", ImageTag]);
             ImageConfigJson = inspect.StandardOutput.Trim();
 
+            // The Demo image signs the organizer in with a PIN (#105) and refuses to
+            // start without one; give it a random, test-only BUTLER_DEMO_PIN.
+            var pin = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
             await DockerCli.RunCheckedAsync(
-                ["run", "--detach", "--name", ContainerName, "--publish", $"127.0.0.1::{ContainerPort}", ImageTag]);
+            [
+                "run", "--detach", "--name", ContainerName,
+                "--env", $"BUTLER_DEMO_PIN={pin}",
+                "--publish", $"127.0.0.1::{ContainerPort}", ImageTag,
+            ]);
 
             var port = await DockerCli.RunCheckedAsync(["port", ContainerName, ContainerPort]);
             var hostEndpoint = port.StandardOutput

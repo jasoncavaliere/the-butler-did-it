@@ -43,7 +43,15 @@ feature registers via `AddHouseholdFeature()` in `Program.cs`.
 | Endpoint | Behavior |
 | --- | --- |
 | `POST /households` | Creates a `Households` row with a server-generated `householdId` (partition key = row key), the caller's object id as `OrganizerObjectId`, and `CreatedUtc` from the injected clock. In the same operation it seeds the organizer's `People` row (`Role = Organizer`, `IsChild = false`) so a household is never left without a roster owner. Returns `201` with the created household (including `ETag`) and a `Location` pointing at `GET /households/{householdId}`. |
-| `GET /households/{householdId}` | Returns the household (with its current `ETag`) for a known id, or `404` RFC 7807 problem details for an unknown one. |
+| `GET /households/{householdId}` | Returns the household (with its current `ETag`) for a known id, or `404` RFC 7807 problem details for an unknown one. Open to the organizer or a paired hub device (`OrganizerOrHubDevice` policy, #105), so a hub with no organizer signed in still shows its household; a participant session is `403`. `POST /households` stays organizer-only. |
+
+Organizer auth in Demo (#105): the organizer signs in with a PIN from `BUTLER_DEMO_PIN` through
+`POST /auth/pin/sign-in` (`OrganizerPinController` -> `SignInWithPinCommand` ->
+`IPinOrganizerSessions`). The singleton `PinOrganizerSessions` holds opaque random tokens in memory with
+a sliding idle expiry and a failed-attempt lockout, all timed by the injected `TimeProvider`;
+`PinOrganizerAuthenticationHandler` (scheme `PinOrganizer`) turns a live bearer into the dev-organizer
+principal. `OrganizerAuthModeResolver` picks the dev bypass, the PIN, or Entra JWT at startup and
+fails closed outside Development and Demo. See "Demo organizer PIN" in the README.
 
 ### Rooms (the household's physical map)
 

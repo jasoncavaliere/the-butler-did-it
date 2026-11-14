@@ -45,11 +45,13 @@ public sealed class DemoEndpointGuardrailTests
             services.AddSingleton<TimeProvider>(new MutableClock(DemoTestHost.MidJuly));
         });
 
-    // Dev/Demo with the organizer bypass on (the default in both).
+    // Dev/Demo with the organizer bypass on (the default in Development; Demo
+    // uses the PIN organizer, so the bypass is set explicitly there).
     private static WebApplicationFactory<Program> CreateBypassFactory(string environment) =>
         new ButlerApiFactory().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
+            builder.UseSetting("Authentication:DisableAuthentication", "true");
             UseMidJulyClock(builder);
         });
 

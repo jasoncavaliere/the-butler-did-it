@@ -89,6 +89,7 @@ variables):
 docker build -t butler-api:demo .
 docker run --rm -p 8080:8080 \
   -e Storage__ConnectionString="<your Azurite or storage connection string>" \
+  -e BUTLER_DEMO_PIN="<your 4-6 digit PIN>" \
   butler-api:demo
 
 curl http://localhost:8080/health        # {"status":"ok"}
@@ -96,8 +97,8 @@ curl http://localhost:8080/health        # {"status":"ok"}
 ```
 
 - The image defaults to `ASPNETCORE_ENVIRONMENT=Demo`, which loads `appsettings.Demo.json`, serves
-  Swagger at `/swagger`, and turns on the organizer-auth bypass explicitly (see "Organizer
-  authentication" below).
+  Swagger at `/swagger`, and signs the organizer in with a PIN (see "Demo organizer PIN" below). The
+  container refuses to start without `BUTLER_DEMO_PIN`.
 - The storage connection string is passed at run time through `Storage__ConnectionString`. It is
   never baked into the image or committed to the repo. Without it the API falls back to the
   in-memory seed store.
@@ -149,8 +150,13 @@ There are two ways to run it, both **Development and Demo only**:
 # from Butler.API/ - seed on startup, then keep serving
 dotnet run --project src/Butler.Api -- --seed-demo --urls http://localhost:5108
 
-# or ask a running API (organizer only; the dev bypass counts in Development and Demo)
+# or ask a running API (organizer only; the dev bypass counts in Development)
 curl -X POST http://localhost:5108/demo/seed
+
+# in Demo, sign in with the PIN first and send the token as a bearer
+token="$(curl -s -X POST http://localhost:5108/auth/pin/sign-in -H 'Content-Type: application/json' \
+  -d "{\"pin\":\"$BUTLER_DEMO_PIN\"}" | jq -r .token)"
+curl -X POST -H "Authorization: Bearer $token" http://localhost:5108/demo/seed
 ```
 
 - `--seed-demo` is the same as setting `Demo__SeedOnStartup=true` (handy for a container). The
@@ -239,7 +245,7 @@ dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
 | --- | --- | --- | --- |
 | `Liveness` | `GET /health` returns `200 {"status":"ok"}`; `GET /api/system/ping` returns `200` with `status`, `service` (`Butler.API`), and `timestampUtc`. | A running API at the base URL | Yes - read-only |
 | `Storage` | Create, read, then update with `If-Match` through `IEntityRepository<T>`; a missing `If-Match` is rejected (`428`) and a stale ETag is rejected (`412`); the seam resolves the Table-backed repository, not the in-memory fallback. Each test creates and drops its own `Smoke<guid>` table. | Azurite | No - writes data; Azurite only |
-| `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. | A running API (Development or Demo) and Azurite | No - replaces the demo household; Azurite only |
+| `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. | A running API in Development (the dev bypass; Demo needs a PIN token) and Azurite | No - replaces the demo household; Azurite only |
 | `Provisioning` | Every feature table (`Households`, `People`, `Rooms`, `Chores`, `ChoreCompletions`, `Assignments`, `Carts`, `CartItems`, `HubDevices`) exists after the API starts and accepts a first write, with no table created by the test; once every table exists, provisioning them again (a restart) succeeds. No test in the suite creates a feature table, so a table the API failed to provision cannot be masked. Each write uses its own `smoke-provisioning-<guid>` partition and is deleted afterwards. | A running API booted against Azurite | No - writes data; Azurite only |
 | `Endpoints` | Rooms over HTTP: `POST /households/{id}/rooms` returns `201` and the row lands in the `Rooms` table; `GET` returns `200` with the `eTag`; `PUT` with the current `If-Match` returns `200` and a following `GET` shows the new values; `PUT` without `If-Match` returns `428`; `PUT` with a stale ETag returns `412`; `DELETE` returns `204`, then `GET` returns `404`. Each test uses its own `smoke-rooms-<guid>` partition, deletes every room it created, and creates no table. | A running API (Development) booted against Azurite | No - writes data; Azurite only |
 | `Settings` | How the suite resolves the variables above. | Nothing | Yes - offline |
@@ -256,20 +262,70 @@ they identify themselves instead. Endpoints that require an organizer carry
 `[Authorize(Policy = OrganizerAuthorization.PolicyName)]` - `GET /me` (resolves the caller's subject and
 display name) is the sample organizer-only endpoint that proves the seam end to end.
 
-In deployed environments the API validates JWT bearer tokens issued by Entra External ID. Locally and in
-CI (the Development environment), authentication is bypassed by default: every request is authenticated
-as a deterministic dev organizer, so `dotnet run` and `dotnet test` need no live tenant. The Demo
-environment (the local demo container, see "Run as a container") may also use the bypass, but only when
-it is set explicitly - `appsettings.Demo.json` does. The bypass fails closed everywhere else - a host
-outside Development and Demo refuses to start if authentication is disabled, and any host refuses to
-start if authentication is enabled but no authority is configured. Configure it under the `Authentication` section (or
-`Authentication__*` environment variables):
+The organizer signs in one of three ways, chosen at startup:
+
+- **Entra (JWT bearer)** - deployed environments. The API validates JWT bearer tokens issued by Entra
+  External ID.
+- **Dev bypass** - locally and in CI (the Development environment), authentication is bypassed by
+  default: every request is authenticated as a deterministic dev organizer, so `dotnet run` and
+  `dotnet test` need no live tenant. The Demo environment may use the bypass too, but only when
+  `Authentication:DisableAuthentication` is set to `true` explicitly.
+- **Demo PIN** - the Demo environment (the local demo container and compose stack).
+  `appsettings.Demo.json` sets `Authentication:Provider` to `Pin`; see "Demo organizer PIN" below.
+
+All three fail closed: a host outside Development and Demo refuses to start if authentication is
+disabled or the PIN provider is selected, and any host refuses to start if Entra is selected but no
+authority is configured. Configure it under the `Authentication` section (or `Authentication__*`
+environment variables):
 
 | Setting | Purpose |
 | --- | --- |
 | `Authentication:Authority` | Entra External ID authority (issuer) that mints organizer tokens, e.g. `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0`. Required whenever authentication is enabled. |
 | `Authentication:Audience` | Expected audience (the API's application/client id). Optional; when unset the audience is not validated. |
-| `Authentication:DisableAuthentication` | Explicit override. Defaults to `true` in Development, permitted in Demo when set explicitly (`appsettings.Demo.json`), refused (fail closed) in every other environment. Never set this outside Development or Demo. |
+| `Authentication:DisableAuthentication` | Explicit override. Defaults to `true` in Development (unless `Authentication:Provider` is `Pin`), permitted in Demo only when set explicitly, refused (fail closed) in every other environment. When `true` it wins over the provider. Never set this outside Development or Demo. |
+| `Authentication:Provider` | `Entra` (default) or `Pin` (case-insensitive). `Pin` is permitted only in Development and Demo; anywhere else startup fails with an error naming `Authentication:Provider`. Any other value fails startup. |
+| `Authentication:Pin:MaxFailedAttempts` | Consecutive wrong PINs that start a lockout. Default `5`. |
+| `Authentication:Pin:LockoutDuration` | How long every PIN attempt is refused after a lockout starts. Default `00:01:00`. |
+| `Authentication:Pin:IdleTimeout` | How long a PIN organizer token may go unused before it is rejected. Default `00:15:00`. |
+
+### Demo organizer PIN
+
+In Demo the organizer signs in with a 4-6 digit PIN instead of Entra (#105). The PIN is read from the
+`BUTLER_DEMO_PIN` environment variable, never from a committed file, and the API refuses to start in
+PIN mode without one (the error names `BUTLER_DEMO_PIN`, never the value).
+
+Set the PIN:
+
+- **Demo stack (recommended).** Put it in the git-ignored `demo/.env`; compose passes it to the API,
+  and the demo scripts read the same file:
+
+  ```bash
+  # from the repo root - pick your own 4-6 digits
+  printf 'BUTLER_DEMO_PIN=%s\n' "$(shuf -i 1000-999999 -n 1)" > demo/.env
+  demo/demo.sh up
+  ```
+
+- **Container.** `docker run -e BUTLER_DEMO_PIN=<pin> ... butler-api:demo` (see "Run as a container").
+- **`dotnet run`.**
+
+  ```bash
+  # from Butler.API/
+  BUTLER_DEMO_PIN=<pin> ASPNETCORE_ENVIRONMENT=Demo dotnet run --project src/Butler.Api -- --urls http://localhost:5108
+  ```
+
+Endpoints (mapped only in PIN mode; a `404` under the dev bypass or Entra):
+
+| Endpoint | Result |
+| --- | --- |
+| `POST /auth/pin/sign-in` with `{"pin":"<pin>"}` | `200` with `token`, `subject`, `name` and `idleTimeoutSeconds`. A wrong PIN is a `401` problem details document. While locked out every attempt, even the correct PIN, is a `429` problem details document with a `Retry-After` header and `retryAfterSeconds`. |
+| `POST /auth/pin/sign-out` with `Authorization: Bearer <token>` | `204`, always. The token stops working. |
+
+- Send the token as `Authorization: Bearer <token>`. It satisfies the `Organizer` policy as the dev
+  organizer subject (the one the demo seed binds), so every organizer endpoint works with it.
+- After 5 wrong PINs in a row every attempt is refused for 60 s; then the correct PIN works again.
+- A token expires after 15 minutes without use. Each request that carries it restarts the 15 minutes.
+- Tokens live only in the API's memory: an API restart signs the organizer out.
+- The demo scripts (#98, #99) sign in the same way with the PIN from `demo/.env`.
 
 ## Participant sessions (tap-to-claim)
 

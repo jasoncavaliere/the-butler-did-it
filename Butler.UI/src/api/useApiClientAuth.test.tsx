@@ -35,6 +35,11 @@ function Probe() {
   );
 }
 
+function SignedInFlag() {
+  const { isSignedIn } = useOrganizer();
+  return <Text testID="signed-in">{isSignedIn ? 'yes' : 'no'}</Text>;
+}
+
 async function press(testID: string) {
   await act(async () => {
     fireEvent.press(screen.getByTestId(testID));
@@ -60,9 +65,17 @@ describe('useApiClient token threading (T4)', () => {
     globalThis.fetch = originalFetch;
   });
 
-  function lastAuthHeader(): string | undefined {
+  function lastHeaders(): Record<string, string> {
     const [, init] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
-    return (init.headers as Record<string, string>).Authorization;
+    return init.headers as Record<string, string>;
+  }
+
+  function lastAuthHeader(): string | undefined {
+    return lastHeaders().Authorization;
+  }
+
+  function lastDeviceHeader(): string | undefined {
+    return lastHeaders()['X-Device-Token'];
   }
 
   it('sends no bearer before sign-in, the organizer token after, and none after sign-out', async () => {
@@ -94,9 +107,11 @@ describe('useApiClient token threading (T4)', () => {
     );
 
     // No organizer signed in - the always-on tablet's normal state - so the
-    // hub-device token authenticates the request instead of going out anonymous.
+    // hub-device token authenticates the request instead of going out anonymous,
+    // on its own header and never as a bearer (#105).
     await press('call');
-    expect(lastAuthHeader()).toBe('Bearer device-xyz');
+    expect(lastDeviceHeader()).toBe('device-xyz');
+    expect(lastAuthHeader()).toBeUndefined();
   });
 
   it('prefers the organizer token over the device token when both are present', async () => {
@@ -111,10 +126,44 @@ describe('useApiClient token threading (T4)', () => {
     await press('in');
     await press('call');
     expect(lastAuthHeader()).toBe('Bearer bearer-abc');
+    expect(lastDeviceHeader()).toBeUndefined();
 
     // Signing out drops back to the device token rather than to anonymous.
     await press('out');
     await press('call');
-    expect(lastAuthHeader()).toBe('Bearer device-xyz');
+    expect(lastDeviceHeader()).toBe('device-xyz');
+    expect(lastAuthHeader()).toBeUndefined();
+  });
+
+  it('an expired organizer token clears the organizer and the next call uses X-Device-Token', async () => {
+    await render(
+      <OrganizerProvider authProvider={provider}>
+        <HubDeviceProvider initialDeviceToken="device-xyz">
+          <Probe />
+          <SignedInFlag />
+        </HubDeviceProvider>
+      </OrganizerProvider>,
+    );
+
+    await press('in');
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('yes');
+
+    // The API rejects the organizer bearer (idle expiry); the device retry succeeds.
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      headers: { get: () => null },
+      text: async () => '',
+    }));
+    await press('call');
+
+    expect(fetchMock.mock.calls.length).toBe(2);
+    expect(lastDeviceHeader()).toBe('device-xyz');
+    expect(screen.getByTestId('signed-in')).toHaveTextContent('no');
+
+    await press('call');
+    expect(lastDeviceHeader()).toBe('device-xyz');
+    expect(lastAuthHeader()).toBeUndefined();
   });
 });

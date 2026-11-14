@@ -1,9 +1,12 @@
 // Headless end-to-end check that the hub on :8080 talks to the API same-origin
 // (#96 AC8).
 //
-// Opens the hub, drives the organizer onboarding UI (create a household, add a
-// room, finish setup) and waits for the hub shell to read the household back
-// (GET /households/{id}) and show its name. While it runs it records:
+// Opens the hub, signs the organizer in on the PIN pad with BUTLER_DEMO_PIN
+// (#105: the Demo API uses the PIN organizer and the export is built with
+// EXPO_PUBLIC_AUTH_PROVIDER=pin), drives the organizer onboarding UI (create a
+// household, add a room, finish setup) and waits for the hub shell to read the
+// household back (GET /households/{id}) and show its name. While it runs it
+// records:
 //   - every request the page makes whose origin is not the hub's origin,
 //   - every console error and uncaught page error,
 //   - every request that failed at the network level.
@@ -13,6 +16,7 @@
 // Env:
 //   NODE_PATH  - where `playwright` is installed (it is not a repo dependency).
 //   PW_CHANNEL - optional browser channel, e.g. "chrome" for desktop Chrome.
+//   BUTLER_DEMO_PIN - required: the organizer PIN the API was started with.
 //
 // Exits 1 unless the household create (POST) and readback (GET) both went to
 // <hub origin>/api/households..., every API call was same-origin, no request
@@ -26,6 +30,10 @@ const STEP_TIMEOUT_MS = 30000;
 const CORS_PATTERN = /CORS|Access-Control-Allow|cross-origin/i;
 
 async function main() {
+  const pin = process.env.BUTLER_DEMO_PIN || '';
+  if (!/^[0-9]{4,6}$/.test(pin)) {
+    throw new Error('BUTLER_DEMO_PIN must be set to the 4-6 digit organizer PIN.');
+  }
   const origin = new URL(url).origin;
   const householdName = `Demo CI UI Household ${Date.now()}`;
 
@@ -75,6 +83,13 @@ async function main() {
     let flowError = null;
     try {
       await page.goto(url, { waitUntil: 'load' });
+
+      // Sign the organizer in on the PIN pad (the gate shows it after /me 401s).
+      await byTestId('pin-pad').waitFor();
+      for (const digit of pin) {
+        await byTestId(`pin-digit-${digit}`).click();
+      }
+      await byTestId('pin-submit').click();
 
       // Create the household (POST /households) through the onboarding UI.
       await byTestId('input-household-name').fill(householdName);

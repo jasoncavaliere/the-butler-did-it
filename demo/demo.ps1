@@ -44,6 +44,8 @@ $ComposeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 $LogsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'logs'
 $UiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.UI'
+# Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
+$EnvFile = Join-Path $PSScriptRoot '.env'
 
 $HubUrl = 'http://localhost:8080'
 $DatasetUrl = "$HubUrl/api/api/system/dataset"
@@ -132,15 +134,19 @@ function Invoke-ExportBuild {
                 return
             }
         }
-        # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin.
+        # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin,
+        # and pin makes the hub sign the organizer in on the PIN pad (#105).
         $previous = $env:EXPO_PUBLIC_API_BASE_URL
+        $previousProvider = $env:EXPO_PUBLIC_AUTH_PROVIDER
         $env:EXPO_PUBLIC_API_BASE_URL = '/api'
+        $env:EXPO_PUBLIC_AUTH_PROVIDER = 'pin'
         try {
             & npm run build:web
             $script:ExitCode = $LASTEXITCODE
         }
         finally {
             $env:EXPO_PUBLIC_API_BASE_URL = $previous
+            $env:EXPO_PUBLIC_AUTH_PROVIDER = $previousProvider
         }
         if ($script:ExitCode -ne 0) {
             Write-Err 'Hub export build failed.'
@@ -172,7 +178,37 @@ function Initialize-LogsDir {
     }
 }
 
+# Returns the organizer PIN (#105): BUTLER_DEMO_PIN from the environment if
+# set, otherwise the last BUTLER_DEMO_PIN= line of demo/.env (quotes stripped).
+function Get-DemoPin {
+    if ($env:BUTLER_DEMO_PIN) {
+        return $env:BUTLER_DEMO_PIN
+    }
+    if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
+        return ''
+    }
+    $pin = ''
+    foreach ($line in Get-Content -LiteralPath $EnvFile) {
+        if ($line -match '^\s*BUTLER_DEMO_PIN\s*=\s*(.*)$') {
+            $pin = $Matches[1].TrimEnd() -replace '^["'']', '' -replace '["'']$', ''
+        }
+    }
+    return $pin
+}
+
+# The Demo API refuses to start without a 4-6 digit PIN, so fail fast, before
+# npm or docker run.
+function Test-DemoPin {
+    if ((Get-DemoPin) -cmatch '^[0-9]{4,6}$') {
+        return $true
+    }
+    Write-Err 'demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.'
+    $script:ExitCode = 1
+    return $false
+}
+
 function Invoke-DemoUp {
+    if (-not (Test-DemoPin)) { return }
     $rebuilt = $false
     switch (Get-ExportState) {
         'fresh' {

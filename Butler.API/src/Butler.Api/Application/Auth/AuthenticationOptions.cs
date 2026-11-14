@@ -15,14 +15,36 @@ public sealed class AuthenticationOptions
     /// <summary>Configuration section this binds from.</summary>
     public const string SectionName = "Authentication";
 
+    /// <summary>The full configuration key of <see cref="Provider"/>.</summary>
+    public const string ProviderKey = "Authentication:Provider";
+
+    /// <summary>The <see cref="Provider"/> value for Entra External ID (JWT bearer); the default.</summary>
+    public const string EntraProvider = "Entra";
+
+    /// <summary>
+    /// The <see cref="Provider"/> value for the local demo PIN organizer (#105).
+    /// Permitted only in Development and Demo; any other environment refuses to
+    /// start with it (fail closed).
+    /// </summary>
+    public const string PinProvider = "Pin";
+
     /// <summary>
     /// When <c>true</c>, authentication is bypassed: the <c>Organizer</c> policy
     /// is satisfied by a deterministic dev-organizer principal so local runs and
-    /// tests need no live tenant. Defaults to <c>true</c> in Development and is
-    /// refused (fail closed) in every other environment. Never set this outside
-    /// Development.
+    /// tests need no live tenant. Defaults to <c>true</c> in Development (unless
+    /// <see cref="Provider"/> is <see cref="PinProvider"/>) and is refused (fail
+    /// closed) outside Development and Demo. <c>appsettings.Demo.json</c> no
+    /// longer sets it (Demo uses the PIN provider); an explicit <c>true</c> still
+    /// wins in Development and Demo.
     /// </summary>
     public bool DisableAuthentication { get; set; }
+
+    /// <summary>
+    /// Which organizer provider signs organizers in when authentication is
+    /// enabled: <see cref="EntraProvider"/> (default) or <see cref="PinProvider"/>
+    /// (case-insensitive). Any other value refuses to start.
+    /// </summary>
+    public string? Provider { get; set; }
 
     /// <summary>
     /// The Entra External ID authority (issuer) that mints organizer tokens, for

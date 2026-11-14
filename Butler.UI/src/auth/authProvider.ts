@@ -29,20 +29,30 @@ export type OrganizerSession = {
 };
 
 /**
+ * Credentials a provider may need to sign in. Only the demo PIN provider uses
+ * one (`pin`); the dev and Entra providers ignore them.
+ */
+export type SignInCredentials = {
+  /** The organizer PIN typed on the PIN pad (demo PIN provider, #105). */
+  pin?: string;
+};
+
+/**
  * The IdP-agnostic sign-in seam. A concrete provider is selected by
  * configuration (see {@link createAuthProvider}); tests inject a fake provider
  * through this same interface, proving the seam is real.
  */
 export interface IAuthProvider {
-  /** Discriminates the concrete provider (e.g. `dev`, `entra`) for diagnostics. */
+  /** Discriminates the concrete provider (`dev`, `entra`, `pin`); the UI picks the sign-in affordance by it. */
   readonly kind: string;
   /**
    * Begin or complete an organizer sign-in. Resolves an
    * {@link OrganizerSession} once the session is established, or `null` when a
    * browser redirect was started and the page is navigating away (the session
-   * completes on the return trip through the callback URL).
+   * completes on the return trip through the callback URL). A provider that
+   * checks credentials (the PIN provider) rejects when they are refused.
    */
-  signIn(): Promise<OrganizerSession | null>;
+  signIn(credentials?: SignInCredentials): Promise<OrganizerSession | null>;
   /** End the organizer session (client side); safe to call when signed out. */
   signOut(): Promise<void>;
 }

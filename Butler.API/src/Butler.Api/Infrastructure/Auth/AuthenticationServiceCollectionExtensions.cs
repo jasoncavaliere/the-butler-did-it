@@ -1,9 +1,9 @@
 using Butler.Api.Application.Auth;
-using Butler.Api.Infrastructure.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using ButlerAuthenticationOptions = Butler.Api.Application.Auth.AuthenticationOptions;
 
@@ -11,10 +11,11 @@ namespace Butler.Api.Infrastructure.Auth;
 
 /// <summary>
 /// Composition entry point for the organizer authentication seam (Engineering
-/// Contract 7.4). Wires JWT bearer validation against Entra External ID plus the
-/// <c>Organizer</c> authorization policy, with a bypass that defaults on only in
-/// Development, is permitted in Demo when set explicitly, and fails closed
-/// everywhere else.
+/// Contract 7.4). Wires one of three organizer modes plus the <c>Organizer</c>
+/// authorization policies: JWT bearer against Entra External ID, the local demo
+/// PIN organizer (#105, Development and Demo only), or a bypass that defaults on
+/// only in Development, is permitted in Demo when set explicitly, and fails
+/// closed everywhere else.
 /// </summary>
 public static class AuthenticationServiceCollectionExtensions
 {
@@ -23,17 +24,20 @@ public static class AuthenticationServiceCollectionExtensions
     /// </summary>
     /// <remarks>
     /// <para>
+    /// The mode comes from <see cref="OrganizerAuthModeResolver"/>:
     /// <c>Authentication:DisableAuthentication</c> resolves to its configured
-    /// value, or - when unset - to <c>true</c> only in Development. The Demo
-    /// environment (the local demo stack) may also disable it, but only when set
-    /// explicitly (<c>appsettings.Demo.json</c> does). When disabled,
-    /// a dev-organizer scheme is registered so the policy is permissive. When
-    /// enabled, JWT bearer validation is wired against the configured authority.
+    /// value, or - when unset - to <c>true</c> only in Development without the PIN
+    /// provider, and the bypass wins when on. Otherwise
+    /// <c>Authentication:Provider</c> picks <c>Entra</c> (default, JWT bearer) or
+    /// <c>Pin</c> (the demo PIN organizer; <c>appsettings.Demo.json</c> sets it).
     /// </para>
     /// <para>
     /// Fail-closed (mitigates BRD risk R-1): a host outside Development and Demo
-    /// refuses to start if authentication is disabled, and any host refuses to
-    /// start if authentication is enabled but no authority is configured. Either way the app never serves organizer endpoints open.
+    /// refuses to start with the bypass on or with the PIN provider; the PIN
+    /// provider refuses to start without a 4-6 digit <c>BUTLER_DEMO_PIN</c> or
+    /// with non-positive <c>Authentication:Pin:*</c> values; and the Entra mode
+    /// refuses to start without an authority. Either way the app never serves
+    /// organizer endpoints open.
     /// </para>
     /// </remarks>
     public static IServiceCollection AddOrganizerAuthentication(
@@ -49,23 +53,16 @@ public static class AuthenticationServiceCollectionExtensions
         var options = new ButlerAuthenticationOptions();
         section.Bind(options);
 
-        var isDevelopment = environment.IsDevelopment();
         var explicitDisable = section.GetValue<bool?>(nameof(ButlerAuthenticationOptions.DisableAuthentication));
-        var disableAuthentication = explicitDisable ?? isDevelopment;
+        var mode = OrganizerAuthModeResolver.Resolve(environment, options.Provider, explicitDisable);
 
-        if (disableAuthentication && !environment.IsDevelopmentOrDemo())
+        // The scheme that satisfies the Organizer policy.
+        var organizerScheme = mode switch
         {
-            throw new InvalidOperationException(
-                "Authentication:DisableAuthentication is only permitted in the Development or Demo environment. " +
-                $"Refusing to start in '{environment.EnvironmentName}' with authentication disabled (fail closed).");
-        }
-
-        // The scheme that satisfies the Organizer policy: the dev-organizer bypass
-        // in Development (or Demo, when set explicitly), JWT bearer against Entra
-        // External ID otherwise.
-        var organizerScheme = disableAuthentication
-            ? OrganizerAuthorization.DevScheme
-            : JwtBearerDefaults.AuthenticationScheme;
+            OrganizerAuthMode.DevBypass => OrganizerAuthorization.DevScheme,
+            OrganizerAuthMode.Pin => OrganizerAuthorization.PinScheme,
+            _ => JwtBearerDefaults.AuthenticationScheme,
+        };
 
         // The default is a forwarding scheme (T1/T5): a request presenting a hub
         // device token is authenticated by the device scheme, one presenting a
@@ -103,11 +100,15 @@ public static class AuthenticationServiceCollectionExtensions
             DeviceToken.SchemeName,
             configureOptions: null);
 
-        if (disableAuthentication)
+        if (mode == OrganizerAuthMode.DevBypass)
         {
             authBuilder.AddScheme<AuthenticationSchemeOptions, DevOrganizerAuthenticationHandler>(
                 OrganizerAuthorization.DevScheme,
                 configureOptions: null);
+        }
+        else if (mode == OrganizerAuthMode.Pin)
+        {
+            AddPinOrganizer(services, authBuilder, configuration);
         }
         else
         {
@@ -126,6 +127,16 @@ public static class AuthenticationServiceCollectionExtensions
                     !string.IsNullOrWhiteSpace(options.Audience);
             });
         }
+
+        // /auth/pin/* exists only in the PIN mode; 404 under the bypass or Entra.
+        // The PIN command handlers stay resolvable there through a refusing store.
+        if (mode != OrganizerAuthMode.Pin)
+        {
+            services.TryAddSingleton<IPinOrganizerSessions, DisabledPinOrganizerSessions>();
+        }
+
+        services.AddMvcCore().ConfigureApplicationPartManager(manager =>
+            manager.FeatureProviders.Add(new PinSignInControllerFeatureProvider(mode)));
 
         services.AddAuthorizationBuilder()
             .AddPolicy(OrganizerAuthorization.PolicyName, policy =>
@@ -146,5 +157,30 @@ public static class AuthenticationServiceCollectionExtensions
             });
 
         return services;
+    }
+
+    // The demo PIN organizer (#105): the PIN comes from BUTLER_DEMO_PIN (an
+    // environment variable, never a committed file) and the tuning from
+    // Authentication:Pin, both checked now so a bad value fails startup. The
+    // clock is resolved lazily so a test's TimeProvider swap reaches the store.
+    private static void AddPinOrganizer(
+        IServiceCollection services,
+        AuthenticationBuilder authBuilder,
+        IConfiguration configuration)
+    {
+        var pin = OrganizerAuthModeResolver.ValidatePin(configuration[PinOrganizerOptions.PinConfigurationKey]);
+
+        var pinOptions = new PinOrganizerOptions();
+        configuration.GetSection(PinOrganizerOptions.SectionName).Bind(pinOptions);
+        pinOptions.Validate();
+
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton(pinOptions);
+        services.AddSingleton<IPinOrganizerSessions>(provider =>
+            new PinOrganizerSessions(pin, pinOptions, provider.GetRequiredService<TimeProvider>()));
+
+        authBuilder.AddScheme<AuthenticationSchemeOptions, PinOrganizerAuthenticationHandler>(
+            OrganizerAuthorization.PinScheme,
+            configureOptions: null);
     }
 }
