@@ -46,8 +46,12 @@ dotnet test /p:CollectCoverage=true       # + enforce the 98% coverage gate (Con
 ## Local session with Table Storage (Azurite)
 
 Butler persists to Azure Table Storage, partitioned by `householdId` (Engineering
-Contract 7.3). For a full local session against the real Table-backed
-repositories, use the emulator (Azurite) instead of cloud storage:
+Contract 7.3). `Start-LocalSession.ps1` is the API-only dev loop: it runs
+Azurite and the API in Development on `http://localhost:5099` against the real
+Table-backed repositories, with no hub, no Caddy and no containers. For the
+full demo stack (Azurite, the API and the hub together on
+`http://localhost:8080`), use `demo/demo.sh up` or `demo/demo.ps1 up` from the
+repo root instead; see [the demo README](../demo/README.md).
 
 ```bash
 # from Butler.API/ (needs PowerShell 7+ and Node.js for Azurite)
