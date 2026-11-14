@@ -539,7 +539,8 @@ organizer signed in; once signed in it shows the organizer's name, sign-out, and
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
 does nothing. Today that is Household (#112), Edit roster (#167), Insights (#123), Your data (#125) and Delete household (#168), which open their
-routes through the handlers `RootNavigator` passes to `HubShell`, Version (#126), and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
+routes through the handlers `RootNavigator` passes to `HubShell`, Version (#126), and Confirm order (only once the hub has a ready household, since the cart is not mounted while
+loading, with no household, or in the error state, #171), which scrolls the hub to `GroceryCart` and focuses the
 cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Version is
 hub-internal state, not a route: it toggles a panel (`hub-version-panel`) rendered after the fixed-height
 chrome, holding `VersionInfo` and a Close button. The panel shows only while an organizer is signed in, so

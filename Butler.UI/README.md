@@ -99,7 +99,8 @@ touching anything under `public/` or `scripts/`.
   client attaches the organizer bearer automatically. `OrganizerBar` renders a sensitive action only
   when `HubShell` supplies its handler. Household is wired: it opens the organizer's room and chore
   editor (#112). Your data is wired: it opens the plain-language data page (#125). Confirm order is
-  wired: it scrolls the hub to `GroceryCart` and focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). After
+  wired once the hub has a ready household (hidden while loading, with no household, or in the error
+  state, #171): it scrolls the hub to `GroceryCart` and focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). After
   Confirm order succeeds the hub shows the order receipt (`OrderReceipt`, #115) until it is
   dismissed back to the hub. Edit roster is wired (#167): it opens the organizer's Roster screen,
   and the hub re-reads its roster when the organizer comes back. Delete household is wired (#168): it
