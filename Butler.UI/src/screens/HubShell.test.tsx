@@ -1808,6 +1808,62 @@ describe('HubShell sync indicator', () => {
     expect(indexOf(tiles)).toBeLessThan(indexOf(panel));
   });
 
+  it('reads Offline when the shell load cannot reach the API and nothing is cached (#151)', async () => {
+    useApiClientMock.mockReturnValue(clientWith({ household: unreachable, people: unreachable }));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
+  });
+
+  it('returns to Online once a load after a network failure succeeds (#151)', async () => {
+    const responses: Responses = { household: unreachable, people: unreachable };
+    useApiClientMock.mockReturnValue(clientWith(responses));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
+
+    responses.household = okHousehold('Home');
+    responses.people = { ok: true, status: 200, data: roster, etag: null };
+    await act(async () => fireEvent.press(screen.getByTestId('today-panel-retry')));
+
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Home'));
+    expect(screen.queryByTestId('hub-error')).toBeNull();
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
+  });
+
+  it('reads Online when the hub loads live (#151)', async () => {
+    useApiClientMock.mockReturnValue(interactiveClient());
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
+  });
+
+  it.each<[string, ApiResult<unknown>]>([
+    ['http 500', { ok: false, error: { kind: 'http', status: 500, title: 'Internal Server Error' } }],
+    [
+      'problem 403',
+      { ok: false, error: { kind: 'problem', status: 403, title: 'Forbidden', detail: 'Not your household.' } },
+    ],
+    ['parse', { ok: false, error: { kind: 'parse', status: 200, title: 'The API response was not valid JSON.' } }],
+  ])('reads Online when a reachable API answers the shell load with a %s error (#151)', async (_label, failure) => {
+    useApiClientMock.mockReturnValue(clientWith({ household: failure, people: failure }));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
+  });
+
   it('hub header shows a queued write from storage and clears it after sync', async () => {
     const week = currentWeekIso();
     saveWriteQueue('hh-1', [
