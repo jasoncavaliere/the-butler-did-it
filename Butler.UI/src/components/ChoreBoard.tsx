@@ -469,8 +469,15 @@ export function ChoreBoard({
           setWeekIso(cached.board.weekIso);
           // The cache is re-read from storage on every load, so a queued tap that
           // happened after the record was last written is still shown as done.
+          // Live taps go on top, pruned exactly as on a live load (#147/#154), so a
+          // tap still in flight is not redrawn as the cached snapshot had it.
+          liveTapsRef.current = pruneLiveTaps(liveTapsRef.current, load);
           setItems(
-            applyQueuedWrites(cached.board.items, cached.board.weekIso, readWriteQueue(householdId)),
+            applyLiveTaps(
+              applyQueuedWrites(cached.board.items, cached.board.weekIso, readWriteQueue(householdId)),
+              cached.board.weekIso,
+              liveTapsRef.current,
+            ),
           );
           setFromCache(true);
           setPhase('ready');
