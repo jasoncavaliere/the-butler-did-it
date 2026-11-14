@@ -20,10 +20,32 @@
     SimulatedHebConnector loads it fully offline - no file-system or network
     dependency. LogicalName is set explicitly so the manifest resource name is
     stable regardless of how MSBuild would otherwise transform the path.
+    The six per-category catalog icons (SeedData/grocery/icons/, named by each
+    product's iconId) are embedded the same way, one explicit item per SVG: the
+    Web SDK does not pick up .svg files on its own. The icons' README (source and
+    license) is documentation only and is not embedded.
   -->
   <ItemGroup>
     <EmbeddedResource Include="SeedData/grocery/heb-catalog.json">
       <LogicalName>Butler.Api.SeedData.grocery.heb-catalog.json</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SeedData/grocery/icons/produce.svg">
+      <LogicalName>Butler.Api.SeedData.grocery.icons.produce.svg</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SeedData/grocery/icons/dairy.svg">
+      <LogicalName>Butler.Api.SeedData.grocery.icons.dairy.svg</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SeedData/grocery/icons/pantry.svg">
+      <LogicalName>Butler.Api.SeedData.grocery.icons.pantry.svg</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SeedData/grocery/icons/frozen.svg">
+      <LogicalName>Butler.Api.SeedData.grocery.icons.frozen.svg</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SeedData/grocery/icons/household.svg">
+      <LogicalName>Butler.Api.SeedData.grocery.icons.household.svg</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="SeedData/grocery/icons/kids.svg">
+      <LogicalName>Butler.Api.SeedData.grocery.icons.kids.svg</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

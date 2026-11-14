@@ -14,6 +14,12 @@ internal static class HebCatalog
     /// <summary>The manifest name of the embedded catalog resource.</summary>
     internal const string ResourceName = "Butler.Api.SeedData.grocery.heb-catalog.json";
 
+    /// <summary>
+    /// The manifest-name prefix of the embedded per-category catalog icons. A
+    /// product's icon is the resource <c>{IconResourcePrefix}{IconId}.svg</c>.
+    /// </summary>
+    internal const string IconResourcePrefix = "Butler.Api.SeedData.grocery.icons.";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,

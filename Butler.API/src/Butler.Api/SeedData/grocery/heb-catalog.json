@@ -5,6 +5,8 @@
     "size": "1",
     "unit": "gal",
     "indicativePrice": "$3.29",
+    "category": "dairy",
+    "iconId": "dairy",
     "synonyms": ["milk", "whole milk", "dairy"]
   },
   {
@@ -13,6 +15,8 @@
     "size": "1",
     "unit": "gal",
     "indicativePrice": "$3.19",
+    "category": "dairy",
+    "iconId": "dairy",
     "synonyms": ["milk", "2 percent milk", "dairy"]
   },
   {
@@ -21,6 +25,8 @@
     "size": "12",
     "unit": "ct",
     "indicativePrice": "$2.49",
+    "category": "dairy",
+    "iconId": "dairy",
     "synonyms": ["eggs", "dozen eggs", "large eggs"]
   },
   {
@@ -29,6 +35,8 @@
     "size": "20",
     "unit": "oz",
     "indicativePrice": "$2.79",
+    "category": "pantry",
+    "iconId": "pantry",
     "synonyms": ["bread", "wheat bread", "loaf"]
   },
   {
@@ -37,6 +45,8 @@
     "size": "1",
     "unit": "lb",
     "indicativePrice": "$0.58",
+    "category": "produce",
+    "iconId": "produce",
     "synonyms": ["banana", "bananas", "fruit"]
   },
   {
@@ -45,6 +55,8 @@
     "size": "1",
     "unit": "ea",
     "indicativePrice": "$0.99",
+    "category": "produce",
+    "iconId": "produce",
     "synonyms": ["avocado", "avocados", "fruit"]
   },
   {
@@ -53,6 +65,8 @@
     "size": "1",
     "unit": "lb",
     "indicativePrice": "$3.99",
+    "category": "frozen",
+    "iconId": "frozen",
     "synonyms": ["chicken", "chicken breast", "poultry"]
   },
   {
@@ -61,6 +75,8 @@
     "size": "1",
     "unit": "lb",
     "indicativePrice": "$4.49",
+    "category": "frozen",
+    "iconId": "frozen",
     "synonyms": ["beef", "ground beef", "hamburger meat"]
   },
   {
@@ -69,6 +85,8 @@
     "size": "8",
     "unit": "oz",
     "indicativePrice": "$2.99",
+    "category": "dairy",
+    "iconId": "dairy",
     "synonyms": ["cheese", "cheddar", "dairy"]
   },
   {
@@ -77,6 +95,8 @@
     "size": "16",
     "unit": "oz",
     "indicativePrice": "$2.69",
+    "category": "pantry",
+    "iconId": "pantry",
     "synonyms": ["peanut butter", "pb"]
   },
   {
@@ -85,6 +105,8 @@
     "size": "16",
     "unit": "oz",
     "indicativePrice": "$1.19",
+    "category": "pantry",
+    "iconId": "pantry",
     "synonyms": ["pasta", "spaghetti", "noodles"]
   },
   {
@@ -93,6 +115,8 @@
     "size": "24",
     "unit": "oz",
     "indicativePrice": "$1.99",
+    "category": "pantry",
+    "iconId": "pantry",
     "synonyms": ["sauce", "pasta sauce", "marinara"]
   },
   {
@@ -101,6 +125,8 @@
     "size": "2",
     "unit": "lb",
     "indicativePrice": "$1.89",
+    "category": "pantry",
+    "iconId": "pantry",
     "synonyms": ["rice", "white rice"]
   },
   {
@@ -109,6 +135,8 @@
     "size": "15",
     "unit": "oz",
     "indicativePrice": "$0.89",
+    "category": "pantry",
+    "iconId": "pantry",
     "synonyms": ["beans", "black beans"]
   },
   {
@@ -117,6 +145,8 @@
     "size": "1",
     "unit": "lb",
     "indicativePrice": "$1.29",
+    "category": "produce",
+    "iconId": "produce",
     "synonyms": ["tomato", "tomatoes", "vegetable"]
   },
   {
@@ -125,6 +155,8 @@
     "size": "52",
     "unit": "fl oz",
     "indicativePrice": "$3.49",
+    "category": "dairy",
+    "iconId": "dairy",
     "synonyms": ["orange juice", "oj", "juice"]
   },
   {
@@ -133,6 +165,1838 @@
     "size": "52",
     "unit": "fl oz",
     "indicativePrice": "$3.79",
+    "category": "dairy",
+    "iconId": "dairy",
     "synonyms": ["oat milk", "oatmilk", "oat beverage"]
+  },
+  {
+    "productId": "heb-0018",
+    "displayName": "Fresh Gala Apples",
+    "size": "3",
+    "unit": "lb",
+    "indicativePrice": "$4.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["gala apples", "apples"]
+  },
+  {
+    "productId": "heb-0019",
+    "displayName": "Fresh Honeycrisp Apples",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$2.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["honeycrisp", "apples"]
+  },
+  {
+    "productId": "heb-0020",
+    "displayName": "Fresh Strawberries",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["strawberry", "berries"]
+  },
+  {
+    "productId": "heb-0021",
+    "displayName": "Fresh Blueberries",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["blueberry", "berries"]
+  },
+  {
+    "productId": "heb-0022",
+    "displayName": "Fresh Raspberries",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["raspberry", "berries"]
+  },
+  {
+    "productId": "heb-0023",
+    "displayName": "Fresh Blackberries",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["blackberry", "berries"]
+  },
+  {
+    "productId": "heb-0024",
+    "displayName": "Fresh Seedless Red Grapes",
+    "size": "2",
+    "unit": "lb",
+    "indicativePrice": "$4.98",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["grapes", "red grapes"]
+  },
+  {
+    "productId": "heb-0025",
+    "displayName": "Fresh Seedless Green Grapes",
+    "size": "2",
+    "unit": "lb",
+    "indicativePrice": "$4.98",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["grapes", "green grapes"]
+  },
+  {
+    "productId": "heb-0026",
+    "displayName": "Fresh Navel Oranges",
+    "size": "4",
+    "unit": "lb",
+    "indicativePrice": "$4.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["navel oranges", "citrus"]
+  },
+  {
+    "productId": "heb-0027",
+    "displayName": "Fresh Lemons",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.69",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["lemon", "citrus"]
+  },
+  {
+    "productId": "heb-0028",
+    "displayName": "Fresh Limes",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.33",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["lime", "citrus"]
+  },
+  {
+    "productId": "heb-0029",
+    "displayName": "Fresh Whole Pineapple",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$2.98",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["pineapple"]
+  },
+  {
+    "productId": "heb-0030",
+    "displayName": "Fresh Mango",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["mangoes"]
+  },
+  {
+    "productId": "heb-0031",
+    "displayName": "Fresh Seedless Watermelon",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$5.98",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["watermelon", "melon"]
+  },
+  {
+    "productId": "heb-0032",
+    "displayName": "Fresh Cantaloupe",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$2.98",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["cantaloupe", "melon"]
+  },
+  {
+    "productId": "heb-0033",
+    "displayName": "Fresh Bartlett Pears",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.79",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["pear", "pears"]
+  },
+  {
+    "productId": "heb-0034",
+    "displayName": "Fresh Yellow Peaches",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["peach", "peaches"]
+  },
+  {
+    "productId": "heb-0035",
+    "displayName": "Fresh Clementines",
+    "size": "3",
+    "unit": "lb",
+    "indicativePrice": "$5.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["clementine", "mandarins"]
+  },
+  {
+    "productId": "heb-0036",
+    "displayName": "Fresh Kiwifruit",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.50",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["kiwi"]
+  },
+  {
+    "productId": "heb-0037",
+    "displayName": "Fresh Baby Carrots",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.29",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["carrots", "baby carrots"]
+  },
+  {
+    "productId": "heb-0038",
+    "displayName": "Fresh Whole Carrots",
+    "size": "2",
+    "unit": "lb",
+    "indicativePrice": "$1.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["carrot", "whole carrots"]
+  },
+  {
+    "productId": "heb-0039",
+    "displayName": "Fresh Broccoli Crowns",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.79",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["broccoli"]
+  },
+  {
+    "productId": "heb-0040",
+    "displayName": "Fresh Cauliflower",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$2.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["cauliflower"]
+  },
+  {
+    "productId": "heb-0041",
+    "displayName": "Fresh Baby Spinach",
+    "size": "5",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["spinach", "salad greens"]
+  },
+  {
+    "productId": "heb-0042",
+    "displayName": "Fresh Romaine Hearts",
+    "size": "3",
+    "unit": "ct",
+    "indicativePrice": "$3.29",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["romaine", "lettuce"]
+  },
+  {
+    "productId": "heb-0043",
+    "displayName": "Fresh English Cucumber",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$1.19",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["cucumber", "cucumbers"]
+  },
+  {
+    "productId": "heb-0044",
+    "displayName": "Fresh Green Bell Pepper",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.79",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["bell pepper", "green pepper"]
+  },
+  {
+    "productId": "heb-0045",
+    "displayName": "Fresh Red Bell Pepper",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$1.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["bell pepper", "red pepper"]
+  },
+  {
+    "productId": "heb-0046",
+    "displayName": "Fresh Jalapeno Peppers",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.29",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["jalapeno", "jalapenos"]
+  },
+  {
+    "productId": "heb-0047",
+    "displayName": "Fresh Yellow Onions",
+    "size": "3",
+    "unit": "lb",
+    "indicativePrice": "$2.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["onion", "yellow onion"]
+  },
+  {
+    "productId": "heb-0048",
+    "displayName": "Fresh Red Onion",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$1.09",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["red onion", "purple onion"]
+  },
+  {
+    "productId": "heb-0049",
+    "displayName": "Fresh Garlic Bulb",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.59",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["garlic"]
+  },
+  {
+    "productId": "heb-0050",
+    "displayName": "Fresh Russet Potatoes",
+    "size": "5",
+    "unit": "lb",
+    "indicativePrice": "$3.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["potato", "russet"]
+  },
+  {
+    "productId": "heb-0051",
+    "displayName": "Fresh Sweet Potatoes",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.29",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["sweet potato", "yams"]
+  },
+  {
+    "productId": "heb-0052",
+    "displayName": "Fresh Yellow Squash",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["squash", "summer squash"]
+  },
+  {
+    "productId": "heb-0053",
+    "displayName": "Fresh Zucchini",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["zucchini", "courgette"]
+  },
+  {
+    "productId": "heb-0054",
+    "displayName": "Fresh Celery Hearts",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$2.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["celery"]
+  },
+  {
+    "productId": "heb-0055",
+    "displayName": "Fresh Cilantro Bunch",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.69",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["cilantro", "coriander"]
+  },
+  {
+    "productId": "heb-0056",
+    "displayName": "Fresh White Mushrooms",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$1.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["mushroom", "mushrooms"]
+  },
+  {
+    "productId": "heb-0057",
+    "displayName": "Fresh Corn on the Cob",
+    "size": "1",
+    "unit": "ea",
+    "indicativePrice": "$0.50",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["sweet corn", "corn"]
+  },
+  {
+    "productId": "heb-0058",
+    "displayName": "Fresh Green Beans",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$1.99",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["string beans"]
+  },
+  {
+    "productId": "heb-0059",
+    "displayName": "Fresh Asparagus",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$3.49",
+    "category": "produce",
+    "iconId": "produce",
+    "synonyms": ["asparagus"]
+  },
+  {
+    "productId": "heb-0060",
+    "displayName": "H-E-B Fat Free Skim Milk",
+    "size": "1",
+    "unit": "gal",
+    "indicativePrice": "$3.19",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["milk", "skim milk", "nonfat milk"]
+  },
+  {
+    "productId": "heb-0061",
+    "displayName": "H-E-B Lowfat Chocolate Milk",
+    "size": "64",
+    "unit": "fl oz",
+    "indicativePrice": "$2.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["chocolate milk"]
+  },
+  {
+    "productId": "heb-0062",
+    "displayName": "H-E-B Unsweetened Almond Milk",
+    "size": "64",
+    "unit": "fl oz",
+    "indicativePrice": "$2.79",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["almondmilk", "almond beverage"]
+  },
+  {
+    "productId": "heb-0063",
+    "displayName": "H-E-B Lactose Free Reduced Fat Milk",
+    "size": "64",
+    "unit": "fl oz",
+    "indicativePrice": "$4.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["lactose free milk"]
+  },
+  {
+    "productId": "heb-0064",
+    "displayName": "H-E-B Cultured Lowfat Buttermilk",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$1.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["buttermilk"]
+  },
+  {
+    "productId": "heb-0065",
+    "displayName": "H-E-B Half and Half",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$3.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["half & half"]
+  },
+  {
+    "productId": "heb-0066",
+    "displayName": "H-E-B Heavy Whipping Cream",
+    "size": "16",
+    "unit": "fl oz",
+    "indicativePrice": "$3.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["heavy cream", "whipping cream"]
+  },
+  {
+    "productId": "heb-0067",
+    "displayName": "H-E-B French Vanilla Coffee Creamer",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$3.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["coffee creamer", "creamer"]
+  },
+  {
+    "productId": "heb-0068",
+    "displayName": "H-E-B Salted Butter",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$4.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["butter", "stick butter"]
+  },
+  {
+    "productId": "heb-0069",
+    "displayName": "H-E-B Unsalted Sweet Cream Butter",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$4.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["unsalted", "baking butter"]
+  },
+  {
+    "productId": "heb-0070",
+    "displayName": "H-E-B Large Curd Cottage Cheese",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$2.79",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["cottage cheese"]
+  },
+  {
+    "productId": "heb-0071",
+    "displayName": "H-E-B Original Cream Cheese",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$1.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["cream cheese spread"]
+  },
+  {
+    "productId": "heb-0072",
+    "displayName": "H-E-B Sour Cream",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$1.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["sour cream"]
+  },
+  {
+    "productId": "heb-0073",
+    "displayName": "H-E-B Shredded Mozzarella",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["mozzarella"]
+  },
+  {
+    "productId": "heb-0074",
+    "displayName": "H-E-B Shredded Mexican Blend Cheese",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["shredded cheese", "taco cheese"]
+  },
+  {
+    "productId": "heb-0075",
+    "displayName": "H-E-B Sliced Pepper Jack Cheese",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["pepper jack"]
+  },
+  {
+    "productId": "heb-0076",
+    "displayName": "H-E-B Sliced American Cheese",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$2.69",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["american cheese", "cheese slices"]
+  },
+  {
+    "productId": "heb-0077",
+    "displayName": "H-E-B Sliced Swiss Cheese",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$3.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["swiss"]
+  },
+  {
+    "productId": "heb-0078",
+    "displayName": "H-E-B Grated Parmesan Cheese",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["parmesan", "parm"]
+  },
+  {
+    "productId": "heb-0079",
+    "displayName": "H-E-B Crumbled Feta Cheese",
+    "size": "4",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["feta"]
+  },
+  {
+    "productId": "heb-0080",
+    "displayName": "H-E-B Ricotta Cheese",
+    "size": "15",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["ricotta"]
+  },
+  {
+    "productId": "heb-0081",
+    "displayName": "H-E-B Plain Greek Yogurt",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$4.99",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["greek yogurt", "yogurt"]
+  },
+  {
+    "productId": "heb-0082",
+    "displayName": "H-E-B Vanilla Lowfat Yogurt",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["vanilla yogurt", "yogurt"]
+  },
+  {
+    "productId": "heb-0083",
+    "displayName": "H-E-B Strawberry Lowfat Yogurt Cup",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$0.69",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["strawberry yogurt"]
+  },
+  {
+    "productId": "heb-0084",
+    "displayName": "H-E-B Liquid Egg Whites",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$3.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["egg whites"]
+  },
+  {
+    "productId": "heb-0085",
+    "displayName": "H-E-B Ruby Red Grapefruit Juice",
+    "size": "52",
+    "unit": "fl oz",
+    "indicativePrice": "$3.29",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["grapefruit juice", "juice"]
+  },
+  {
+    "productId": "heb-0086",
+    "displayName": "H-E-B Cinnamon Rolls with Icing",
+    "size": "12.4",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["cinnamon rolls"]
+  },
+  {
+    "productId": "heb-0087",
+    "displayName": "H-E-B Classic Hummus",
+    "size": "10",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "dairy",
+    "iconId": "dairy",
+    "synonyms": ["hummus"]
+  },
+  {
+    "productId": "heb-0088",
+    "displayName": "H-E-B Penne Rigate Pasta",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$1.19",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["penne", "pasta"]
+  },
+  {
+    "productId": "heb-0089",
+    "displayName": "H-E-B Elbow Macaroni",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$1.19",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["macaroni", "elbow pasta"]
+  },
+  {
+    "productId": "heb-0090",
+    "displayName": "H-E-B Wide Egg Noodles",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$1.79",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["egg noodles"]
+  },
+  {
+    "productId": "heb-0091",
+    "displayName": "H-E-B Pinto Beans",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$1.29",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["frijoles", "dry beans"]
+  },
+  {
+    "productId": "heb-0092",
+    "displayName": "H-E-B Dark Red Kidney Beans",
+    "size": "15.5",
+    "unit": "oz",
+    "indicativePrice": "$0.89",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["kidney beans"]
+  },
+  {
+    "productId": "heb-0093",
+    "displayName": "H-E-B Chickpeas",
+    "size": "15.5",
+    "unit": "oz",
+    "indicativePrice": "$0.89",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["garbanzo", "garbanzo beans"]
+  },
+  {
+    "productId": "heb-0094",
+    "displayName": "H-E-B Petite Diced Tomatoes",
+    "size": "14.5",
+    "unit": "oz",
+    "indicativePrice": "$0.79",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["diced tomatoes", "canned tomatoes"]
+  },
+  {
+    "productId": "heb-0095",
+    "displayName": "H-E-B Tomato Sauce",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$0.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["canned tomato sauce"]
+  },
+  {
+    "productId": "heb-0096",
+    "displayName": "H-E-B Tomato Paste",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$0.69",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["tomato paste"]
+  },
+  {
+    "productId": "heb-0097",
+    "displayName": "H-E-B Chicken Broth",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$1.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["chicken stock", "broth"]
+  },
+  {
+    "productId": "heb-0098",
+    "displayName": "H-E-B Chicken Noodle Soup",
+    "size": "10.75",
+    "unit": "oz",
+    "indicativePrice": "$1.19",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["soup"]
+  },
+  {
+    "productId": "heb-0099",
+    "displayName": "H-E-B Chunk Light Tuna in Water",
+    "size": "5",
+    "unit": "oz",
+    "indicativePrice": "$1.09",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["tuna", "canned tuna"]
+  },
+  {
+    "productId": "heb-0100",
+    "displayName": "H-E-B All Purpose Flour",
+    "size": "5",
+    "unit": "lb",
+    "indicativePrice": "$2.79",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["flour", "baking flour"]
+  },
+  {
+    "productId": "heb-0101",
+    "displayName": "H-E-B Pure Cane Sugar",
+    "size": "4",
+    "unit": "lb",
+    "indicativePrice": "$3.29",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["sugar", "granulated sugar"]
+  },
+  {
+    "productId": "heb-0102",
+    "displayName": "H-E-B Light Brown Sugar",
+    "size": "2",
+    "unit": "lb",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["brown sugar"]
+  },
+  {
+    "productId": "heb-0103",
+    "displayName": "H-E-B Iodized Salt",
+    "size": "26",
+    "unit": "oz",
+    "indicativePrice": "$0.79",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["salt", "table salt"]
+  },
+  {
+    "productId": "heb-0104",
+    "displayName": "H-E-B Ground Black Pepper",
+    "size": "3",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["black pepper", "pepper"]
+  },
+  {
+    "productId": "heb-0105",
+    "displayName": "H-E-B Pure Vanilla Extract",
+    "size": "2",
+    "unit": "fl oz",
+    "indicativePrice": "$6.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["vanilla extract", "vanilla"]
+  },
+  {
+    "productId": "heb-0106",
+    "displayName": "H-E-B Baking Soda",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$0.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["bicarbonate of soda"]
+  },
+  {
+    "productId": "heb-0107",
+    "displayName": "H-E-B Double Acting Baking Powder",
+    "size": "10",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["baking powder"]
+  },
+  {
+    "productId": "heb-0108",
+    "displayName": "H-E-B Semi-Sweet Chocolate Chips",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["chocolate chips", "baking chips"]
+  },
+  {
+    "productId": "heb-0109",
+    "displayName": "H-E-B Vegetable Oil",
+    "size": "48",
+    "unit": "fl oz",
+    "indicativePrice": "$3.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["cooking oil"]
+  },
+  {
+    "productId": "heb-0110",
+    "displayName": "H-E-B Extra Virgin Olive Oil",
+    "size": "16.9",
+    "unit": "fl oz",
+    "indicativePrice": "$6.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["evoo"]
+  },
+  {
+    "productId": "heb-0111",
+    "displayName": "H-E-B Apple Cider Vinegar",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$2.29",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["vinegar"]
+  },
+  {
+    "productId": "heb-0112",
+    "displayName": "H-E-B Clover Honey",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$3.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["honey"]
+  },
+  {
+    "productId": "heb-0113",
+    "displayName": "H-E-B Strawberry Preserves",
+    "size": "18",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["strawberry jam", "jam"]
+  },
+  {
+    "productId": "heb-0114",
+    "displayName": "H-E-B Old Fashioned Oats",
+    "size": "42",
+    "unit": "oz",
+    "indicativePrice": "$4.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["oatmeal", "rolled oats"]
+  },
+  {
+    "productId": "heb-0115",
+    "displayName": "H-E-B Toasted Oat Cereal",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$2.29",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["cereal", "oat cereal"]
+  },
+  {
+    "productId": "heb-0116",
+    "displayName": "H-E-B Corn Flakes Cereal",
+    "size": "18",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["corn flakes", "flakes"]
+  },
+  {
+    "productId": "heb-0117",
+    "displayName": "H-E-B Pancake and Waffle Mix",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["pancake mix"]
+  },
+  {
+    "productId": "heb-0118",
+    "displayName": "H-E-B Original Pancake Syrup",
+    "size": "24",
+    "unit": "fl oz",
+    "indicativePrice": "$2.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["syrup", "pancake syrup"]
+  },
+  {
+    "productId": "heb-0119",
+    "displayName": "H-E-B Medium Roast Ground Coffee",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$6.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["coffee"]
+  },
+  {
+    "productId": "heb-0120",
+    "displayName": "H-E-B Black Tea Bags",
+    "size": "100",
+    "unit": "ct",
+    "indicativePrice": "$3.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["tea bags", "black tea"]
+  },
+  {
+    "productId": "heb-0121",
+    "displayName": "H-E-B Tomato Ketchup",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["catsup"]
+  },
+  {
+    "productId": "heb-0122",
+    "displayName": "H-E-B Yellow Mustard",
+    "size": "20",
+    "unit": "oz",
+    "indicativePrice": "$1.29",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["mustard"]
+  },
+  {
+    "productId": "heb-0123",
+    "displayName": "H-E-B Real Mayonnaise",
+    "size": "30",
+    "unit": "fl oz",
+    "indicativePrice": "$3.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["mayo"]
+  },
+  {
+    "productId": "heb-0124",
+    "displayName": "H-E-B Ranch Dressing",
+    "size": "16",
+    "unit": "fl oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["ranch", "salad dressing"]
+  },
+  {
+    "productId": "heb-0125",
+    "displayName": "H-E-B Kosher Dill Pickle Spears",
+    "size": "24",
+    "unit": "fl oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["pickles", "dill pickles"]
+  },
+  {
+    "productId": "heb-0126",
+    "displayName": "H-E-B Restaurant Style Salsa",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["salsa"]
+  },
+  {
+    "productId": "heb-0127",
+    "displayName": "H-E-B Flour Tortillas",
+    "size": "10",
+    "unit": "ct",
+    "indicativePrice": "$2.29",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["tortillas"]
+  },
+  {
+    "productId": "heb-0128",
+    "displayName": "H-E-B Corn Tortillas",
+    "size": "30",
+    "unit": "ct",
+    "indicativePrice": "$1.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["tortillas"]
+  },
+  {
+    "productId": "heb-0129",
+    "displayName": "H-E-B Tortilla Chips",
+    "size": "13",
+    "unit": "oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["chips"]
+  },
+  {
+    "productId": "heb-0130",
+    "displayName": "H-E-B Classic Potato Chips",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["chips"]
+  },
+  {
+    "productId": "heb-0131",
+    "displayName": "H-E-B Microwave Butter Popcorn",
+    "size": "3",
+    "unit": "ct",
+    "indicativePrice": "$2.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["popcorn"]
+  },
+  {
+    "productId": "heb-0132",
+    "displayName": "H-E-B Saltine Crackers",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$1.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["saltines", "crackers"]
+  },
+  {
+    "productId": "heb-0133",
+    "displayName": "H-E-B Roasted Almonds",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$6.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["almonds", "nuts"]
+  },
+  {
+    "productId": "heb-0134",
+    "displayName": "H-E-B Hamburger Buns",
+    "size": "8",
+    "unit": "ct",
+    "indicativePrice": "$1.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["burger buns", "buns"]
+  },
+  {
+    "productId": "heb-0135",
+    "displayName": "H-E-B 100% Apple Juice",
+    "size": "64",
+    "unit": "fl oz",
+    "indicativePrice": "$2.49",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["apple juice"]
+  },
+  {
+    "productId": "heb-0136",
+    "displayName": "H-E-B Lime Sparkling Water",
+    "size": "12",
+    "unit": "ct",
+    "indicativePrice": "$3.99",
+    "category": "pantry",
+    "iconId": "pantry",
+    "synonyms": ["seltzer", "sparkling water"]
+  },
+  {
+    "productId": "heb-0137",
+    "displayName": "H-E-B Frozen Sweet Peas",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$1.29",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["sweet peas"]
+  },
+  {
+    "productId": "heb-0138",
+    "displayName": "H-E-B Frozen Broccoli Florets",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$1.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["frozen broccoli"]
+  },
+  {
+    "productId": "heb-0139",
+    "displayName": "H-E-B Frozen Mixed Vegetables",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$1.29",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["mixed vegetables", "frozen vegetables"]
+  },
+  {
+    "productId": "heb-0140",
+    "displayName": "H-E-B Frozen Chopped Spinach",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$1.29",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["frozen spinach"]
+  },
+  {
+    "productId": "heb-0141",
+    "displayName": "H-E-B Frozen Whole Strawberries",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["frozen fruit"]
+  },
+  {
+    "productId": "heb-0142",
+    "displayName": "H-E-B Frozen Triple Berry Blend",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$3.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["frozen berries", "frozen fruit"]
+  },
+  {
+    "productId": "heb-0143",
+    "displayName": "H-E-B Vanilla Bean Ice Cream",
+    "size": "48",
+    "unit": "fl oz",
+    "indicativePrice": "$4.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["vanilla ice cream"]
+  },
+  {
+    "productId": "heb-0144",
+    "displayName": "H-E-B Dutch Chocolate Ice Cream",
+    "size": "48",
+    "unit": "fl oz",
+    "indicativePrice": "$4.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["chocolate ice cream"]
+  },
+  {
+    "productId": "heb-0145",
+    "displayName": "H-E-B Frozen Pepperoni Pizza",
+    "size": "21",
+    "unit": "oz",
+    "indicativePrice": "$5.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["pepperoni pizza", "pizza"]
+  },
+  {
+    "productId": "heb-0146",
+    "displayName": "H-E-B Frozen Four Cheese Pizza",
+    "size": "19",
+    "unit": "oz",
+    "indicativePrice": "$4.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["cheese pizza", "pizza"]
+  },
+  {
+    "productId": "heb-0147",
+    "displayName": "H-E-B Frozen Homestyle Waffles",
+    "size": "10",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["waffles"]
+  },
+  {
+    "productId": "heb-0148",
+    "displayName": "H-E-B Frozen Bean and Cheese Burritos",
+    "size": "8",
+    "unit": "ct",
+    "indicativePrice": "$4.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["burritos"]
+  },
+  {
+    "productId": "heb-0149",
+    "displayName": "H-E-B Frozen Crinkle Cut French Fries",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["fries"]
+  },
+  {
+    "productId": "heb-0150",
+    "displayName": "H-E-B Frozen Shredded Hash Browns",
+    "size": "30",
+    "unit": "oz",
+    "indicativePrice": "$2.79",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["hash browns"]
+  },
+  {
+    "productId": "heb-0151",
+    "displayName": "H-E-B Frozen Wild Caught Cod Fillets",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$7.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["cod", "white fish"]
+  },
+  {
+    "productId": "heb-0152",
+    "displayName": "H-E-B Frozen Atlantic Salmon Fillets",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$9.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["salmon"]
+  },
+  {
+    "productId": "heb-0153",
+    "displayName": "H-E-B Frozen Raw Peeled Shrimp",
+    "size": "16",
+    "unit": "oz",
+    "indicativePrice": "$8.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["shrimp", "prawns"]
+  },
+  {
+    "productId": "heb-0154",
+    "displayName": "H-E-B Frozen Turkey Burger Patties",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$7.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["turkey burgers"]
+  },
+  {
+    "productId": "heb-0155",
+    "displayName": "H-E-B Frozen Beef Burger Patties",
+    "size": "32",
+    "unit": "oz",
+    "indicativePrice": "$9.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["beef patties", "burger patties"]
+  },
+  {
+    "productId": "heb-0156",
+    "displayName": "H-E-B Frozen Grilled Chicken Strips",
+    "size": "22",
+    "unit": "oz",
+    "indicativePrice": "$7.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["chicken strips"]
+  },
+  {
+    "productId": "heb-0157",
+    "displayName": "H-E-B Frozen Fully Cooked Sausage Links",
+    "size": "12",
+    "unit": "oz",
+    "indicativePrice": "$3.49",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["breakfast sausage", "sausage"]
+  },
+  {
+    "productId": "heb-0158",
+    "displayName": "H-E-B Frozen Homestyle Meatballs",
+    "size": "26",
+    "unit": "oz",
+    "indicativePrice": "$6.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["meatballs"]
+  },
+  {
+    "productId": "heb-0159",
+    "displayName": "H-E-B Frozen Cheese Ravioli",
+    "size": "25",
+    "unit": "oz",
+    "indicativePrice": "$4.99",
+    "category": "frozen",
+    "iconId": "frozen",
+    "synonyms": ["ravioli"]
+  },
+  {
+    "productId": "heb-0160",
+    "displayName": "H-E-B Ultra Strong Paper Towels",
+    "size": "6",
+    "unit": "ct",
+    "indicativePrice": "$8.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["paper towels"]
+  },
+  {
+    "productId": "heb-0161",
+    "displayName": "H-E-B Soft Bath Tissue",
+    "size": "12",
+    "unit": "ct",
+    "indicativePrice": "$7.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["toilet paper"]
+  },
+  {
+    "productId": "heb-0162",
+    "displayName": "H-E-B Facial Tissues",
+    "size": "3",
+    "unit": "ct",
+    "indicativePrice": "$4.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["tissues"]
+  },
+  {
+    "productId": "heb-0163",
+    "displayName": "H-E-B Lemon Dish Soap",
+    "size": "24",
+    "unit": "fl oz",
+    "indicativePrice": "$2.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["dishwashing liquid"]
+  },
+  {
+    "productId": "heb-0164",
+    "displayName": "H-E-B Dishwasher Detergent Pacs",
+    "size": "42",
+    "unit": "ct",
+    "indicativePrice": "$8.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["dishwasher pods"]
+  },
+  {
+    "productId": "heb-0165",
+    "displayName": "H-E-B Free and Clear Laundry Detergent",
+    "size": "100",
+    "unit": "fl oz",
+    "indicativePrice": "$9.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["detergent"]
+  },
+  {
+    "productId": "heb-0166",
+    "displayName": "H-E-B Fabric Softener Sheets",
+    "size": "120",
+    "unit": "ct",
+    "indicativePrice": "$4.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["dryer sheets"]
+  },
+  {
+    "productId": "heb-0167",
+    "displayName": "H-E-B Tall Kitchen Trash Bags",
+    "size": "40",
+    "unit": "ct",
+    "indicativePrice": "$7.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["garbage bags"]
+  },
+  {
+    "productId": "heb-0168",
+    "displayName": "H-E-B Zipper Sandwich Bags",
+    "size": "100",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["sandwich bags"]
+  },
+  {
+    "productId": "heb-0169",
+    "displayName": "H-E-B Heavy Duty Aluminum Foil",
+    "size": "75",
+    "unit": "sq ft",
+    "indicativePrice": "$3.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["tin foil", "foil"]
+  },
+  {
+    "productId": "heb-0170",
+    "displayName": "H-E-B Clear Plastic Wrap",
+    "size": "200",
+    "unit": "sq ft",
+    "indicativePrice": "$2.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["cling wrap"]
+  },
+  {
+    "productId": "heb-0171",
+    "displayName": "H-E-B Disinfecting Wipes",
+    "size": "75",
+    "unit": "ct",
+    "indicativePrice": "$4.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["cleaning wipes"]
+  },
+  {
+    "productId": "heb-0172",
+    "displayName": "H-E-B All Purpose Cleaner",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$2.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["spray cleaner"]
+  },
+  {
+    "productId": "heb-0173",
+    "displayName": "H-E-B Glass Cleaner",
+    "size": "32",
+    "unit": "fl oz",
+    "indicativePrice": "$2.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["window cleaner"]
+  },
+  {
+    "productId": "heb-0174",
+    "displayName": "H-E-B Regular Bleach",
+    "size": "81",
+    "unit": "fl oz",
+    "indicativePrice": "$3.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["bleach"]
+  },
+  {
+    "productId": "heb-0175",
+    "displayName": "H-E-B Non-Scratch Scrub Sponges",
+    "size": "6",
+    "unit": "ct",
+    "indicativePrice": "$3.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["sponge", "sponges"]
+  },
+  {
+    "productId": "heb-0176",
+    "displayName": "H-E-B Gentle Hand Soap",
+    "size": "7.5",
+    "unit": "fl oz",
+    "indicativePrice": "$1.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["hand soap"]
+  },
+  {
+    "productId": "heb-0177",
+    "displayName": "H-E-B Fluoride Toothpaste",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$1.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["toothpaste"]
+  },
+  {
+    "productId": "heb-0178",
+    "displayName": "H-E-B Soft Toothbrushes",
+    "size": "2",
+    "unit": "ct",
+    "indicativePrice": "$2.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["toothbrush"]
+  },
+  {
+    "productId": "heb-0179",
+    "displayName": "H-E-B Moisturizing Body Wash",
+    "size": "18",
+    "unit": "fl oz",
+    "indicativePrice": "$3.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["body wash"]
+  },
+  {
+    "productId": "heb-0180",
+    "displayName": "H-E-B Everyday Shampoo",
+    "size": "25.4",
+    "unit": "fl oz",
+    "indicativePrice": "$3.49",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["shampoo"]
+  },
+  {
+    "productId": "heb-0181",
+    "displayName": "H-E-B AA Alkaline Batteries",
+    "size": "8",
+    "unit": "ct",
+    "indicativePrice": "$6.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["batteries", "double a batteries"]
+  },
+  {
+    "productId": "heb-0182",
+    "displayName": "H-E-B Everyday Paper Plates",
+    "size": "100",
+    "unit": "ct",
+    "indicativePrice": "$4.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["paper plates"]
+  },
+  {
+    "productId": "heb-0183",
+    "displayName": "H-E-B Clumping Cat Litter",
+    "size": "20",
+    "unit": "lb",
+    "indicativePrice": "$8.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["kitty litter"]
+  },
+  {
+    "productId": "heb-0184",
+    "displayName": "H-E-B Adult Dry Dog Food",
+    "size": "16",
+    "unit": "lb",
+    "indicativePrice": "$14.99",
+    "category": "household",
+    "iconId": "household",
+    "synonyms": ["dog food"]
+  },
+  {
+    "productId": "heb-0185",
+    "displayName": "H-E-B Baby Diapers Size 3",
+    "size": "32",
+    "unit": "ct",
+    "indicativePrice": "$9.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["diapers", "nappies"]
+  },
+  {
+    "productId": "heb-0186",
+    "displayName": "H-E-B Unscented Baby Wipes",
+    "size": "72",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["wipes"]
+  },
+  {
+    "productId": "heb-0187",
+    "displayName": "H-E-B Tear Free Baby Wash",
+    "size": "16",
+    "unit": "fl oz",
+    "indicativePrice": "$3.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["baby shampoo"]
+  },
+  {
+    "productId": "heb-0188",
+    "displayName": "H-E-B Infant Formula with Iron",
+    "size": "31",
+    "unit": "oz",
+    "indicativePrice": "$27.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["baby formula", "formula"]
+  },
+  {
+    "productId": "heb-0189",
+    "displayName": "H-E-B Baby Oatmeal Cereal",
+    "size": "8",
+    "unit": "oz",
+    "indicativePrice": "$2.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["baby cereal"]
+  },
+  {
+    "productId": "heb-0190",
+    "displayName": "H-E-B Sweet Potato Baby Food",
+    "size": "4",
+    "unit": "oz",
+    "indicativePrice": "$1.19",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["baby food"]
+  },
+  {
+    "productId": "heb-0191",
+    "displayName": "H-E-B Dino Chicken Nuggets",
+    "size": "29",
+    "unit": "oz",
+    "indicativePrice": "$6.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["chicken nuggets", "dino nuggets"]
+  },
+  {
+    "productId": "heb-0192",
+    "displayName": "H-E-B Shells and Cheese",
+    "size": "6",
+    "unit": "oz",
+    "indicativePrice": "$1.29",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["mac and cheese", "mac n cheese"]
+  },
+  {
+    "productId": "heb-0193",
+    "displayName": "H-E-B String Cheese",
+    "size": "12",
+    "unit": "ct",
+    "indicativePrice": "$3.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["cheese sticks"]
+  },
+  {
+    "productId": "heb-0194",
+    "displayName": "H-E-B Applesauce Cups",
+    "size": "6",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["apple sauce"]
+  },
+  {
+    "productId": "heb-0195",
+    "displayName": "H-E-B Mixed Fruit Snacks",
+    "size": "10",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["fruit snacks", "gummies"]
+  },
+  {
+    "productId": "heb-0196",
+    "displayName": "H-E-B Frosted Animal Crackers",
+    "size": "11",
+    "unit": "oz",
+    "indicativePrice": "$2.29",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["animal crackers"]
+  },
+  {
+    "productId": "heb-0197",
+    "displayName": "H-E-B Cheddar Fish Crackers",
+    "size": "30",
+    "unit": "oz",
+    "indicativePrice": "$6.49",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["fish crackers", "cheese crackers"]
+  },
+  {
+    "productId": "heb-0198",
+    "displayName": "H-E-B Berry Yogurt Tubes",
+    "size": "8",
+    "unit": "ct",
+    "indicativePrice": "$2.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["yogurt tubes"]
+  },
+  {
+    "productId": "heb-0199",
+    "displayName": "H-E-B Chocolate Chip Granola Bars",
+    "size": "8",
+    "unit": "ct",
+    "indicativePrice": "$2.49",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["granola bars", "snack bars"]
+  },
+  {
+    "productId": "heb-0200",
+    "displayName": "H-E-B Apple Juice Boxes",
+    "size": "8",
+    "unit": "ct",
+    "indicativePrice": "$2.99",
+    "category": "kids",
+    "iconId": "kids",
+    "synonyms": ["juice boxes"]
   }
 ]
