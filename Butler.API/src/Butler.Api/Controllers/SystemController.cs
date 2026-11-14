@@ -29,4 +29,18 @@ public sealed class SystemController : ControllerBase
         var result = await _sender.Send(new PingQuery(), cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>
+    /// The deployment's current dataset id (#100 D7). The hub compares it with
+    /// the id it last saw and drops its offline cache and write queue when it
+    /// changed. Anonymous, like ping, and never cached.
+    /// </summary>
+    [HttpGet("dataset")]
+    [ProducesResponseType(typeof(DatasetResponse), StatusCodes.Status200OK)]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<ActionResult<DatasetResponse>> Dataset(CancellationToken cancellationToken)
+    {
+        var result = await _sender.Send(new GetDatasetQuery(), cancellationToken);
+        return Ok(result);
+    }
 }

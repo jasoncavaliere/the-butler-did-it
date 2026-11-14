@@ -27,7 +27,7 @@ public sealed class TableProvisioningStartupTests
     /// <summary>The distinct feature tables, in the order Program registers them.</summary>
     private static readonly string[] FeatureTables =
     [
-        "Households", "People", "Rooms", "Chores", "HubDevices",
+        "Datasets", "Households", "People", "Rooms", "Chores", "HubDevices",
         "Assignments", "ChoreCompletions", "Carts", "CartItems",
     ];
 

@@ -5,6 +5,7 @@ using Butler.Api.Application.Demo;
 using Butler.Api.Application.Households;
 using Butler.Api.Application.People;
 using Butler.Api.Application.Rooms;
+using Butler.Api.Application.System;
 using Butler.Api.Infrastructure.ChoreCompletions;
 using Butler.Api.Infrastructure.Demo;
 using Butler.Api.Infrastructure.Hosting;
@@ -33,6 +34,7 @@ public sealed class DemoSeederUnitTests
     private readonly IAssignmentGenerationService _assignments = Substitute.For<IAssignmentGenerationService>();
     private readonly IChoreCompletionService _completionService = Substitute.For<IChoreCompletionService>();
     private readonly ICaptureHandler _capture = Substitute.For<ICaptureHandler>();
+    private readonly IDatasetService _datasets = Substitute.For<IDatasetService>();
 
     public DemoSeederUnitTests()
     {
@@ -84,7 +86,8 @@ public sealed class DemoSeederUnitTests
         _completions,
         _assignments,
         _completionService,
-        _capture);
+        _capture,
+        _datasets);
 
     // Every chore assigned to Maria so the current-week lookups resolve.
     private static AssignmentSetResponse AllToMaria(string weekIso) => new(
@@ -109,6 +112,31 @@ public sealed class DemoSeederUnitTests
         Assert.Empty(_households.ReceivedCalls());
         Assert.Empty(_rooms.ReceivedCalls());
         Assert.Empty(_completions.ReceivedCalls());
+        Assert.Empty(_datasets.ReceivedCalls());
+    }
+
+    [Fact]
+    public async Task Seed_regenerates_the_dataset_id_before_purging()
+    {
+        // #100 AC3: a reseed mints a new dataset id, and it does so before the
+        // old household is wiped, so a hub never sees the old id over new data.
+        _assignments.GenerateAsync(DemoHousehold.Id, null, Arg.Any<CancellationToken>())
+            .Returns(AllToMaria("2026-W29"));
+        _capture.ResolveAndAddAsync(Arg.Any<string>(), Arg.Any<CaptureRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => CaptureResult.Added(
+                CaptureSourceNames.HubText,
+                ci.Arg<CaptureRequest>().Utterance,
+                "2026-W29",
+                new Application.Carts.CartItemView("item", "p", "d", 1, "person", "heb")));
+
+        await CreateSeeder().SeedAsync("org", "Organizer");
+
+        await _datasets.Received(1).RegenerateAsync(Arg.Any<CancellationToken>());
+        Received.InOrder(() =>
+        {
+            _datasets.RegenerateAsync(Arg.Any<CancellationToken>());
+            _purger.PurgeAsync(DemoHousehold.Id, Arg.Any<CancellationToken>());
+        });
     }
 
     [Theory]

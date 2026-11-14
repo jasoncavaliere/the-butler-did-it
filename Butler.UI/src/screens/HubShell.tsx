@@ -18,7 +18,9 @@ import { LastKnownBanner } from '../components/LastKnownBanner';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
+import type { DatasetCheck } from '../offline/datasetGuard';
 import { readGlance, writeGlance } from '../offline/glanceCache';
+import { useDatasetGuard } from '../offline/useDatasetGuard';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { useHousehold } from '../state/HouseholdContext';
@@ -117,6 +119,15 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * shell also reloads on each such confirmation ({@link QueueRevival}) - the
  * board already refetches on it - and the indicator returns to Online without
  * anyone reloading the tablet.
+ *
+ * The dataset guard (#100 D7) sits above all of that. Before the hub shows its
+ * board, serves its cache, or drains its queue, it asks the API which dataset it
+ * is serving ({@link useDatasetGuard}); it asks again on every reconnect, and the
+ * queue asks before every replay. When the dataset changed (a demo reseed, or
+ * wiped storage) the guard has already emptied the household's cache and queue,
+ * and the hub body is remounted on the guard's revision, so every region
+ * reloads from the API and no stale tap is ever replayed into the new data. An
+ * API that does not answer changes nothing: the cache and the queue are kept.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -163,6 +174,43 @@ function todayLabel(): string {
 }
 
 export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: number }) {
+  const client = useApiClient();
+  const { householdId } = useHousehold();
+  const guard = useDatasetGuard(householdId, client);
+
+  // Hold everything - the board, the cached glance, the queue's mount drain -
+  // until the startup dataset check has settled, so nothing from a replaced
+  // dataset is shown or replayed first.
+  if (guard.checking) {
+    return (
+      <View style={styles.hub} testID="hub-dataset-check">
+        <View style={styles.centeredRow} testID="hub-loading">
+          <ActivityIndicator color={colors.brass} />
+          <Text style={styles.status}>Waking up the hub...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Keyed on the guard's revision: a changed dataset remounts the whole body,
+  // which reloads every household read and re-hydrates the emptied queue.
+  return (
+    <HubShellBody
+      key={guard.revision}
+      idleTimeoutMs={idleTimeoutMs}
+      verifyDataset={householdId === null ? undefined : guard.verify}
+    />
+  );
+}
+
+/** The hub itself, below the dataset guard (see {@link HubShell}). */
+function HubShellBody({
+  idleTimeoutMs,
+  verifyDataset,
+}: {
+  idleTimeoutMs: number;
+  verifyDataset: (() => Promise<DatasetCheck>) | undefined;
+}) {
   const client = useApiClient();
   const { householdId } = useHousehold();
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
@@ -390,7 +438,7 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
   return householdId === null ? (
     content
   ) : (
-    <WriteQueueProvider householdId={householdId} client={client}>
+    <WriteQueueProvider householdId={householdId} client={client} verifyDataset={verifyDataset}>
       {content}
     </WriteQueueProvider>
   );

@@ -303,6 +303,35 @@ seam (G3), and its organizer-gated confirm (G4, above) - so the API side of "add
 confirm" is complete end to end against the simulated connector, with the hub screen for it (G5) still to
 come - and calendar has not been built yet.
 
+### System (health + dataset id)
+
+`System` (`Application/System/`, `Infrastructure/System/`, `Controllers/SystemController`) is the
+reference slice (`GET /api/system/ping`) and, since #100 (D7), the owner of the deployment's
+**dataset id**: an opaque id for the data the API currently serves, which changes whenever that data
+is replaced. The hub compares it with the id it last saw and drops its offline cache and write queue
+when it changed, so a demo reseed never leaves stale taps to replay into the new data.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/system/dataset` | Returns `200` with `{ "datasetId": "..." }`. Anonymous, like ping, and sent with `Cache-Control: no-store, no-cache` so no proxy or browser cache can serve an old id. When no id is stored (first boot, or storage was wiped) one is minted, stored, and returned. Through the single-origin proxy, which strips one `/api`, it is `/api/api/system/dataset`. |
+
+- **Storage.** One row in the `Datasets` table (`DatasetEntity`): `PartitionKey = _system`,
+  `RowKey = dataset`, with `DatasetId` (a `Guid` in `"N"` format) and `CreatedUtc` from the
+  injected clock. This is a **documented exception to Engineering Contract 7.3**
+  (`PartitionKey = householdId`): the id covers the whole deployment, not one household. The table
+  is registered with `AddTableRepository` in `AddSystemFeature`, so it is provisioned at startup
+  like every other table.
+- **Service.** `IDatasetService` (`DatasetService`, a singleton) has `GetOrCreateAsync` (read, or
+  add a new id when the row is missing) and `RegenerateAsync` (upsert a new id). One `SemaphoreSlim`
+  serializes both, so concurrent first reads in one process agree on one id. A multi-instance race
+  on the very first id is out of scope (the demo runs one API).
+- **Reseed.** `DemoSeeder` calls `RegenerateAsync` on every seed, before it purges anything (see
+  below). That covers both `POST /demo/seed` and `--seed-demo`.
+- **The hub's contract.** The hub reads the id on startup, on every reconnect, and before every
+  write-queue replay. A different id clears that household's glance cache and write queue and
+  reloads the hub; an id it cannot read (unreachable API, a proxy `502`, a malformed body) changes
+  nothing. See `Butler.UI/ARCHITECTURE.md`, "The dataset guard (D7)".
+
 ### Demo seeder (sample household)
 
 `Demo` (`Application/Demo/`, `Infrastructure/Demo/`, `Controllers/DemoController`) seeds one demo
@@ -316,18 +345,21 @@ The seed runs in this order:
    I/O. `ApiExceptionHandler` maps it to `404`, so the endpoint looks absent rather than forbidden.
 2. Read the injected clock once. Its ISO week is the current week; the three weeks before it hold
    the history.
-3. Purge the old household (`IDemoHouseholdPurger`), then create the household, rooms, people and
+3. Regenerate the dataset id (`IDatasetService.RegenerateAsync`, #100). It runs before the purge, so
+   from the first deleted row onward any hub that reads the id sees a change and drops its cache
+   and queued writes; regenerating after the seed would serve the old id over half-replaced data.
+4. Purge the old household (`IDemoHouseholdPurger`), then create the household, rooms, people and
    chores through `IHouseholdService`, `IRoomService`, `IPersonService` and `IChoreService`. All four
    family members are participants; the organizer is the hidden roster row the household creates,
    because organizers never get chores and never count in fairness. That row carries the caller's
    object id so the caller can confirm the demo cart.
-4. Write the history straight to `IChoreCompletionRepository`, because `ChoreCompletionService`
+5. Write the history straight to `IChoreCompletionRepository`, because `ChoreCompletionService`
    stamps "now" and history must be back-dated. Each row is `StartOfWeekUtc(week)` plus a day per
    chore plus 18 hours, with the usual `{ticks}_{choreId}` row key. The history goes in before the
    current week is generated, so the engine's trailing loads include it.
-5. Generate the current week through `IAssignmentGenerationService`, then complete three chores
+6. Generate the current week through `IAssignmentGenerationService`, then complete three chores
    through `IChoreCompletionService` as whoever the engine assigned.
-6. Add four exact catalog names to the cart through `ICaptureHandler`. Anything but `Added` throws.
+7. Add four exact catalog names to the cart through `ICaptureHandler`. Anything but `Added` throws.
 
 **Replace, and the R-2 exception.** `DemoHouseholdPurger` lists and deletes the household's partition
 (wildcard `If-Match`) in eight tables through the shared `IEntityRepository<T>` seam: Households,

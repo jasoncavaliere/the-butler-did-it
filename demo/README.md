@@ -70,6 +70,7 @@ docker compose -f demo/docker-compose.yml up -d --build
 | Hub (PWA) | http://localhost:8080 |
 | API health (through the proxy) | http://localhost:8080/api/health |
 | System ping (through the proxy) | http://localhost:8080/api/api/system/ping |
+| Dataset id (through the proxy) | http://localhost:8080/api/api/system/dataset |
 | API health (direct, for debugging) | http://localhost:5108/health |
 
 Use `http://localhost:8080` (not a LAN IP) so the browser treats the page as a

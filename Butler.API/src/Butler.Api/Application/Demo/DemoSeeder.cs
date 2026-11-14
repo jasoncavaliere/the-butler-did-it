@@ -6,6 +6,7 @@ using Butler.Api.Application.Chores;
 using Butler.Api.Application.Households;
 using Butler.Api.Application.People;
 using Butler.Api.Application.Rooms;
+using Butler.Api.Application.System;
 using Butler.Api.Domain.Scheduling;
 using Butler.Api.Infrastructure.ChoreCompletions;
 using Butler.Api.Infrastructure.Demo;
@@ -39,6 +40,7 @@ public sealed class DemoSeeder : IDemoSeeder
     private readonly IAssignmentGenerationService _assignments;
     private readonly IChoreCompletionService _completionService;
     private readonly ICaptureHandler _capture;
+    private readonly IDatasetService _datasets;
 
     public DemoSeeder(
         IHostEnvironment environment,
@@ -51,7 +53,8 @@ public sealed class DemoSeeder : IDemoSeeder
         IChoreCompletionRepository completions,
         IAssignmentGenerationService assignments,
         IChoreCompletionService completionService,
-        ICaptureHandler capture)
+        ICaptureHandler capture,
+        IDatasetService datasets)
     {
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(clock);
@@ -64,6 +67,7 @@ public sealed class DemoSeeder : IDemoSeeder
         ArgumentNullException.ThrowIfNull(assignments);
         ArgumentNullException.ThrowIfNull(completionService);
         ArgumentNullException.ThrowIfNull(capture);
+        ArgumentNullException.ThrowIfNull(datasets);
         _environment = environment;
         _clock = clock;
         _purger = purger;
@@ -75,6 +79,7 @@ public sealed class DemoSeeder : IDemoSeeder
         _assignments = assignments;
         _completionService = completionService;
         _capture = capture;
+        _datasets = datasets;
     }
 
     /// <inheritdoc />
@@ -101,6 +106,13 @@ public sealed class DemoSeeder : IDemoSeeder
             .OrderByDescending(week => week.WeeksAgo)
             .Select(week => (Script: week, WeekIso: WeekIso.For(currentMonday.AddDays(-7 * week.WeeksAgo))))
             .ToList();
+
+        // A new dataset id (#100 D7) is minted before anything is purged, so a
+        // hub that reads the id at any point from here on sees a change and drops
+        // its cache and queued writes rather than replaying them into the new
+        // data. Regenerating after the seed would leave a window in which the old
+        // id is served over half-replaced data.
+        await _datasets.RegenerateAsync(cancellationToken).ConfigureAwait(false);
 
         // Replace semantics: wipe the previous demo household first. Both stores
         // reject a row key that already exists, so this must precede the create.
