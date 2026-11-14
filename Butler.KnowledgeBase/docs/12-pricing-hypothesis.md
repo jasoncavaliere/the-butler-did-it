@@ -120,4 +120,4 @@ These thresholds are hypotheses, written down before the data arrives so the res
 - [Product Vision](10-product-vision.md) - the business model these price points sit inside, and the scope and retention story behind each rationale.
 - [Customer Interview Guide](13-customer-interview-guide.md) - where the willingness-to-pay questions are asked after a demo.
 - [Feedback Log Template](14-feedback-log-template.md) - where every Stage A answer is recorded.
-- [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 go/no-go, decided one check-in before the offer is introduced at week 5.
+- [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 go/no-go, decided at the week-5 check-in before the offer is introduced.
