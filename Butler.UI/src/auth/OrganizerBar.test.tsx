@@ -20,6 +20,7 @@ function fakeProvider(overrides: Partial<IAuthProvider> = {}): IAuthProvider {
 
 const SENSITIVE = [
   'affordance-edit-household',
+  'affordance-insights',
   'affordance-edit-roster',
   'affordance-confirm-order',
   'affordance-household-teardown',
@@ -47,6 +48,7 @@ describe('OrganizerBar', () => {
       <OrganizerProvider authProvider={fakeProvider()}>
         <OrganizerBar
           onEditHousehold={jest.fn()}
+          onShowInsights={jest.fn()}
           onEditRoster={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
@@ -72,6 +74,7 @@ describe('OrganizerBar', () => {
       <OrganizerProvider authProvider={fakeProvider()}>
         <OrganizerBar
           onEditHousehold={jest.fn()}
+          onShowInsights={jest.fn()}
           onEditRoster={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
@@ -116,6 +119,46 @@ describe('OrganizerBar', () => {
 
     await press('affordance-edit-household');
     expect(onEditHousehold).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the Insights button when no organizer is signed in', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowInsights={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-insights')).toBeNull();
+  });
+
+  it('shows the Insights button for a signed-in organizer and calls onShowInsights', async () => {
+    const onShowInsights = jest.fn();
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowInsights={onShowInsights} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-insights')).toHaveTextContent('Insights');
+
+    await press('affordance-insights');
+    expect(onShowInsights).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no Insights button when onShowInsights is not supplied', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onEditHousehold={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-edit-household')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-insights')).toBeNull();
   });
 
   it('invokes the affordance handlers when a signed-in organizer taps them', async () => {
@@ -215,6 +258,7 @@ describe('OrganizerBar', () => {
         <OrganizerProvider authProvider={pinProvider({ signIn })}>
           <OrganizerBar
             onEditHousehold={jest.fn()}
+            onShowInsights={jest.fn()}
             onEditRoster={jest.fn()}
             onConfirmOrder={jest.fn()}
             onHouseholdTeardown={jest.fn()}

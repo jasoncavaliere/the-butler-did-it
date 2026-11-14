@@ -303,12 +303,15 @@ src/
               OrderReceipt.tsx # order receipt shown in place of the hub body after a successful confirm (#115)
               LastKnownBanner.tsx # "showing last-known" indication when a region is served from cache (O2)
               SyncIndicator.tsx # hub-header sync state: online/offline, pending count, synced, failed writes (O4)
+              InsightsCharts.tsx # View-based BarChart, GroupedBarChart and Legend for the Insights screen; no chart library, all text >= 18px (#123)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
               HouseholdSetupScreen.tsx # onboarding route = OrganizerGate + HouseholdSetup
               HouseholdEditor.tsx      # organizer room/chore editor: list, add, rename, edit, deactivate, remove (#112)
               HouseholdScreen.tsx      # Household route = OrganizerGate + HouseholdEditor (#112)
+              InsightsScreen.tsx       # Insights route = OrganizerGate + InsightsDashboard: four charts from GET /insights?weeks=8 (#123)
+  insights/   insightsSeries.ts # pure helpers for the Insights charts: member colours, bar fractions, week/day/month labels (#123)
   setup/      starterChoreTemplates.json # versioned starter-chore catalog: 30 templates across 9 rooms with aliases (#111)
               starterTemplates.ts # catalog types, room-name/alias matching, template -> CreateChoreRequest (#111)
   offline/    storage.ts    # shared, feature-detected Web Storage seam both offline modules persist through, plus the queue's session-memory fallback (O2/O3)
@@ -342,9 +345,9 @@ scripts/                    # web-export build tooling (plain Node, no bundler)
 `NavigationContainer` and conditionally registers routes on the selected household (the React
 Navigation auth-flow pattern): with no household it mounts the onboarding flow (`HouseholdSetup`),
 and once `useHousehold` holds an id it mounts the `Home` route, which renders the always-on
-`HubShell` (T2), and the `Household` route (the organizer's room and chore editor, #112). `Home` is a
-small wrapper that passes `HubShell` an `onEditHousehold` handler navigating to `Household`, so
-`HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
+`HubShell` (T2), the `Household` route (the organizer's room and chore editor, #112) and the `Insights`
+route (#123). `Home` is a small wrapper that passes `HubShell` `onEditHousehold` and `onShowInsights`
+handlers navigating to those routes, so `HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
 `RootStackParamList`.
 
 **The hub shell** (`src/screens/HubShell.tsx`, T2/T3) is the shared-device shell the rest of the
@@ -537,6 +540,17 @@ is #167 and Household teardown is #168; until they land, `HubShell` does not pas
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.
+
+**Insights** (`src/screens/InsightsScreen.tsx`, #123) is the organizer's view of how the household is
+doing, behind `OrganizerGate`. The Insights button on `OrganizerBar` appears only for a signed-in organizer
+and only when the hub is given `onShowInsights`. The dashboard reads
+`GET /households/{id}/insights?weeks=8` and draws four View-based bar charts
+(`src/components/InsightsCharts.tsx`, no chart or SVG dependency): the top contributor's share per week,
+completions per member per week (with a legend), hub glances per day, and confirmed carts per month. Each
+person's series uses their claim colour, or a token claim colour by position when they have none
+(`resolveMemberColors` in `src/insights/insightsSeries.ts`). Every text on the screen, including its own
+loading and error lines, is at least the 18px token body size (ADR-0004), so it does not use
+`WidgetState`. Labels use a fixed English month list, not `toLocale*`, and match the API's UTC buckets.
 
 **Household editor** (`src/screens/HouseholdEditor.tsx`, #112) is the organizer's after-setup editor for
 rooms and chores, behind `OrganizerGate` (`HouseholdScreen.tsx`). It reads `GET /households/{id}/rooms` and

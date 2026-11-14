@@ -206,6 +206,7 @@ function todayLabel(): string {
 export function HubShell({
   idleTimeoutMs = IDLE_TIMEOUT_MS,
   onEditHousehold,
+  onShowInsights,
 }: {
   idleTimeoutMs?: number;
   /**
@@ -214,6 +215,12 @@ export function HubShell({
    * shows no Household button.
    */
   onEditHousehold?: () => void;
+  /**
+   * Opens the organizer's Insights screen (#123). Supplied by the navigator, like
+   * {@link onEditHousehold}; when omitted, the organizer bar shows no Insights
+   * button.
+   */
+  onShowInsights?: () => void;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -244,6 +251,7 @@ export function HubShell({
       idleTimeoutMs={idleTimeoutMs}
       verifyDataset={householdId === null ? undefined : guard.verify}
       onEditHousehold={onEditHousehold}
+      onShowInsights={onShowInsights}
     />
   );
 }
@@ -253,10 +261,12 @@ function HubShellBody({
   idleTimeoutMs,
   verifyDataset,
   onEditHousehold,
+  onShowInsights,
 }: {
   idleTimeoutMs: number;
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
   onEditHousehold: (() => void) | undefined;
+  onShowInsights: (() => void) | undefined;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -461,11 +471,15 @@ function HubShellBody({
           <HubGlanceReporter householdId={householdId} client={client} />
         </>
       ) : null}
-      {/* Household (#112, when the navigator supplies it) and Confirm order are
-          wired. Edit roster (#167) and Household teardown (#168) are deliberately
-          not passed, so OrganizerBar does not render them. */}
+      {/* Household (#112) and Insights (#123), when the navigator supplies them,
+          and Confirm order are wired. Edit roster (#167) and Household teardown
+          (#168) are deliberately not passed, so OrganizerBar does not render them. */}
       <View style={styles.chrome} testID="hub-chrome">
-        <OrganizerBar onEditHousehold={onEditHousehold} onConfirmOrder={handleConfirmOrder} />
+        <OrganizerBar
+          onEditHousehold={onEditHousehold}
+          onShowInsights={onShowInsights}
+          onConfirmOrder={handleConfirmOrder}
+        />
         <HubPairing />
       </View>
       <View style={styles.header} testID="hub-header">

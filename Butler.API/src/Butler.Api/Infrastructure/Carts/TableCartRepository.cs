@@ -45,4 +45,11 @@ public sealed class TableCartRepository : ICartRepository
         ArgumentException.ThrowIfNullOrWhiteSpace(cart.RowKey);
         return _carts.UpdateAsync(householdId, cart, ifMatch, cancellationToken);
     }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<CartEntity>> ListAsync(string householdId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
+        return _carts.ListAsync(householdId, cancellationToken);
+    }
 }
