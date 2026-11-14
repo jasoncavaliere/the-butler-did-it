@@ -30,6 +30,22 @@ export function resolveApiBaseUrl(
 /** The resolved API base URL for this build. */
 export const apiBaseUrl: string = resolveApiBaseUrl();
 
+/** The hub build SHA reported when the build was not stamped (#126). */
+export const DEV_BUILD_SHA = 'dev';
+
+/**
+ * Resolve the hub's build SHA (#126) from `EXPO_PUBLIC_BUILD_SHA`, the git short
+ * SHA the demo export is stamped with. A provided value is returned trimmed; a
+ * missing or blank one is {@link DEV_BUILD_SHA}. The default argument is a
+ * direct `process.env` member read, which is what lets Expo inline it.
+ */
+export function resolveUiBuildSha(
+  rawEnv: string | undefined = process.env.EXPO_PUBLIC_BUILD_SHA,
+): string {
+  const configured = rawEnv?.trim();
+  return configured ? configured : DEV_BUILD_SHA;
+}
+
 /**
  * Which organizer sign-in the UI uses:
  * - `dev` -- the F6 dev organizer (no live tenant, no token; the API's bypass).

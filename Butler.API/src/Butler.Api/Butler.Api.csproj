@@ -49,6 +49,21 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!--
+    Build version stamp (#126). The demo stack and the Dockerfile pass the git
+    short SHA and the UTC build time as /p:ButlerBuildSha and /p:ButlerBuildTime;
+    they land in the assembly as AssemblyMetadata and GET /api/system/version
+    reads them back. Each item is added only when its property is set, so a
+    plain build carries no stamp and the endpoint reports "dev". The names are
+    prefixed so an unrelated environment variable cannot leak in.
+  -->
+  <ItemGroup Condition="'$(ButlerBuildSha)' != ''">
+    <AssemblyMetadata Include="ButlerBuildSha" Value="$(ButlerBuildSha)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ButlerBuildTime)' != ''">
+    <AssemblyMetadata Include="ButlerBuildTime" Value="$(ButlerBuildTime)" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Swashbuckle.AspNetCore" />

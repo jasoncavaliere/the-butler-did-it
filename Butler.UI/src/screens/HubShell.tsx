@@ -27,6 +27,7 @@ import { LastKnownBanner } from '../components/LastKnownBanner';
 import { OrderReceipt } from '../components/OrderReceipt';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { TodayPanel } from '../components/TodayPanel';
+import { VersionInfo } from '../components/VersionInfo';
 import { colors } from '../components/Screen';
 import { TILE_BORDER, useHubLayout, type HubLayout } from '../layout/hubLayout';
 import { nameTileMinWidth, radii, space } from '../layout/tokens';
@@ -37,6 +38,7 @@ import { useHubGlance } from '../offline/useHubGlance';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { useHousehold } from '../state/HouseholdContext';
+import { useOrganizer } from '../state/OrganizerContext';
 
 /**
  * How long the hub keeps an active participant before clearing back to the
@@ -419,6 +421,28 @@ function HubShellBody({
   const handleCartConfirmed = useCallback((cart: CartResponse) => setReceipt(cart), []);
   const handleReceiptDismiss = useCallback(() => setReceipt(null), []);
 
+  // The organizer's Version panel (#126): hub-internal state, not a route. It
+  // is shown only while an organizer is signed in, so signing out closes it, and
+  // VersionInfo mounts (and reads the API version) only while it is open.
+  const { organizer } = useOrganizer();
+  const [showVersion, setShowVersion] = useState(false);
+  const handleShowVersion = useCallback(() => setShowVersion((open) => !open), []);
+  const handleCloseVersion = useCallback(() => setShowVersion(false), []);
+  const versionPanel =
+    showVersion && organizer !== null ? (
+      <View style={styles.panel} testID="hub-version-panel">
+        <VersionInfo />
+        <Pressable
+          accessibilityRole="button"
+          testID="hub-version-close"
+          style={styles.closeButton}
+          onPress={handleCloseVersion}
+        >
+          <Text style={styles.closeButtonText}>Close</Text>
+        </Pressable>
+      </View>
+    ) : null;
+
   // A missing household is a calm derived state, not a fetch outcome.
   const view: LoadState =
     householdId === null ? { phase: 'error', message: 'No household is set up yet.' } : state;
@@ -483,17 +507,20 @@ function HubShellBody({
         </>
       ) : null}
       {/* Household (#112), Insights (#123) and Your data (#125), when the
-          navigator supplies them, and Confirm order are wired. Edit roster (#167) and Household teardown
+          navigator supplies them, and Confirm order and Version (#126) are wired. Edit roster (#167) and Household teardown
           (#168) are deliberately not passed, so OrganizerBar does not render them. */}
       <View style={styles.chrome} testID="hub-chrome">
         <OrganizerBar
           onEditHousehold={onEditHousehold}
           onShowInsights={onShowInsights}
           onShowYourData={onShowYourData}
+          onShowVersion={handleShowVersion}
           onConfirmOrder={handleConfirmOrder}
         />
         <HubPairing />
       </View>
+      {/* A sibling after the chrome, never inside it: the chrome's height is fixed. */}
+      {versionPanel}
       <View style={styles.header} testID="hub-header">
         <Text
           style={styles.householdName}
@@ -781,5 +808,16 @@ function makeHubStyles(layout: HubLayout) {
     todayZone: { flex: 2 },
     side: { flex: 1 },
     sideContent: { gap: layout.zoneGap },
+    // The Version panel's Close button (#126).
+    closeButton: {
+      alignSelf: 'flex-start',
+      marginTop: space.s3,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.brass,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+    },
+    closeButtonText: { color: colors.brass, fontSize: 14, fontWeight: '600' },
   });
 }

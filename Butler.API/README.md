@@ -96,6 +96,11 @@ curl http://localhost:8080/health        # {"status":"ok"}
 # Swagger UI: http://localhost:8080/swagger
 ```
 
+- Pass `--build-arg BUILD_SHA=$(git rev-parse --short HEAD)` to stamp the git short SHA, with the
+  UTC build time, into the API (#126); `GET /api/system/version` reports them. Without it the
+  endpoint reports `"sha": "dev"`. `demo.sh` / `demo.ps1 up` pass it through compose. Outside
+  Docker, `dotnet build` / `dotnet run` take the same values as
+  `/p:ButlerBuildSha=<sha> /p:ButlerBuildTime=<ISO 8601 UTC>`.
 - The image defaults to `ASPNETCORE_ENVIRONMENT=Demo`, which loads `appsettings.Demo.json`, serves
   Swagger at `/swagger`, and signs the organizer in with a PIN (see "Demo organizer PIN" below). The
   container refuses to start without `BUTLER_DEMO_PIN`.

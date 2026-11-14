@@ -22,6 +22,7 @@ const SENSITIVE = [
   'affordance-edit-household',
   'affordance-insights',
   'affordance-your-data',
+  'affordance-version',
   'affordance-edit-roster',
   'affordance-confirm-order',
   'affordance-household-teardown',
@@ -51,6 +52,7 @@ describe('OrganizerBar', () => {
           onEditHousehold={jest.fn()}
           onShowInsights={jest.fn()}
           onShowYourData={jest.fn()}
+          onShowVersion={jest.fn()}
           onEditRoster={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
@@ -78,6 +80,7 @@ describe('OrganizerBar', () => {
           onEditHousehold={jest.fn()}
           onShowInsights={jest.fn()}
           onShowYourData={jest.fn()}
+          onShowVersion={jest.fn()}
           onEditRoster={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
@@ -189,6 +192,46 @@ describe('OrganizerBar', () => {
 
     await press('affordance-your-data');
     expect(onShowYourData).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the Version button when no organizer is signed in', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowVersion={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-version')).toBeNull();
+  });
+
+  it('shows a Version button for a signed-in organizer and calls onShowVersion', async () => {
+    const onShowVersion = jest.fn();
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowVersion={onShowVersion} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-version')).toHaveTextContent('Version');
+
+    await press('affordance-version');
+    expect(onShowVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no Version button when onShowVersion is not supplied', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowInsights={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-insights')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-version')).toBeNull();
   });
 
   it('renders no Your data button when onShowYourData is not supplied', async () => {
@@ -303,6 +346,7 @@ describe('OrganizerBar', () => {
             onEditHousehold={jest.fn()}
             onShowInsights={jest.fn()}
             onShowYourData={jest.fn()}
+            onShowVersion={jest.fn()}
             onEditRoster={jest.fn()}
             onConfirmOrder={jest.fn()}
             onHouseholdTeardown={jest.fn()}

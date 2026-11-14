@@ -43,4 +43,19 @@ public sealed class SystemController : ControllerBase
         var result = await _sender.Send(new GetDatasetQuery(), cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>
+    /// The build the API is running (#126): the git short SHA and UTC build
+    /// time, or <c>"dev"</c> when the build was not stamped. The hub shows it
+    /// next to its own build so a mismatch is visible. Anonymous, like ping,
+    /// and never cached.
+    /// </summary>
+    [HttpGet("version")]
+    [ProducesResponseType(typeof(VersionResponse), StatusCodes.Status200OK)]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<ActionResult<VersionResponse>> Version(CancellationToken cancellationToken)
+    {
+        var result = await _sender.Send(new GetVersionQuery(), cancellationToken);
+        return Ok(result);
+    }
 }

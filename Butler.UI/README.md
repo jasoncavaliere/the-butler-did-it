@@ -108,6 +108,11 @@ touching anything under `public/` or `scripts/`.
   `OrganizerGate` and `OrganizerBar` show a PIN pad and the API returns a short-lived organizer token
   (15 idle minutes). Build the demo export with
   `EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web` (`demo/demo.sh up` does).
+- `EXPO_PUBLIC_BUILD_SHA` stamps the export with the git short SHA it was built from (#126). The
+  organizer's Version panel (`VersionInfo`) shows it next to the API's SHA from
+  `GET /api/system/version` and flags a mismatch. Unset or blank, the hub reports `dev`.
+  `demo/demo.sh up` sets it to the same SHA it stamps into the API image. `metro.config.js` keys
+  Metro's transform cache on every `EXPO_PUBLIC_*` value, so a changed value always reaches the bundle.
 - Hub device pairing (`HubPairing`, `HubDeviceContext`, T5) is wired up: a signed-in organizer can pair
   the tablet and the resulting device token is held in memory for the process lifetime. The API client
   sends it on the `X-Device-Token` header (never as `Authorization: Bearer`) whenever no organizer is

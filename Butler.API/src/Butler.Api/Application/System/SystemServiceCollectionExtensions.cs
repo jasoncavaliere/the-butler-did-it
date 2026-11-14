@@ -20,6 +20,11 @@ public static class SystemServiceCollectionExtensions
         // Infrastructure: the status provider stands in for a repository.
         services.TryAddSingleton<ISystemStatusProvider, SystemStatusProvider>();
 
+        // Build version (#126): read once from the metadata this assembly was
+        // stamped with (Butler.Api.csproj, /p:ButlerBuildSha + /p:ButlerBuildTime).
+        services.TryAddSingleton<IBuildVersionProvider>(_ =>
+            AssemblyBuildVersionProvider.FromAssembly(typeof(SystemServiceCollectionExtensions).Assembly));
+
         // Dataset id (#100 D7): one deployment-wide row in the Datasets table.
         // The service is a singleton so its lock is shared across requests.
         services.AddTableRepository<DatasetEntity>(DatasetEntity.TableName);
