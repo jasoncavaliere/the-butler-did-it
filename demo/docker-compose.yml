@@ -32,6 +32,10 @@ services:
       timeout: 2s
       retries: 30
     restart: unless-stopped
+    # azurite-table saves its table store only on SIGINT (no SIGTERM handler);
+    # compose's default SIGTERM would drop up to 5s of unsaved writes on `down`.
+    stop_signal: SIGINT
+    stop_grace_period: 30s
     # Port 10002 is deliberately not published; only the api talks to it.
 
   api:

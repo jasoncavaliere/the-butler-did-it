@@ -168,10 +168,10 @@ jobs:
             -H 'Content-Type: application/json' \
             -d '{"name":"Demo CI Household"}' | jq -er '.householdId')"
           echo "created household $id"
-          # Give Azurite time to flush its in-memory store to disk.
-          sleep 6
+          # No sleep: `down` sends SIGINT (stop_signal), so this proves Azurite's
+          # shutdown save, not its 5s autosave.
           docker compose -f "$COMPOSE_FILE_PATH" down
-          test -f demo/.data/azurite/__azurite_db_table__.json
+          sudo grep -q "$id" demo/.data/azurite/__azurite_db_table__.json
           docker compose -f "$COMPOSE_FILE_PATH" up -d --wait --wait-timeout 240
           for i in $(seq 1 60); do
             curl -fs "$API_URL/health" > /dev/null && break
