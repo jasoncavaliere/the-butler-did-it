@@ -73,7 +73,7 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
 | `src/insights/` | Pure helpers for the Insights screen: member colours, bar fractions, week/day/month labels (#123). |
 | `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
-| `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration and the PWA post-export step. |
+| `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration, the hub kiosk surface (`KioskSurface`, #130), and the PWA post-export step. |
 | `src/theme/` | Typed theme module over `design-tokens.json` (claim colours, light/dark palettes, spacing, touch targets) and the WCAG contrast helper (#120). |
 | `design-tokens.json`, `design/` | Design tokens and the design decision record. |
 

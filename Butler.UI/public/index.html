@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no" />
     <title>%WEB_TITLE%</title>
     <meta
       name="description"
@@ -31,6 +31,8 @@
       html,
       body {
         height: 100%;
+        /* #130: the hub is a kiosk - no pull-to-refresh or rubber-band bounce. */
+        overscroll-behavior: none;
       }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
@@ -41,6 +43,18 @@
         display: flex;
         height: 100%;
         flex: 1;
+      }
+      /*
+        #130: the hub kiosk surface (src/pwa/KioskSurface.tsx) turns off selection and the touch
+        callout. WebKit inherits -webkit-user-select, so give text fields their selection back
+        explicitly: typing into the grocery input must still work.
+      */
+      input,
+      textarea,
+      [contenteditable="true"] {
+        -webkit-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: default;
       }
     </style>
   </head>
