@@ -2,9 +2,12 @@
  * Typed API base configuration for Butler.UI.
  *
  * The base URL is read from the Expo public env var `EXPO_PUBLIC_API_BASE_URL`
- * (inlined at build time by Expo). When it is unset we fall back to the local
- * Butler.API dev server. Later UI tickets (e.g. F7 "UI API client") build the
- * real client on top of this seam rather than hard-coding hosts.
+ * (inlined at build time by Expo). It may be absolute (`https://api.example`)
+ * or a same-origin relative base such as `/api` (the demo stack, where Caddy
+ * serves the hub and proxies `/api/*` to the API on one origin). When it is
+ * unset we fall back to the local Butler.API dev server. Later UI tickets
+ * (e.g. F7 "UI API client") build the real client on top of this seam rather
+ * than hard-coding hosts.
  */
 
 /** Dev default when no `EXPO_PUBLIC_API_BASE_URL` is provided. */
@@ -12,8 +15,10 @@ export const DEFAULT_DEV_API_BASE_URL = 'http://localhost:5108';
 
 /**
  * Resolve the API base URL from a raw env value, falling back to the dev
- * default when it is missing or blank. Exposed (with an injectable arg) so it
- * can be unit-tested without mutating the module environment.
+ * default when it is missing or blank. A provided value - absolute or a
+ * relative base such as `/api` - is returned trimmed but otherwise unchanged.
+ * Exposed (with an injectable arg) so it can be unit-tested without mutating
+ * the module environment.
  */
 export function resolveApiBaseUrl(
   rawEnv: string | undefined = process.env.EXPO_PUBLIC_API_BASE_URL,
@@ -81,6 +86,8 @@ export const authConfig: AuthConfig = resolveAuthConfig();
 /**
  * Join the API base URL with a path, tolerating a leading slash on the path and
  * a trailing slash on the base. Defaults to the resolved {@link apiBaseUrl}.
+ * With a relative base the result is a same-origin relative URL, e.g.
+ * `apiUrl('/households', '/api')` is `/api/households`.
  */
 export function apiUrl(path: string, baseUrl: string = apiBaseUrl): string {
   const base = baseUrl.replace(/\/+$/, '');

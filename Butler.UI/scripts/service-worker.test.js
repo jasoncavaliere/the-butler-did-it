@@ -242,11 +242,36 @@ describe('the app-shell service worker', () => {
     const write = await worker.fetch(makeRequest('/index.html', { method: 'POST' }));
     const api = await worker.fetch({ url: 'https://api.butler.example/households', method: 'GET', mode: 'cors', destination: '' });
     const data = await worker.fetch(makeRequest('/households/hh-1/people', { mode: 'cors' }));
+    const sameOriginApi = await worker.fetch(makeRequest('/api/households/hh-1', { mode: 'cors' }));
 
     // Untouched by the worker: the O2 data cache and the O3 write queue own these.
     expect(write.handled).toBe(false);
     expect(api.handled).toBe(false);
     expect(data.handled).toBe(false);
+    expect(sameOriginApi.handled).toBe(false);
+  });
+
+  it('never caches a same-origin /api navigation as the app shell', async () => {
+    const worker = bootServiceWorker();
+    await worker.install();
+    const shellBefore = await worker.currentCache().match('/index.html');
+
+    const apiPage = await worker.fetch(navigationRequest('/api/api/system/ping'));
+    const apiRoot = await worker.fetch(navigationRequest('/api'));
+
+    expect(apiPage.handled).toBe(false);
+    expect(apiRoot.handled).toBe(false);
+    expect(await worker.currentCache().match('/index.html')).toBe(shellBefore);
+    expect(await worker.currentCache().match('/api/api/system/ping')).toBeUndefined();
+  });
+
+  it('still treats a route that merely starts with "api" as a hub navigation', async () => {
+    const worker = bootServiceWorker();
+    await worker.install();
+
+    const route = await worker.fetch(navigationRequest('/apiary'));
+
+    expect(route.handled).toBe(true);
   });
 
   it('evicts a previous deploy cache on activate and claims open tabs', async () => {

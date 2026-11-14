@@ -104,8 +104,15 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // The API lives on its own origin; caching it is O2, not this ticket.
+  // Cross-origin requests (an API on its own origin) fall through here. On the
+  // single-origin demo, /api/* reads are not static assets and fall through
+  // below too. Caching API data is O2, not this worker's job.
   if (url.origin !== self.location.origin) return;
+
+  // Same-origin API paths (the single-origin demo proxies /api/* to the API) are
+  // never the app shell, not even as a page navigation: caching that JSON as the
+  // offline shell would break the hub. Leave them to the network.
+  if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(handleNavigation(request));

@@ -9,7 +9,8 @@
 #   api     - Butler.API image (Demo environment, container port 8080),
 #             published on 127.0.0.1:5108. Tables are created by the API's
 #             startup provisioning (#91), never by this stack.
-#   web     - Caddy serving the host-built PWA export (Butler.UI/dist) on 8080.
+#   web     - Caddy on 8080: serves the host-built PWA export (Butler.UI/dist)
+#             at / and proxies /api/* to api:8080 (prefix stripped).
 name: butler-demo
 
 services:
