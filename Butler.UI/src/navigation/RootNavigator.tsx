@@ -8,6 +8,7 @@ import { HouseholdScreen } from '../screens/HouseholdScreen';
 import { HouseholdSetupScreen } from '../screens/HouseholdSetupScreen';
 import { HubShell } from '../screens/HubShell';
 import { InsightsScreen } from '../screens/InsightsScreen';
+import { YourDataScreen } from '../screens/YourDataScreen';
 import { useHousehold } from '../state/HouseholdContext';
 
 /** Route list for the root stack. Extend as screens are added. */
@@ -16,13 +17,14 @@ export type RootStackParamList = {
   Household: undefined;
   HouseholdSetup: undefined;
   Insights: undefined;
+  YourData: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /**
- * The Home route: the hub shell with the organizer's Household and Insights
- * buttons wired to their routes. Navigation stays here so {@link HubShell}
+ * The Home route: the hub shell with the organizer's Household, Insights and
+ * Your data buttons wired to their routes. Navigation stays here so {@link HubShell}
  * itself never needs a navigation context.
  */
 function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Home'>) {
@@ -30,6 +32,7 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
     <HubShell
       onEditHousehold={() => navigation.navigate('Household')}
       onShowInsights={() => navigation.navigate('Insights')}
+      onShowYourData={() => navigation.navigate('YourData')}
     />
   );
 }
@@ -41,9 +44,9 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
  * Navigation auth-flow pattern) means the onboarding route is simply not present
  * once setup is complete. The Home route mounts the always-on {@link HubShell}
  * (T2) - the shared-device shell the rest of the product renders inside - and
- * the signed-in stack also holds the organizer's Household editor (#112) and
- * Insights screen (#123), opened from the Household and Insights buttons on the
- * hub's organizer bar.
+ * the signed-in stack also holds the organizer's Household editor (#112),
+ * Insights screen (#123) and Your data page (#125), opened from the Household,
+ * Insights and Your data buttons on the hub's organizer bar.
  */
 export function RootNavigator() {
   const { householdId } = useHousehold();
@@ -69,6 +72,11 @@ export function RootNavigator() {
               name="Insights"
               component={InsightsScreen}
               options={{ title: 'Insights' }}
+            />
+            <Stack.Screen
+              name="YourData"
+              component={YourDataScreen}
+              options={{ title: 'Your data' }}
             />
           </>
         )}

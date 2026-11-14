@@ -311,6 +311,7 @@ src/
               HouseholdEditor.tsx      # organizer room/chore editor: list, add, rename, edit, deactivate, remove (#112)
               HouseholdScreen.tsx      # Household route = OrganizerGate + HouseholdEditor (#112)
               InsightsScreen.tsx       # Insights route = OrganizerGate + InsightsDashboard: four charts from GET /insights?weeks=8 (#123)
+              YourDataScreen.tsx       # Your data route: static plain-language page on what Butler stores, kids' profiles, local-only, deletion (#125)
   insights/   insightsSeries.ts # pure helpers for the Insights charts: member colours, bar fractions, week/day/month labels (#123)
   setup/      starterChoreTemplates.json # versioned starter-chore catalog: 30 templates across 9 rooms with aliases (#111)
               starterTemplates.ts # catalog types, room-name/alias matching, template -> CreateChoreRequest (#111)
@@ -345,9 +346,9 @@ scripts/                    # web-export build tooling (plain Node, no bundler)
 `NavigationContainer` and conditionally registers routes on the selected household (the React
 Navigation auth-flow pattern): with no household it mounts the onboarding flow (`HouseholdSetup`),
 and once `useHousehold` holds an id it mounts the `Home` route, which renders the always-on
-`HubShell` (T2), the `Household` route (the organizer's room and chore editor, #112) and the `Insights`
-route (#123). `Home` is a small wrapper that passes `HubShell` `onEditHousehold` and `onShowInsights`
-handlers navigating to those routes, so `HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
+`HubShell` (T2), the `Household` route (the organizer's room and chore editor, #112), the `Insights`
+route (#123) and the `YourData` route (#125). `Home` is a small wrapper that passes `HubShell`
+`onEditHousehold`, `onShowInsights` and `onShowYourData` handlers navigating to those routes, so `HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
 `RootStackParamList`.
 
 **The hub shell** (`src/screens/HubShell.tsx`, T2/T3) is the shared-device shell the rest of the
@@ -533,8 +534,8 @@ hub drops to participant-only mode without an error. With the PIN provider, `Org
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
-does nothing. Today that is Household (#112), which opens the Household editor through the handler
-`RootNavigator` passes to `HubShell`, and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
+does nothing. Today that is Household (#112), Insights (#123) and Your data (#125), which open their
+routes through the handlers `RootNavigator` passes to `HubShell`, and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
 cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Edit roster
 is #167 and Household teardown is #168; until they land, `HubShell` does not pass those handlers. This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
@@ -551,6 +552,16 @@ person's series uses their claim colour, or a token claim colour by position whe
 (`resolveMemberColors` in `src/insights/insightsSeries.ts`). Every text on the screen, including its own
 loading and error lines, is at least the 18px token body size (ADR-0004), so it does not use
 `WidgetState`. Labels use a fixed English month list, not `toLocale*`, and match the API's UTC buckets.
+
+**Your data** (`src/screens/YourDataScreen.tsx`, #125) is a plain-language page saying what Butler stores
+(one row per table registered with `AddTableRepository`, including usage events, stored since #122, and the
+deployment-wide `Datasets` install marker), what a child's profile holds, that the demo runs locally, and
+how to delete the household. It is static copy: no API call, no household read and no `OrganizerGate`, so
+it reads correctly offline and shows no household data; its only entry, the Your data button on
+`OrganizerBar`, appears only for a signed-in organizer and only when the hub is given `onShowYourData`.
+Every string lives in the exported `YOUR_DATA_COPY` constant and the screen renders only from it, so the
+test that scans it for non-ASCII characters covers every rendered word. Keep the table list in step with
+the API's registrations. #168 adds a link from this page to household teardown.
 
 **Household editor** (`src/screens/HouseholdEditor.tsx`, #112) is the organizer's after-setup editor for
 rooms and chores, behind `OrganizerGate` (`HouseholdScreen.tsx`). It reads `GET /households/{id}/rooms` and

@@ -143,4 +143,33 @@ describe('RootNavigator', () => {
     expect(await screen.findByTestId('insights-screen')).toBeOnTheScreen();
     expect(await screen.findByTestId('insights-chart-top-share')).toBeOnTheScreen();
   });
+
+  it('opens the Your data page from the organizer bar', async () => {
+    useApiClientMock.mockReturnValue(pathAwareClient());
+    const authProvider: IAuthProvider = {
+      kind: 'fake',
+      signIn: () =>
+        Promise.resolve({ organizer: { subject: 'oid-1', name: 'Robin Organizer' }, token: 'bearer' }),
+      signOut: () => Promise.resolve(),
+    };
+
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-77">
+        <OrganizerProvider authProvider={authProvider}>
+          <RootNavigator />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+
+    expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('organizer-sign-in'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('affordance-your-data'));
+    });
+
+    expect(await screen.findByTestId('your-data-screen')).toBeOnTheScreen();
+    expect(await screen.findByTestId('your-data-stored')).toBeOnTheScreen();
+  });
 });
