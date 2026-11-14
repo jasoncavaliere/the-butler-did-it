@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { describeApiError } from '../api/errors';
 import type {
@@ -13,6 +13,7 @@ import type {
   RoomResponse,
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import { ActionButton, Chip, Field } from '../components/FormControls';
 import { Screen, colors } from '../components/Screen';
 import {
   templatesForRoom,
@@ -547,96 +548,6 @@ function StarterChores({
   );
 }
 
-/** Labelled text input used across the steps. */
-function Field({
-  label,
-  testID,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType,
-}: {
-  label: string;
-  testID: string;
-  value: string;
-  onChangeText: (next: string) => void;
-  placeholder?: string;
-  keyboardType?: 'numeric';
-}) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput
-        testID={testID}
-        style={styles.input}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.muted}
-        keyboardType={keyboardType}
-      />
-    </View>
-  );
-}
-
-/** A pressable button in a primary or secondary style. */
-function ActionButton({
-  testID,
-  onPress,
-  disabled,
-  variant = 'primary',
-  children,
-}: {
-  testID: string;
-  onPress: () => void;
-  disabled?: boolean;
-  variant?: 'primary' | 'secondary';
-  children: ReactNode;
-}) {
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.button,
-        variant === 'secondary' && styles.buttonSecondary,
-        disabled && styles.buttonDisabled,
-      ]}
-    >
-      <Text style={variant === 'secondary' ? styles.buttonSecondaryText : styles.buttonText}>
-        {children}
-      </Text>
-    </Pressable>
-  );
-}
-
-/** A selectable chip (room / cadence picker). */
-function Chip({
-  testID,
-  selected,
-  onPress,
-  children,
-}: {
-  testID: string;
-  selected: boolean;
-  onPress: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={[styles.chip, selected && styles.chipSelected]}
-    >
-      <Text style={selected ? styles.chipSelectedText : styles.chipText}>{children}</Text>
-    </Pressable>
-  );
-}
-
 /** Renders the running list of items added in the current step. */
 function AddedList({
   label,
@@ -667,17 +578,7 @@ const styles = StyleSheet.create({
   title: { color: colors.ink, fontSize: 24, fontWeight: '700', marginTop: 8, marginBottom: 16 },
   body: { color: colors.ink, fontSize: 16 },
   error: { color: '#E5A0A0', fontSize: 14, marginBottom: 16 },
-  field: { marginBottom: 16 },
   label: { color: colors.muted, fontSize: 13, marginBottom: 6 },
-  input: {
-    color: colors.ink,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -687,32 +588,6 @@ const styles = StyleSheet.create({
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
   swatchSelected: { borderColor: colors.ink },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipSelected: { backgroundColor: colors.brass, borderColor: colors.brass },
-  chipText: { color: colors.ink, fontSize: 14 },
-  chipSelectedText: { color: colors.page, fontSize: 14, fontWeight: '700' },
-  button: {
-    backgroundColor: colors.brass,
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  buttonSecondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginTop: 16,
-  },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: colors.page, fontSize: 16, fontWeight: '700' },
-  buttonSecondaryText: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   added: { marginBottom: 16 },
   starter: { marginBottom: 24 },
   starterRoom: {

@@ -19,6 +19,7 @@ function fakeProvider(overrides: Partial<IAuthProvider> = {}): IAuthProvider {
 }
 
 const SENSITIVE = [
+  'affordance-edit-household',
   'affordance-edit-roster',
   'affordance-confirm-order',
   'affordance-household-teardown',
@@ -45,6 +46,7 @@ describe('OrganizerBar', () => {
     await render(
       <OrganizerProvider authProvider={fakeProvider()}>
         <OrganizerBar
+          onEditHousehold={jest.fn()}
           onEditRoster={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
@@ -69,6 +71,7 @@ describe('OrganizerBar', () => {
     await render(
       <OrganizerProvider authProvider={fakeProvider()}>
         <OrganizerBar
+          onEditHousehold={jest.fn()}
           onEditRoster={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
@@ -85,6 +88,34 @@ describe('OrganizerBar', () => {
       expect(screen.queryByTestId(id)).toBeNull();
     }
     expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+  });
+
+  it('hides the Household button when no organizer is signed in', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onEditHousehold={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-edit-household')).toBeNull();
+  });
+
+  it('shows the Household button for a signed-in organizer and calls onEditHousehold', async () => {
+    const onEditHousehold = jest.fn();
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onEditHousehold={onEditHousehold} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-edit-household')).toHaveTextContent('Household');
+    expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
+
+    await press('affordance-edit-household');
+    expect(onEditHousehold).toHaveBeenCalledTimes(1);
   });
 
   it('invokes the affordance handlers when a signed-in organizer taps them', async () => {
@@ -182,7 +213,12 @@ describe('OrganizerBar', () => {
       const signIn = jest.fn(() => Promise.resolve(SESSION));
       await render(
         <OrganizerProvider authProvider={pinProvider({ signIn })}>
-          <OrganizerBar onEditRoster={jest.fn()} onConfirmOrder={jest.fn()} onHouseholdTeardown={jest.fn()} />
+          <OrganizerBar
+            onEditHousehold={jest.fn()}
+            onEditRoster={jest.fn()}
+            onConfirmOrder={jest.fn()}
+            onHouseholdTeardown={jest.fn()}
+          />
         </OrganizerProvider>,
       );
 

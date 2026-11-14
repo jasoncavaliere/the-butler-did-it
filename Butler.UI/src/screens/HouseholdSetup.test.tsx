@@ -89,7 +89,7 @@ async function reachChoresStep(
         roomId: `room-${name.toLowerCase()}`,
         name,
         sortOrder: fields.sortOrder,
-        etag: '"r"',
+        eTag: '"r"',
       });
     }
     if (path.endsWith('/chores')) {
@@ -101,7 +101,7 @@ async function reachChoresStep(
         choreId: `c-${choreCalls}`,
         ...fields,
         active: true,
-        etag: '"c"',
+        eTag: '"c"',
       });
     }
     throw new Error(`unexpected path ${path}`);
@@ -165,7 +165,7 @@ describe('HouseholdSetup', () => {
         });
       }
       if (path.endsWith('/rooms')) {
-        return ok({ roomId: 'room-1', name: 'Kitchen', sortOrder: 0, etag: '"r1"' });
+        return ok({ roomId: 'room-1', name: 'Kitchen', sortOrder: 0, eTag: '"r1"' });
       }
       if (path.endsWith('/people')) {
         return ok({
@@ -186,7 +186,7 @@ describe('HouseholdSetup', () => {
           effort: 2,
           minAge: null,
           active: true,
-          etag: '"c1"',
+          eTag: '"c1"',
         });
       }
       throw new Error(`unexpected path ${path}`);
@@ -299,7 +299,7 @@ describe('HouseholdSetup', () => {
         });
       }
       if (path.endsWith('/rooms')) {
-        return ok({ roomId: 'room-9', name: 'Den', sortOrder: 0, etag: '"r"' });
+        return ok({ roomId: 'room-9', name: 'Den', sortOrder: 0, eTag: '"r"' });
       }
       if (path.endsWith('/chores')) {
         return {
@@ -353,7 +353,7 @@ describe('HouseholdSetup', () => {
         });
       }
       if (path.endsWith('/rooms')) {
-        return ok({ roomId: 'room-2', name: 'Bath', sortOrder: 0, etag: '"r"' });
+        return ok({ roomId: 'room-2', name: 'Bath', sortOrder: 0, eTag: '"r"' });
       }
       throw new Error(`unexpected path ${path}`);
     });
@@ -447,7 +447,7 @@ describe('HouseholdSetup', () => {
         });
       }
       if (path.endsWith('/rooms')) {
-        return ok({ roomId: 'room-6', name: 'Kitchen', sortOrder: 0, etag: '"r"' });
+        return ok({ roomId: 'room-6', name: 'Kitchen', sortOrder: 0, eTag: '"r"' });
       }
       return {
         ok: false,
@@ -640,7 +640,7 @@ describe('HouseholdSetup', () => {
                 detail: 'Effort must be positive.',
               },
             }
-          : ok({ choreId: `c-${call}`, ...body, active: true, etag: '"c"' }),
+          : ok({ choreId: `c-${call}`, ...body, active: true, eTag: '"c"' }),
       );
       const [a, b, c] = kitchen;
 

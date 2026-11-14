@@ -47,10 +47,10 @@ const roster: RosterEntryResponse[] = [
 
 // c1/c3 are daily -> "Today"; c2/c4 are weekly -> "This week".
 const chores: ChoreResponse[] = [
-  { choreId: 'c1', title: 'Dishes', roomId: 'r1', cadence: 'Daily', effort: 1, minAge: null, active: true, etag: 'e1' },
-  { choreId: 'c2', title: 'Vacuum', roomId: 'r1', cadence: 'Weekly', effort: 2, minAge: null, active: true, etag: 'e2' },
-  { choreId: 'c3', title: 'Trash', roomId: 'r1', cadence: 'Daily', effort: 1, minAge: null, active: true, etag: 'e3' },
-  { choreId: 'c4', title: 'Laundry', roomId: 'r1', cadence: 'Weekly', effort: 3, minAge: null, active: true, etag: 'e4' },
+  { choreId: 'c1', title: 'Dishes', roomId: 'r1', cadence: 'Daily', effort: 1, minAge: null, active: true, eTag: 'e1' },
+  { choreId: 'c2', title: 'Vacuum', roomId: 'r1', cadence: 'Weekly', effort: 2, minAge: null, active: true, eTag: 'e2' },
+  { choreId: 'c3', title: 'Trash', roomId: 'r1', cadence: 'Daily', effort: 1, minAge: null, active: true, eTag: 'e3' },
+  { choreId: 'c4', title: 'Laundry', roomId: 'r1', cadence: 'Weekly', effort: 3, minAge: null, active: true, eTag: 'e4' },
 ];
 
 const assignments: AssignmentView[] = [

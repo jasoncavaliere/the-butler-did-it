@@ -173,7 +173,18 @@ function todayLabel(): string {
   });
 }
 
-export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: number }) {
+export function HubShell({
+  idleTimeoutMs = IDLE_TIMEOUT_MS,
+  onEditHousehold,
+}: {
+  idleTimeoutMs?: number;
+  /**
+   * Opens the organizer's Household editor (#112). Supplied by the navigator so
+   * the hub itself stays free of navigation; when omitted, the organizer bar
+   * shows no Household button.
+   */
+  onEditHousehold?: () => void;
+}) {
   const client = useApiClient();
   const { householdId } = useHousehold();
   const guard = useDatasetGuard(householdId, client);
@@ -199,6 +210,7 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
       key={guard.revision}
       idleTimeoutMs={idleTimeoutMs}
       verifyDataset={householdId === null ? undefined : guard.verify}
+      onEditHousehold={onEditHousehold}
     />
   );
 }
@@ -207,9 +219,11 @@ export function HubShell({ idleTimeoutMs = IDLE_TIMEOUT_MS }: { idleTimeoutMs?: 
 function HubShellBody({
   idleTimeoutMs,
   verifyDataset,
+  onEditHousehold,
 }: {
   idleTimeoutMs: number;
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
+  onEditHousehold: (() => void) | undefined;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -353,9 +367,10 @@ function HubShellBody({
       {householdId !== null ? (
         <QueueRevival enabled={shellDegraded} onConfirmed={handleQueueConfirmed} />
       ) : null}
-      {/* Only Confirm order is wired. Edit roster (#167) and Household teardown
-          (#168) are deliberately not passed, so OrganizerBar does not render them. */}
-      <OrganizerBar onConfirmOrder={handleConfirmOrder} />
+      {/* Household (#112, when the navigator supplies it) and Confirm order are
+          wired. Edit roster (#167) and Household teardown (#168) are deliberately
+          not passed, so OrganizerBar does not render them. */}
+      <OrganizerBar onEditHousehold={onEditHousehold} onConfirmOrder={handleConfirmOrder} />
       <HubPairing />
       <View style={styles.header} testID="hub-header">
         <Text style={styles.householdName} accessibilityRole="header" testID="hub-household-name">

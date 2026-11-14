@@ -8,8 +8,8 @@ import { PinPad } from './PinPad';
 /**
  * The organizer control strip on the hub. It is the visible half of Engineering
  * Contract 7.4's client side: when no organizer is signed in it offers only a
- * sign-in affordance, and the sensitive actions (edit roster, confirm order,
- * household teardown) are simply not rendered - a participant is never even
+ * sign-in affordance, and the sensitive actions (edit household, edit roster,
+ * confirm order, household teardown) are simply not rendered - a participant is never even
  * presented them. Once an organizer signs in, those affordances appear
  * alongside sign-out - but each one only when the hub supplies its handler, so
  * the strip never shows a button that does nothing. An action whose screen has
@@ -23,6 +23,11 @@ import { PinPad } from './PinPad';
  */
 export type OrganizerBarProps = {
   /**
+   * Invoked when the organizer taps "Household" (the room and chore editor, #112).
+   * When omitted, the button is not rendered.
+   */
+  onEditHousehold?: () => void;
+  /**
    * Invoked when the organizer taps "Delete household" (teardown). When omitted,
    * the button is not rendered.
    */
@@ -33,7 +38,12 @@ export type OrganizerBarProps = {
   onEditRoster?: () => void;
 };
 
-export function OrganizerBar({ onHouseholdTeardown, onConfirmOrder, onEditRoster }: OrganizerBarProps) {
+export function OrganizerBar({
+  onEditHousehold,
+  onHouseholdTeardown,
+  onConfirmOrder,
+  onEditRoster,
+}: OrganizerBarProps) {
   const { organizer, signIn, signOut, providerKind } = useOrganizer();
   const [showPinPad, setShowPinPad] = useState(false);
 
@@ -71,6 +81,13 @@ export function OrganizerBar({ onHouseholdTeardown, onConfirmOrder, onEditRoster
       </Text>
       <View style={styles.actions} testID="organizer-actions">
         {/* Absent, not disabled: an action renders only when the hub wires it. */}
+        {onEditHousehold ? (
+          <Affordance
+            testID="affordance-edit-household"
+            label="Household"
+            onPress={onEditHousehold}
+          />
+        ) : null}
         {onEditRoster ? (
           <Affordance testID="affordance-edit-roster" label="Edit roster" onPress={onEditRoster} />
         ) : null}
