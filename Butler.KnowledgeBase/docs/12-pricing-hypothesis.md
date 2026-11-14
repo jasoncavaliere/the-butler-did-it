@@ -6,7 +6,7 @@ tags: [pricing, business model, subscription, per household, pilot, conversion, 
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision]
+related: [10-product-vision, 13-customer-interview-guide, 14-feedback-log-template]
 sources:
   - { id: issue-137, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/137, title: S4 - Pricing hypothesis and pilot-to-paid offer }
   - { id: vision-business-model, resource: 10-product-vision.md#business-model, title: Product Vision - Business model }
@@ -54,7 +54,7 @@ The pilot comes first, and the paid offer arrives at its end. The pilot terms th
 
 ## Willingness-to-pay questions
 
-These ten questions are asked in the same words every time, so answers can be compared. The customer interview guide ([#139](https://github.com/jasoncavaliere/the-butler-did-it/issues/139)) should draw its pricing questions from this list.
+These ten questions are asked in the same words every time, so answers can be compared. The [Customer Interview Guide](13-customer-interview-guide.md) should draw its pricing questions from this list.
 
 1. At what yearly price for your household would Butler be so cheap that you would doubt it works?
 2. At what yearly price would Butler feel like a bargain?
@@ -75,7 +75,7 @@ The experiment moves from what people say to what they actually do, and each sta
 
 | Stage | When | What we ask or offer | What we record |
 | --- | --- | --- | --- |
-| **A. Stated, after the demo** | Right after a demo, before any pilot | Q1 to Q10 | Every answer, logged in the #139 feedback log |
+| **A. Stated, after the demo** | Right after a demo, before any pilot | Q1 to Q10 | Every answer, logged in the [Feedback Log](14-feedback-log-template.md) |
 | **B. Stated, after use** | The pilot's week-5 check-in | Q1 to Q5 and Q7 | Every answer, compared with the same household's Stage A answers |
 | **C. Revealed, at pilot exit** | End of week 6 | The pilot-to-paid offer at the $49 founding price | Accept, decline, or no answer within the 14-day window |
 | **D. Revealed, at renewal** | Month 12 after a household converts | Renewal at the $69 list price, with notice first | Renew, cancel, or no answer by the renewal date |
@@ -105,7 +105,7 @@ These thresholds are hypotheses, written down before the data arrives so the res
 
 - It does not set live pricing; the owner ratifies or edits these numbers in review.
 - It does not build billing, payments, or subscriptions, and v1 includes none of them.
-- It does not write the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)), the interview guide and feedback log ([#139](https://github.com/jasoncavaliere/the-butler-did-it/issues/139)), or the pilot success criteria and week-4 go/no-go ([#140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140)).
+- It does not write the pilot one-pager ([#136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136)), the [Customer Interview Guide](13-customer-interview-guide.md) and [Feedback Log Template](14-feedback-log-template.md), or the pilot success criteria and week-4 go/no-go ([#140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140)).
 - It does not price a monthly plan, grocery commissions, or a hardware bundle, which all remain open questions for later.
 - It does not change the vision's business model; it only proposes specific numbers inside it.
 
@@ -118,5 +118,6 @@ These thresholds are hypotheses, written down before the data arrives so the res
 ## Related
 
 - [Product Vision](10-product-vision.md) - the business model these price points sit inside, and the scope and retention story behind each rationale.
-- [Issue #139 - customer interview guide and feedback log](https://github.com/jasoncavaliere/the-butler-did-it/issues/139) - where the willingness-to-pay questions are asked and logged.
+- [Customer Interview Guide](13-customer-interview-guide.md) - where the willingness-to-pay questions are asked after a demo.
+- [Feedback Log Template](14-feedback-log-template.md) - where every Stage A answer is recorded.
 - [Issue #140 - pilot success criteria and go/no-go signals](https://github.com/jasoncavaliere/the-butler-did-it/issues/140) - the week-4 go/no-go that sits beside the pilot-exit offer.
