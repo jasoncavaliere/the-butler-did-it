@@ -14,6 +14,8 @@ set -euo pipefail
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$DEMO_DIR")"
 COMPOSE_FILE="$DEMO_DIR/docker-compose.yml"
+# Bind-mounted at /app/logs in the api container (#107): its rolling log files.
+LOGS_DIR="$DEMO_DIR/.data/logs"
 UI_DIR="$REPO_ROOT/Butler.UI"
 
 HUB_URL="http://localhost:8080"
@@ -26,7 +28,7 @@ WAIT_TIMEOUT=300
 COMMANDS="up|Build the hub export if needed, start the stack and wait until it is healthy
 down|Stop the stack (data in demo/.data/azurite is kept)
 status|Show container health, the hub URL and the dataset id
-logs|Show the stack logs (extra arguments go to docker compose logs)
+logs|Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)
 share|Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code
 unshare|Turn off tailscale serve (the hub stays on http://localhost:8080)"
 
@@ -114,6 +116,18 @@ build_export() {
   fi
 }
 
+# The API container runs as a non-root user, so on a Linux engine it cannot
+# write a bind-mount folder that Docker creates as root. Create it first and
+# make it world-writable. A failure only warns: the stack still works, only
+# the API's log files may be missing.
+ensure_logs_dir() {
+  if mkdir -p "$LOGS_DIR" 2>/dev/null && chmod 0777 "$LOGS_DIR" 2>/dev/null; then
+    return 0
+  fi
+  echo "Could not make demo/.data/logs writable for the API container; its log files may be missing. Fix it with: sudo chmod 777 demo/.data/logs" >&2
+  return 0
+}
+
 cmd_up() {
   local state rebuilt=0 rc=0
   state="$(export_state)"
@@ -133,6 +147,7 @@ cmd_up() {
       ;;
   esac
 
+  ensure_logs_dir
   echo "Starting the demo stack ..."
   compose up -d --build --wait --wait-timeout "$WAIT_TIMEOUT" || rc=$?
   if [ "$rc" -eq 0 ] && [ "$rebuilt" -eq 1 ]; then
@@ -179,8 +194,24 @@ EOF
   echo "Dataset: ${dataset:-unavailable}"
 }
 
+# Default: follow the api and web (Caddy) logs, last 100 lines each. --api
+# narrows to the API. Any other argument goes to docker compose logs as-is and
+# turns off the default --follow --tail 100 (pass -f to follow).
 cmd_logs() {
-  compose logs "$@"
+  local services="api web" rest=() arg
+  for arg in "$@"; do
+    if [ "$arg" = "--api" ]; then
+      services="api"
+    else
+      rest+=("$arg")
+    fi
+  done
+  if [ "${#rest[@]}" -eq 0 ]; then
+    rest=(--follow --tail 100)
+  fi
+  # $services is unquoted on purpose: it is one or two service names.
+  # shellcheck disable=SC2086
+  compose logs "${rest[@]}" $services
 }
 
 # Prints the path of the tailscale CLI, or S1 to stderr and returns 1.

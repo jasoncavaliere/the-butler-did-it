@@ -104,6 +104,14 @@ curl http://localhost:8080/health        # {"status":"ok"}
 - Azurite's development-storage shortcut resolves to `127.0.0.1`, which inside the container is the
   container itself, not the host. The demo compose stack (#94) therefore passes an explicit Azurite
   endpoint in the connection string.
+- In the Demo environment only, the API keeps its console logging and also writes every log event,
+  plus one summary line per request (method, path, status, duration, household id, correlation id
+  equal to the RFC 7807 `traceId`), as compact JSON to a rolling file (#107). It is configured under
+  `DemoLogging`: `DirectoryPath` (default `logs`, relative to the content root, so `/app/logs` in the
+  image), `FileSizeLimitBytes` (10 MB) and `RetainedFileCountLimit` (10 files). The demo stack
+  mounts `demo/.data/logs` at `/app/logs`. Without a mount writable by the container's non-root
+  user the file sink fails quietly and only console logging remains. Other environments register no
+  file sink.
 
 ### Container tests
 

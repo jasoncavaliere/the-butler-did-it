@@ -17,9 +17,11 @@
 #   azurite - Table service only, data persisted to demo/.data/azurite.
 #   api     - Butler.API image (Demo environment, container port 8080),
 #             published on 127.0.0.1:5108. Tables are created by the API's
-#             startup provisioning (#91), never by this stack.
+#             startup provisioning (#91), never by this stack. Writes rolling
+#             JSON log files to demo/.data/logs (#107).
 #   web     - Caddy on 8080: serves the host-built PWA export (Butler.UI/dist)
-#             at / and proxies /api/* to api:8080 (prefix stripped).
+#             at / and proxies /api/* to api:8080 (prefix stripped). Access
+#             logs go to its container log (demo logs), not to a file.
 name: butler-demo
 
 services:
@@ -60,6 +62,12 @@ services:
       # UseDevelopmentStorage=true here - inside this container it resolves
       # to 127.0.0.1, i.e. the api container itself.
       Storage__ConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+    volumes:
+      # Demo file logging (#107): DemoLogging:DirectoryPath "logs" resolves to
+      # /app/logs. The container runs as non-root (uid 1654), so the demo CLI
+      # creates this folder world-writable before `up`; with raw compose,
+      # `mkdir -p demo/.data/logs && chmod 777 demo/.data/logs` first.
+      - ./.data/logs:/app/logs
     depends_on:
       azurite:
         condition: service_healthy

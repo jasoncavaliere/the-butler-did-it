@@ -490,3 +490,6 @@ $RECYCLE.BIN/
 __azurite_db*__.json
 __blobstorage__/
 __queuestorage__/
+
+# Demo-environment rolling log files (#107) when the API runs from source
+src/Butler.Api/logs/

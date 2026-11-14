@@ -15,7 +15,12 @@
 #   new service worker are picked up on the next load.
 #
 # No encode: compression would alter API ETags and break If-Match.
+#
+# log: one JSON access-log line per request on stderr, so `demo logs` shows
+# Caddy's traffic next to the API's (#107). No log file.
 :8080 {
+	log
+
 	handle_path /api/* {
 		reverse_proxy api:8080
 	}
