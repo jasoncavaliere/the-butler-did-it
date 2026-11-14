@@ -8,7 +8,7 @@
 
 * [7.1 Repository and toolchains](engineering-contract/71-repository-and-toolchains.md) - One repo, two sub-services with independent toolchains, and the exact build, lint, test, and export gates each ticket must name.
 * [7.2 Butler.API architecture](engineering-contract/72-api-architecture.md) - The Butler.API request path (thin controller, MediatR handler, service, repository) and the feature-extension registration pattern.
-* [7.3 Data model](engineering-contract/73-data-model.md) - Every Azure Table Storage table, its PartitionKey (always householdId) and RowKey, and the fields each row carries.
+* [7.3 Data model](engineering-contract/73-data-model.md) - Every Azure Table Storage table, its PartitionKey (householdId, except the one deployment-wide Datasets row at _system) and RowKey, and the fields each row carries.
 * [7.4 Authentication and authorization](engineering-contract/74-authentication-and-authorization.md) - Entra External ID JWT auth for the organizer only, no-password tap-to-claim sessions for participants, and the hub-device credential.
 * [7.5 Cross-cutting conventions](engineering-contract/75-cross-cutting-conventions.md) - Binding conventions for every ticket: RFC 7807 errors, optimistic concurrency via ETag, injected time, and config handling.
 * [7.6 Fair-assignment algorithm](engineering-contract/76-fair-assignment-algorithm.md) - The deterministic v1 fair-assignment algorithm, specified step by step so no ticket has to guess or reinterpret it.
