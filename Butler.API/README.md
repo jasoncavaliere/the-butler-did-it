@@ -194,12 +194,14 @@ dotnet test src/Butler.Api.SmokeTests
 
 With no settings, the suite targets the local dev URL `http://localhost:5099` (the `http` launch
 profile used by `dotnet run` and `Start-LocalSession.ps1`) and Azurite's `UseDevelopmentStorage=true`.
-The `.workspace` stack runs the containerized API on `:5108` against Azurite, so set
-`BUTLER_SMOKE_BASE_URL=http://localhost:5108` to run `Liveness` against it. The `Storage`,
-`Provisioning` and `Endpoints` categories still need an Azurite the host can reach, because they talk
-to Table Storage directly and the demo stack does not publish port 10002; start Azurite by hand as
-shown above. The in-memory quick loop (also on `:5108`) fails the `Endpoints` category, because those
-tests read the `Rooms` table directly to prove the API persisted to Table Storage.
+Only `Liveness` runs against the `.workspace` demo stack: set
+`BUTLER_SMOKE_BASE_URL=http://localhost:5108` to point it at the containerized API. The stack's API
+writes to the compose `azurite` service, which does not publish port 10002, so a test run on the host
+cannot read the same store. `Endpoints`, `Provisioning` and `Demo` need an API and a test run that
+share one Azurite, so use the hand-started Azurite plus `dotnet run` on `:5099` shown above.
+`Storage` only exercises whichever Azurite the host reaches; it does not test the stack. The
+in-memory quick loop (also on `:5108`) fails `Endpoints`, because those tests read the `Rooms` table
+directly to prove the API persisted to Table Storage.
 
 ### Run against a base URL (a deployed or already-running API)
 
