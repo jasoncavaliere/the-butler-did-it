@@ -11,7 +11,8 @@
 #            connection string, demo/ creates no tables, demo/.data is
 #            git-ignored, and demo/README.md documents the commands.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
-#            its service worker on :8080, the API's table provisioning, and that
+#            its service worker on :8080, the single origin (SPA fallback, cache
+#            headers, /api proxy, #96), the API's table provisioning, and that
 #            a household survives `down` + `up`.
 name: demo-ci
 
@@ -89,6 +90,9 @@ jobs:
           grep -F 'Docker Desktop' demo/README.md
           grep -F 'docker compose -f demo/docker-compose.yml up -d' demo/README.md
           grep -F 'docker compose -f demo/docker-compose.yml down' demo/README.md
+          # #96: the /api build and the doubled system prefix are documented.
+          grep -F 'EXPO_PUBLIC_API_BASE_URL=/api' demo/README.md
+          grep -F '/api/api/system/ping' demo/README.md
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -109,9 +113,12 @@ jobs:
           cache-dependency-path: Butler.UI/package-lock.json
 
       # The web service serves the host-built export; build:web (not a bare
-      # expo export) also injects the precache list into dist/sw.js.
+      # expo export) also injects the precache list into dist/sw.js. The /api
+      # base is inlined at bundle time so the hub calls the API same-origin.
       - name: Build the hub export
         working-directory: Butler.UI
+        env:
+          EXPO_PUBLIC_API_BASE_URL: /api
         run: |
           npm ci
           npm run build:web
@@ -149,6 +156,44 @@ jobs:
           curl -fsS "$HUB_URL/" | grep -qi '<html'
           curl -fsS "$HUB_URL/sw.js" | grep -qF 'butler-precache:begin'
           curl -fsS "$HUB_URL/manifest.json" > /dev/null
+
+      # #96: one origin on :8080 - SPA fallback, cache headers and the /api
+      # proxy (prefix stripped), plus the /api base inlined into the bundle.
+      - name: "Single origin: SPA fallback, cache headers, /api proxy"
+        run: |
+          hdr() { curl -fsS -D - -o /dev/null "$1" | tr -d '\r' | grep -i '^cache-control:'; }
+          expect_cc() {
+            got="$(hdr "$1" || true)"
+            echo "$1 -> $got"
+            if ! printf '%s' "$got" | grep -qiF "$2"; then
+              echo "expected Cache-Control containing '$2' for $1, got '$got'" >&2
+              exit 1
+            fi
+          }
+          deep="$HUB_URL/households/demo/deep/link"
+          # AC1: a path that is not a file falls back to index.html.
+          curl -fsS "$deep" | grep -qi '<html'
+          # AC2 + AC3: the service worker and the app shell are never cached stale.
+          expect_cc "$HUB_URL/sw.js" 'no-cache'
+          expect_cc "$HUB_URL/" 'no-cache'
+          expect_cc "$HUB_URL/index.html" 'no-cache'
+          expect_cc "$deep" 'no-cache'
+          # AC4: content-hashed bundles are long-lived.
+          bundle="$(cd Butler.UI/dist && ls _expo/static/js/web/*.js | head -n 1)"
+          expect_cc "$HUB_URL/$bundle" 'max-age=31536000'
+          # AC5: /api/* reaches the API with the prefix stripped.
+          curl -fsS "$HUB_URL/api/health" | jq -e '.status == "ok"'
+          curl -fsS -o /dev/null "$HUB_URL/api/api/system/ping"
+          id="$(curl -fsS -X POST "$HUB_URL/api/households" \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"Demo CI Proxy Household"}' | jq -er '.householdId')"
+          echo "created household $id through the proxy"
+          curl -fsS "$HUB_URL/api/households/$id" | jq -e '.name == "Demo CI Proxy Household"'
+          # The bundle was built with the relative /api base.
+          if ! grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/; then
+            echo "hub bundle does not contain the /api base - was EXPO_PUBLIC_API_BASE_URL set?" >&2
+            exit 1
+          fi
 
       # AC6: the service worker registers and activates in desktop Chrome.
       # Playwright is installed outside the repo; it is not a UI dependency.

@@ -1,9 +1,37 @@
-# Caddy config for the Butler demo stack's `web` service (#94).
+# Caddy config for the Butler demo stack's `web` service (#94, #96).
 #
-# Serves the host-built PWA export (Butler.UI/dist, mounted at /srv) as static
-# files on port 8080. #96 extends this file with the /api proxy, the SPA
-# fallback and cache headers.
+# One origin on port 8080:
+#   /api/*  - proxied to the API (compose service api, container port 8080)
+#             with the /api prefix stripped, so /api/households reaches
+#             /households. SystemController keeps its api/system route, so its
+#             endpoints are at /api/api/system/* through this proxy.
+#   else    - the host-built PWA export (Butler.UI/dist, mounted at /srv).
+#             Paths that are not files fall back to index.html (SPA routing).
+#
+# Cache rules (inside a route so they run after try_files and see the
+# rewritten path - an SPA-fallback index.html still gets no-cache):
+#   /_expo/static/*, /assets/*  - content-hashed, cached for a year.
+#   /, /index.html, /sw.js, /manifest.json - no-cache, so a new deploy and a
+#   new service worker are picked up on the next load.
+#
+# No encode: compression would alter API ETags and break If-Match.
 :8080 {
-	root * /srv
-	file_server
+	handle_path /api/* {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		root * /srv
+		route {
+			try_files {path} /index.html
+
+			@hashed path /_expo/static/* /assets/*
+			header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+			@shell path / /index.html /sw.js /manifest.json
+			header @shell Cache-Control "no-cache"
+
+			file_server
+		}
+	}
 }

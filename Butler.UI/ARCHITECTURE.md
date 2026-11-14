@@ -376,8 +376,10 @@ lifetime, mirroring the other hub session state. Presenting the device token on 
 `X-Device-Token` header) is a later ticket - this ticket only pairs and stores it.
 
 **API base URL** comes from `src/api/config.ts`: it reads `EXPO_PUBLIC_API_BASE_URL` (inlined by Expo
-at build time) and falls back to `http://localhost:5108` for local dev. Use `apiUrl(path)` to build
-request URLs.
+at build time) and falls back to `http://localhost:5108` for local dev. The base may be absolute or a
+same-origin relative base: the demo stack builds with `/api` (Caddy serves the hub and proxies `/api/*`
+to the API on one origin, see `demo/README.md`), and `apiUrl` then yields relative URLs such as
+`/api/households`. Use `apiUrl(path)` to build request URLs.
 
 **API client** (`src/api/client.ts`) is the shared data-access seam every UI ticket should call the API
 through instead of reinventing `fetch`. `createApiClient({ baseUrl })` returns an `ApiClient` with:

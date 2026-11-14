@@ -242,11 +242,13 @@ describe('the app-shell service worker', () => {
     const write = await worker.fetch(makeRequest('/index.html', { method: 'POST' }));
     const api = await worker.fetch({ url: 'https://api.butler.example/households', method: 'GET', mode: 'cors', destination: '' });
     const data = await worker.fetch(makeRequest('/households/hh-1/people', { mode: 'cors' }));
+    const sameOriginApi = await worker.fetch(makeRequest('/api/households/hh-1', { mode: 'cors' }));
 
     // Untouched by the worker: the O2 data cache and the O3 write queue own these.
     expect(write.handled).toBe(false);
     expect(api.handled).toBe(false);
     expect(data.handled).toBe(false);
+    expect(sameOriginApi.handled).toBe(false);
   });
 
   it('evicts a previous deploy cache on activate and claims open tabs', async () => {

@@ -45,6 +45,18 @@ describe('createApiClient', () => {
     expect(client.baseUrl).toBe(BASE);
   });
 
+  it('requests a same-origin relative URL when the base is /api', async () => {
+    const fetchImpl = jest.fn(async () => mockResponse({ body: JSON.stringify({ id: 'hh-1' }) }));
+    const client = createApiClient({ baseUrl: '/api', fetchImpl });
+
+    await client.get('/households/hh-1');
+
+    expect(fetchImpl).toHaveBeenCalledWith('/api/households/hh-1', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+  });
+
   describe('get', () => {
     it('sends JSON accept headers to the joined base URL and returns parsed data', async () => {
       const fetchImpl = jest.fn(async () =>

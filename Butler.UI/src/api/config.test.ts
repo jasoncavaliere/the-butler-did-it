@@ -17,8 +17,13 @@ describe('resolveApiBaseUrl', () => {
     expect(resolveApiBaseUrl('   ')).toBe(DEFAULT_DEV_API_BASE_URL);
   });
 
-  it('uses and trims a provided env value', () => {
+  it('uses and trims an absolute env value', () => {
     expect(resolveApiBaseUrl('  https://api.butler.test  ')).toBe('https://api.butler.test');
+  });
+
+  it('returns a relative /api base unchanged', () => {
+    expect(resolveApiBaseUrl('/api')).toBe('/api');
+    expect(resolveApiBaseUrl('  /api  ')).toBe('/api');
   });
 
   it('reads process.env by default', () => {
@@ -39,6 +44,12 @@ describe('apiUrl', () => {
 
   it('strips trailing slashes from the base URL', () => {
     expect(apiUrl('/api/hello', 'http://host:1///')).toBe('http://host:1/api/hello');
+  });
+
+  it('builds same-origin relative URLs from a relative /api base', () => {
+    expect(apiUrl('/households', '/api')).toBe('/api/households');
+    expect(apiUrl('households/hh-1', '/api/')).toBe('/api/households/hh-1');
+    expect(apiUrl('/api/system/ping', '/api')).toBe('/api/api/system/ping');
   });
 
   it('defaults the base URL to the resolved apiBaseUrl', () => {
