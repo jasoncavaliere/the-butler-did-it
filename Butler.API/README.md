@@ -344,6 +344,9 @@ every other request to the organizer scheme.
 - The token is intentionally opaque and unsigned - claiming itself is unauthenticated by design (Decision
   D-3), and no money moves in v1 (Decision D-8), so a forged token buys nothing beyond identifying a
   `personId` that already has no organizer authority.
+- A session is honored only while its household exists: once the household is torn down
+  (`DELETE /households/{householdId}`, #124) the session authenticates nobody, so a request carrying it is
+  `401`.
 
 ## Hub device pairing
 

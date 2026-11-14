@@ -15,7 +15,9 @@ namespace Butler.Api.Infrastructure.Storage;
 /// feature has to know which store is in play. Every registered table is
 /// recorded as a <see cref="TableRegistration"/>, and in Table mode
 /// <see cref="TableProvisioningHostedService"/> creates them all before the API
-/// accepts requests (#91).
+/// accepts requests (#91). Every registered entity type also gets an
+/// <see cref="IHouseholdPartitionPurger"/>, which household teardown enumerates so
+/// a new table is wiped with no teardown change (#124).
 /// </summary>
 public static class StorageServiceCollectionExtensions
 {
@@ -46,7 +48,9 @@ public static class StorageServiceCollectionExtensions
     /// <see cref="TableEntityRepository{TEntity}"/> bound to
     /// <paramref name="tableName"/> via the factory. Every call also records a
     /// <see cref="TableRegistration"/>, so the table is created at startup in
-    /// Table mode.
+    /// Table mode, and adds one <see cref="IHouseholdPartitionPurger"/> per entity
+    /// type (a type registered twice still gets one), so household teardown
+    /// deletes this table's rows too.
     /// </summary>
     /// <typeparam name="TEntity">The Table entity type stored in the table.</typeparam>
     /// <param name="tableName">The Table Storage table name (for example <c>Households</c>).</param>
@@ -68,6 +72,8 @@ public static class StorageServiceCollectionExtensions
             var factory = serviceProvider.GetRequiredService<ITableClientFactory>();
             return new TableEntityRepository<TEntity>(factory.GetTableClient(tableName));
         });
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHouseholdPartitionPurger, HouseholdPartitionPurger<TEntity>>());
 
         return services;
     }

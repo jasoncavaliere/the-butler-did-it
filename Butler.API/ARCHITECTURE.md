@@ -29,7 +29,10 @@ so the host awaits it before serving) creates every distinct registered table wi
 startup. A table that cannot be created is logged by name and fails startup; a restart against existing
 tables is a no-op; in-memory mode skips provisioning and never builds a storage client. `--seed-demo`
 runs before the hosted services, so it provisions the tables itself first. Deploy prerequisite: the API's
-managed identity needs the `Storage Table Data Contributor` role on the storage account to create tables.
+managed identity needs the `Storage Table Data Contributor` role on the storage account to create tables. Each
+`AddTableRepository` call also registers one `IHouseholdPartitionPurger` per entity type
+(`HouseholdPartitionPurger<TEntity>`), and household teardown enumerates them, so a new table is wiped on
+teardown with no change to the teardown code (#124).
 
 ### Households (the root aggregate)
 
@@ -44,6 +47,7 @@ feature registers via `AddHouseholdFeature()` in `Program.cs`.
 | --- | --- |
 | `POST /households` | Creates a `Households` row with a server-generated `householdId` (partition key = row key), the caller's object id as `OrganizerObjectId`, and `CreatedUtc` from the injected clock. In the same operation it seeds the organizer's `People` row (`Role = Organizer`, `IsChild = false`) so a household is never left without a roster owner. Returns `201` with the created household (including `ETag`) and a `Location` pointing at `GET /households/{householdId}`. |
 | `GET /households/{householdId}` | Returns the household (with its current `ETag`) for a known id, or `404` RFC 7807 problem details for an unknown one. Open to the organizer or a paired hub device (`OrganizerOrHubDevice` policy, #105), so a hub with no organizer signed in still shows its household; a participant session is `403`. `POST /households` stays organizer-only. |
+| `DELETE /households/{householdId}` | Tears the household down (#124). Organizer-only. Body `{ "confirmName": "<household name>" }`, which must exactly equal the stored name (ordinal, case-sensitive, no trimming). `HouseholdTeardownService` then runs every registered `IHouseholdPartitionPurger` (no hard-coded table list), deleting every row in the household's partition of every table with the wildcard `If-Match`, the `Households` row last, and returns `204`. A missing, blank, or inexact name (or no body) is a `400` RFC 7807 problem and an unknown id is a `404` problem; a participant session or hub device is `403`; none of these delete anything. Teardown also revokes access: the household's hub-device tokens fail (their `HubDevices` rows are gone) and its participant sessions fail (the handler checks the household still exists), both `401`. |
 
 Organizer auth in Demo (#105): the organizer signs in with a PIN from `BUTLER_DEMO_PIN` through
 `POST /auth/pin/sign-in` (`OrganizerPinController` -> `SignInWithPinCommand` ->
