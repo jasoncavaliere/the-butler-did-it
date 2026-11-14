@@ -251,6 +251,29 @@ describe('the app-shell service worker', () => {
     expect(sameOriginApi.handled).toBe(false);
   });
 
+  it('never caches a same-origin /api navigation as the app shell', async () => {
+    const worker = bootServiceWorker();
+    await worker.install();
+    const shellBefore = await worker.currentCache().match('/index.html');
+
+    const apiPage = await worker.fetch(navigationRequest('/api/api/system/ping'));
+    const apiRoot = await worker.fetch(navigationRequest('/api'));
+
+    expect(apiPage.handled).toBe(false);
+    expect(apiRoot.handled).toBe(false);
+    expect(await worker.currentCache().match('/index.html')).toBe(shellBefore);
+    expect(await worker.currentCache().match('/api/api/system/ping')).toBeUndefined();
+  });
+
+  it('still treats a route that merely starts with "api" as a hub navigation', async () => {
+    const worker = bootServiceWorker();
+    await worker.install();
+
+    const route = await worker.fetch(navigationRequest('/apiary'));
+
+    expect(route.handled).toBe(true);
+  });
+
   it('evicts a previous deploy cache on activate and claims open tabs', async () => {
     const worker = bootServiceWorker({
       seedCaches: { 'butler-app-shell-old': ['/index.html'], 'unrelated-cache': ['/keep'] },
