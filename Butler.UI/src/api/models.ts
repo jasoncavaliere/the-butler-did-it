@@ -432,3 +432,10 @@ export type AddCartItemRequest = {
  * for data that no longer exists.
  */
 export type DatasetResponse = { datasetId: string };
+
+/**
+ * Body of `GET /api/system/version` (#126): the git short SHA the API was built
+ * from (`dev` when unstamped) and its ISO 8601 UTC build time (`null` when
+ * unstamped).
+ */
+export type VersionResponse = { sha: string; buildTime: string | null };

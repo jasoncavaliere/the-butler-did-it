@@ -53,6 +53,11 @@ services:
   api:
     build:
       context: ../Butler.API
+      # Build version (#126): demo.sh / demo.ps1 up export BUTLER_BUILD_SHA
+      # (the git short SHA); the image stamps it into the API assembly. Empty
+      # means an unstamped build, reported as "dev".
+      args:
+        BUILD_SHA: "${BUTLER_BUILD_SHA:-}"
     image: butler-api:demo
     environment:
       ASPNETCORE_ENVIRONMENT: Demo

@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { HubShell, revealAndFocus } from './HubShell';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import { DATASET_PATH } from '../api/dataset';
+import { VERSION_PATH } from '../api/version';
 import type { ParticipantSessionResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
@@ -138,6 +139,9 @@ function interactiveClient(claimResult?: ApiResult<unknown>): ApiClient {
       }
       if (path.includes('/chores')) {
         return okChores;
+      }
+      if (path === VERSION_PATH) {
+        return { ok: true, status: 200, data: { sha: 'api1234', buildTime: null }, etag: null };
       }
       if (path.includes('/carts/')) {
         return okCart;
@@ -761,6 +765,82 @@ describe('HubShell', () => {
       expect(screen.queryByTestId('affordance-your-data')).toBeNull();
     });
 
+    it('Version opens a panel that renders VersionInfo, and Close hides it', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      // Hidden until an organizer signs in, and the version is not read yet.
+      expect(screen.queryByTestId('affordance-version')).toBeNull();
+      expect(screen.queryByTestId('hub-version-panel')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+      expect(screen.queryByTestId('hub-version-panel')).toBeNull();
+      expect(client.get).not.toHaveBeenCalledWith(VERSION_PATH);
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-version'));
+      });
+
+      const panel = screen.getByTestId('hub-version-panel');
+      expect(within(panel).getByTestId('version-info')).toBeOnTheScreen();
+      await waitFor(() => expect(screen.getByTestId('version-api-sha')).toHaveTextContent('api1234'));
+      expect(client.get).toHaveBeenCalledWith(VERSION_PATH);
+      // Rendered after the fixed-height chrome, never inside it.
+      expect(within(screen.getByTestId('hub-chrome')).queryByTestId('hub-version-panel')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('hub-version-close'));
+      });
+      expect(screen.queryByTestId('hub-version-panel')).toBeNull();
+
+      // Version toggles: a second tap opens it, a third closes it again.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-version'));
+      });
+      expect(screen.getByTestId('hub-version-panel')).toBeOnTheScreen();
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-version'));
+      });
+      expect(screen.queryByTestId('hub-version-panel')).toBeNull();
+    });
+
+    it('signing out hides an open version panel', async () => {
+      useApiClientMock.mockReturnValue(interactiveClient());
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-version'));
+      });
+      expect(screen.getByTestId('hub-version-panel')).toBeOnTheScreen();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-out'));
+      });
+
+      expect(screen.queryByTestId('hub-version-panel')).toBeNull();
+      expect(screen.queryByTestId('affordance-version')).toBeNull();
+    });
+
+    it('a non-organizer sees no Version button', async () => {
+      useApiClientMock.mockReturnValue(interactiveClient());
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+      expect(screen.queryByTestId('affordance-version')).toBeNull();
+      expect(screen.queryByTestId('hub-version-panel')).toBeNull();
+    });
+
     it('leaves the active participant claim intact when an organizer signs in', async () => {
       const client = interactiveClient();
       useApiClientMock.mockReturnValue(client);
@@ -923,6 +1003,7 @@ describe('HubShell', () => {
      */
     describe('organizer actions (#57)', () => {
       const SENSITIVE = [
+        'affordance-version',
         'affordance-edit-roster',
         'affordance-confirm-order',
         'affordance-household-teardown',

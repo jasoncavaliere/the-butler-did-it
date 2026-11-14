@@ -413,7 +413,7 @@ unbounded. The feature registers via `AddInsightsFeature()` in `Program.cs`, aft
 | --- | --- |
 | `GET /households/{householdId}/insights?weeks=N` | Organizer only (`Organizer` policy): a participant session or a paired hub device is `403`. Returns `200` with an `InsightsResponse` (`windowStartWeekIso`, `windowEndWeekIso`, `windowWeeks`, `members` (`personId`, `displayName`, `claimColor`), `weeks` (`weekIso`, `totalEffort`, `topContributorPersonId`, `topContributorShare` `0`..`1`, `completions` per member), `glancesPerDay` (`date` `yyyy-MM-dd`, `count`), `cartsConfirmedPerMonth` (`month` `yyyy-MM`, `count`)). A missing, non-numeric, or out-of-range `weeks` (below `1` or above `52`) is a `400` RFC 7807 document; an unknown `householdId` is `404`. |
 
-### System (health + dataset id)
+### System (health + dataset id + build version)
 
 `System` (`Application/System/`, `Infrastructure/System/`, `Controllers/SystemController`) is the
 reference slice (`GET /api/system/ping`) and, since #100 (D7), the owner of the deployment's
@@ -424,6 +424,7 @@ when it changed, so a demo reseed never leaves stale taps to replay into the new
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /api/system/dataset` | Returns `200` with `{ "datasetId": "..." }`. Anonymous, like ping, and sent with `Cache-Control: no-store, no-cache` so no proxy or browser cache can serve an old id. When no id is stored (first boot, or storage was wiped) one is minted, stored, and returned. Through the single-origin proxy, which strips one `/api`, it is `/api/api/system/dataset`. |
+| `GET /api/system/version` | Returns `200` with `{ "sha": "...", "buildTime": "..." }` (#126): the git short SHA the API was built from and its UTC build time (`yyyy-MM-ddTHH:mm:ssZ`). Anonymous and `no-store`, like dataset. The build stamps them when it is given `/p:ButlerBuildSha` and `/p:ButlerBuildTime` (`Butler.Api.csproj` turns each into an `AssemblyMetadata` item only when set; the Dockerfile passes both from its `BUILD_SHA` build arg). An unstamped build answers `"sha": "dev"` and `"buildTime": null` instead of failing. `AssemblyBuildVersionProvider` (behind `IBuildVersionProvider`, a singleton) parses the metadata once: the SHA is trimmed, and the time is normalized to UTC or `null` when missing or unparseable. The hub's `VersionInfo` shows it next to its own build SHA. |
 
 - **Storage.** One row in the `Datasets` table (`DatasetEntity`): `PartitionKey = _system`,
   `RowKey = dataset`, with `DatasetId` (a `Guid` in `"N"` format) and `CreatedUtc` from the

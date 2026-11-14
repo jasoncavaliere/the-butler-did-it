@@ -136,10 +136,13 @@ function Invoke-ExportBuild {
         }
         # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin,
         # and pin makes the hub sign the organizer in on the PIN pad (#105).
+        # EXPO_PUBLIC_BUILD_SHA stamps the hub with the same git SHA as the API (#126).
         $previous = $env:EXPO_PUBLIC_API_BASE_URL
         $previousProvider = $env:EXPO_PUBLIC_AUTH_PROVIDER
+        $previousSha = $env:EXPO_PUBLIC_BUILD_SHA
         $env:EXPO_PUBLIC_API_BASE_URL = '/api'
         $env:EXPO_PUBLIC_AUTH_PROVIDER = 'pin'
+        $env:EXPO_PUBLIC_BUILD_SHA = $env:BUTLER_BUILD_SHA
         try {
             & npm run build:web
             $script:ExitCode = $LASTEXITCODE
@@ -147,6 +150,7 @@ function Invoke-ExportBuild {
         finally {
             $env:EXPO_PUBLIC_API_BASE_URL = $previous
             $env:EXPO_PUBLIC_AUTH_PROVIDER = $previousProvider
+            $env:EXPO_PUBLIC_BUILD_SHA = $previousSha
         }
         if ($script:ExitCode -ne 0) {
             Write-Err 'Hub export build failed.'
@@ -207,8 +211,26 @@ function Test-DemoPin {
     return $false
 }
 
+# Build version (#126): set BUTLER_BUILD_SHA to the git short SHA, unless the
+# shell already set it. Compose passes it to the API image build and
+# Invoke-ExportBuild stamps it into the hub. Outside a git checkout (or without
+# git) it stays empty, and both report "dev". Prints nothing.
+function Set-BuildSha {
+    if ($env:BUTLER_BUILD_SHA) { return }
+    $sha = ''
+    try {
+        $out = & git -C (Split-Path -Parent $PSScriptRoot) rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out) { $sha = "$out".Trim() }
+    }
+    catch {
+        $sha = ''
+    }
+    $env:BUTLER_BUILD_SHA = $sha
+}
+
 function Invoke-DemoUp {
     if (-not (Test-DemoPin)) { return }
+    Set-BuildSha
     $rebuilt = $false
     switch (Get-ExportState) {
         'fresh' {

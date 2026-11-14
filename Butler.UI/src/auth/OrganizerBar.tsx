@@ -9,7 +9,7 @@ import { PinPad } from './PinPad';
  * The organizer control strip on the hub. It is the visible half of Engineering
  * Contract 7.4's client side: when no organizer is signed in it offers only a
  * sign-in affordance, and the sensitive actions (edit household, insights, your
- * data, edit roster, confirm order, household teardown) are simply not rendered - a participant is never even
+ * data, version, edit roster, confirm order, household teardown) are simply not rendered - a participant is never even
  * presented them. Once an organizer signs in, those affordances appear
  * alongside sign-out - but each one only when the hub supplies its handler, so
  * the strip never shows a button that does nothing. An action whose screen has
@@ -39,6 +39,11 @@ export type OrganizerBarProps = {
    */
   onShowYourData?: () => void;
   /**
+   * Invoked when the organizer taps "Version" (the hub and API build versions,
+   * #126). When omitted, the button is not rendered.
+   */
+  onShowVersion?: () => void;
+  /**
    * Invoked when the organizer taps "Delete household" (teardown). When omitted,
    * the button is not rendered.
    */
@@ -53,6 +58,7 @@ export function OrganizerBar({
   onEditHousehold,
   onShowInsights,
   onShowYourData,
+  onShowVersion,
   onHouseholdTeardown,
   onConfirmOrder,
   onEditRoster,
@@ -106,6 +112,9 @@ export function OrganizerBar({
         ) : null}
         {onShowYourData ? (
           <Affordance testID="affordance-your-data" label="Your data" onPress={onShowYourData} />
+        ) : null}
+        {onShowVersion ? (
+          <Affordance testID="affordance-version" label="Version" onPress={onShowVersion} />
         ) : null}
         {onEditRoster ? (
           <Affordance testID="affordance-edit-roster" label="Edit roster" onPress={onEditRoster} />

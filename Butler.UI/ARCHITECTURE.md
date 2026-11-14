@@ -304,6 +304,7 @@ src/
               LastKnownBanner.tsx # "showing last-known" indication when a region is served from cache (O2)
               SyncIndicator.tsx # hub-header sync state: online/offline, pending count, synced, failed writes (O4)
               InsightsCharts.tsx # View-based BarChart, GroupedBarChart and Legend for the Insights screen; no chart library, all text >= 18px (#123)
+              VersionInfo.tsx # hub and API build SHAs side by side (GET /api/system/version), flags a mismatch; no props (#126)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -535,8 +536,17 @@ organizer signed in; once signed in it shows the organizer's name, sign-out, and
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
 does nothing. Today that is Household (#112), Insights (#123) and Your data (#125), which open their
-routes through the handlers `RootNavigator` passes to `HubShell`, and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
-cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Edit roster
+routes through the handlers `RootNavigator` passes to `HubShell`, Version (#126), and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
+cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Version is
+hub-internal state, not a route: it toggles a panel (`hub-version-panel`) rendered after the fixed-height
+chrome, holding `VersionInfo` and a Close button. The panel shows only while an organizer is signed in, so
+signing out closes it, and `VersionInfo` mounts (and reads `GET /api/system/version`) only while it is
+open. `VersionInfo` shows the hub's build SHA (`EXPO_PUBLIC_BUILD_SHA`, inlined at bundle time, else
+`dev`), the API's SHA and build time, and a mismatch line when both are known and differ; when the read
+fails the API version is `unavailable` and no mismatch is claimed. Expo inlines `EXPO_PUBLIC_*` values
+while it transforms a module, and Metro's transform cache is not keyed on env values, so
+`metro.config.js` folds every `EXPO_PUBLIC_*` value into Metro's `cacheVersion`
+(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache. Edit roster
 is #167 and Household teardown is #168; until they land, `HubShell` does not pass those handlers. This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never

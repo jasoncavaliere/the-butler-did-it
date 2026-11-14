@@ -6,6 +6,8 @@ import {
   resolveApiBaseUrl,
   buildTimeAuthEnv,
   resolveAuthConfig,
+  DEV_BUILD_SHA,
+  resolveUiBuildSha,
 } from './config';
 
 describe('resolveApiBaseUrl', () => {
@@ -124,6 +126,36 @@ describe('resolveAuthConfig', () => {
         delete process.env.EXPO_PUBLIC_AUTH_PROVIDER;
       } else {
         process.env.EXPO_PUBLIC_AUTH_PROVIDER = saved;
+      }
+    }
+  });
+});
+
+describe('resolveUiBuildSha', () => {
+  it('falls back to dev when undefined or blank', () => {
+    expect(DEV_BUILD_SHA).toBe('dev');
+    expect(resolveUiBuildSha(undefined)).toBe('dev');
+    expect(resolveUiBuildSha('')).toBe('dev');
+    expect(resolveUiBuildSha('   ')).toBe('dev');
+  });
+
+  it('uses and trims a provided value', () => {
+    expect(resolveUiBuildSha('abc1234')).toBe('abc1234');
+    expect(resolveUiBuildSha('  abc1234\n')).toBe('abc1234');
+  });
+
+  it('reads process.env.EXPO_PUBLIC_BUILD_SHA by default', () => {
+    const saved = process.env.EXPO_PUBLIC_BUILD_SHA;
+    try {
+      process.env.EXPO_PUBLIC_BUILD_SHA = 'f00dbab';
+      expect(resolveUiBuildSha()).toBe('f00dbab');
+      delete process.env.EXPO_PUBLIC_BUILD_SHA;
+      expect(resolveUiBuildSha()).toBe('dev');
+    } finally {
+      if (saved === undefined) {
+        delete process.env.EXPO_PUBLIC_BUILD_SHA;
+      } else {
+        process.env.EXPO_PUBLIC_BUILD_SHA = saved;
       }
     }
   });

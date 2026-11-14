@@ -68,7 +68,7 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/auth/` | Organizer auth providers (dev / Entra), `OrganizerGate`, hub pairing. |
 | `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding), `Household` (organizer room/chore editor), `Insights` (organizer insights charts, #123), `YourData` (plain-language data page, #125). |
 | `src/setup/` | Starter-chore template catalog (versioned JSON fixture) and matching helpers used by `HouseholdSetup`. |
-| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `InsightsCharts` (View-based bar charts for the Insights screen, #123), `Screen`. |
+| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `InsightsCharts` (View-based bar charts for the Insights screen, #123), `VersionInfo` (hub and API build SHAs, mismatch flag, #126), `Screen`. |
 | `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect, and the hub-glance reporter (`hubGlance`, `useHubGlance`, #122). |
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
 | `src/insights/` | Pure helpers for the Insights screen: member colours, bar fractions, week/day/month labels (#123). |

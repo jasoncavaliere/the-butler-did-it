@@ -7,6 +7,10 @@
 # The storage connection is passed at run time through the Storage__*
 # environment variables (see README "Run as a container") - it is never baked
 # into the image. Without it the API falls back to the in-memory seed store.
+#
+# Build version (#126): pass --build-arg BUILD_SHA=<git short SHA> to stamp the
+# SHA, with the UTC build time, into the assembly; GET /api/system/version
+# reports them. Without it the endpoint reports "dev".
 
 # --- Build stage: .NET 10 SDK -----------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
@@ -20,12 +24,19 @@ COPY global.json Directory.Build.props Directory.Packages.props ./
 COPY src/Butler.Api/Butler.Api.csproj src/Butler.Api/
 RUN dotnet restore src/Butler.Api/Butler.Api.csproj
 
+# Declared after restore so a new SHA does not invalidate the restore layer.
+# BUILD_TIME is computed inside the publish step for the same reason.
+ARG BUILD_SHA=
+
 COPY src/Butler.Api/ src/Butler.Api/
-RUN dotnet publish src/Butler.Api/Butler.Api.csproj \
+RUN BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" && \
+    dotnet publish src/Butler.Api/Butler.Api.csproj \
     --configuration Release \
     --output /app/publish \
     --no-restore \
-    /p:UseAppHost=false
+    /p:UseAppHost=false \
+    "/p:ButlerBuildSha=${BUILD_SHA}" \
+    "/p:ButlerBuildTime=${BUILD_TIME}"
 
 # --- Final stage: ASP.NET 10 runtime ----------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

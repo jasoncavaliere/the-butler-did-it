@@ -112,7 +112,9 @@ build_export() {
   fi
   # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin,
   # and pin makes the hub sign the organizer in on the PIN pad (#105).
-  (cd "$UI_DIR" && EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web) || rc=$?
+  # EXPO_PUBLIC_BUILD_SHA stamps the hub with the same git SHA as the API (#126).
+  (cd "$UI_DIR" && EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin \
+    EXPO_PUBLIC_BUILD_SHA="${BUTLER_BUILD_SHA:-}" npm run build:web) || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "Hub export build failed." >&2
     return "$rc"
@@ -155,9 +157,19 @@ check_pin() {
   return 1
 }
 
+# Build version (#126): export the git short SHA as BUTLER_BUILD_SHA, unless the
+# shell already set it. Compose passes it to the API image build and
+# build_export stamps it into the hub. Outside a git checkout it stays empty,
+# and both report "dev". Prints nothing.
+ensure_build_sha() {
+  BUTLER_BUILD_SHA="${BUTLER_BUILD_SHA:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)}"
+  export BUTLER_BUILD_SHA
+}
+
 cmd_up() {
   local state rebuilt=0 rc=0
   check_pin || return 1
+  ensure_build_sha
   state="$(export_state)"
   case "$state" in
     fresh)
