@@ -14,6 +14,7 @@ Start with the **[Product Vision](Butler.KnowledgeBase/docs/10-product-vision.md
 | [`Butler.UI/`](Butler.UI/) | The hub front end | Expo (React Native + web), web-first -> Azure Static Web App, Bicep |
 | [`Butler.API/`](Butler.API/) | The backend service | .NET 10 Web API -> Azure App Service, Bicep |
 | [`Butler.KnowledgeBase/`](Butler.KnowledgeBase/) | Agent-managed wiki (canonical Markdown) | see its [index](Butler.KnowledgeBase/index.md) |
+| [`demo/`](demo/) | Local demo stack (Azurite + API + hub PWA) | Docker Compose, Caddy - see its [README](demo/README.md) |
 
 Each sub-service is independent (its own build, deploy, and `infra/`). See [`CLAUDE.md`](CLAUDE.md) for
 how to work in this repo.
@@ -24,3 +25,7 @@ Every PR runs path-filtered GitHub Actions gates - the API builds (warnings-as-e
 coverage-gated test suite; the UI lints, typechecks, runs a coverage-gated test suite, and web-exports.
 Both enforce the 98% coverage gate (Engineering Contract 7.7), except UI presentation code (`src/components/`, `src/screens/`), which is gated at 90% during the demo push. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for the local commands that mirror CI.
+
+Changes under `demo/` run the `demo-ci` workflow, which validates the Docker Compose file and boots the
+full demo stack (Azurite + API + Caddy) to check the hub, its service worker, and that data survives a
+restart.

@@ -1,0 +1,9 @@
+# Caddy config for the Butler demo stack's `web` service (#94).
+#
+# Serves the host-built PWA export (Butler.UI/dist, mounted at /srv) as static
+# files on port 8080. #96 extends this file with the /api proxy, the SPA
+# fallback and cache headers.
+:8080 {
+	root * /srv
+	file_server
+}

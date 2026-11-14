@@ -1,0 +1,73 @@
+# Butler local demo stack (#94): Azurite (Table storage) + Butler.API + Caddy.
+#
+# Run from the repo root (build the hub export first - see demo/README.md):
+#   docker compose -f demo/docker-compose.yml up -d --build
+#   docker compose -f demo/docker-compose.yml down
+#
+# Services (names are seams other tickets depend on - do not rename):
+#   azurite - Table service only, data persisted to demo/.data/azurite.
+#   api     - Butler.API image (Demo environment, container port 8080),
+#             published on 127.0.0.1:5108. Tables are created by the API's
+#             startup provisioning (#91), never by this stack.
+#   web     - Caddy serving the host-built PWA export (Butler.UI/dist) on 8080.
+name: butler-demo
+
+services:
+  azurite:
+    # Same pinned tag as api-ci.yml. --skipApiVersionCheck lets the
+    # Azure.Data.Tables SDK use a service version newer than this tag knows.
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: azurite-table --tableHost 0.0.0.0 --location /data --skipApiVersionCheck
+    volumes:
+      - ./.data/azurite:/data
+    healthcheck:
+      # The image ships node but no curl/wget, so probe the Table port with a
+      # plain TCP connect.
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').connect(10002,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+    # Port 10002 is deliberately not published; only the api talks to it.
+
+  api:
+    build:
+      context: ../Butler.API
+    image: butler-api:demo
+    environment:
+      ASPNETCORE_ENVIRONMENT: Demo
+      Storage__UseInMemoryStore: "false"
+      # The well-known public Azurite devstoreaccount1 key (not a secret).
+      # The explicit TableEndpoint points at the azurite service; never use
+      # UseDevelopmentStorage=true here - inside this container it resolves
+      # to 127.0.0.1, i.e. the api container itself.
+      Storage__ConnectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+    depends_on:
+      azurite:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5108:8080"
+    restart: unless-stopped
+
+  web:
+    image: caddy:2.10.2-alpine
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The PWA export built on the host by `npm run build:web` in Butler.UI.
+      # create_host_path=false: a missing export fails loudly instead of
+      # serving an empty, docker-created directory.
+      - type: bind
+        source: ../Butler.UI/dist
+        target: /srv
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
