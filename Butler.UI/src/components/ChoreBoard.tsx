@@ -18,6 +18,8 @@ import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext } from '../offline/WriteQueueContext';
 import { currentWeekIso, isCurrentWeek } from '../offline/weekIso';
 import { assignmentDedupeKey, readWriteQueue, type QueuedWrite } from '../offline/writeQueue';
+import { useReducedMotion } from '../motion/useReducedMotion';
+import { CELEBRATION_DURATION_MS, ChoreCelebration } from './ChoreCelebration';
 import { colors } from './Screen';
 import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
@@ -52,6 +54,15 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * service *refuses* the write (an outage queues it instead - see below), so a
  * mis-tap in either direction is recoverable without leaving the board lying about
  * the server.
+ *
+ * A completing tap also celebrates (#119): the row shows a check in the active
+ * participant's claim colour and a short message ({@link ChoreCelebration}),
+ * animated unless the platform asks for reduced motion ({@link useReducedMotion}),
+ * for {@link CELEBRATION_DURATION_MS}, after which the row settles into its muted
+ * done look. The celebration is a child of the row with no overlay and no disabled
+ * state, so tapping the same row is still the undo, during the celebration or after
+ * it, and another row still takes the next tap. An undo or a refused completion
+ * ends it early; a queued one keeps it, because the tap was not lost.
  *
  * Offline (Epic 60 O2), the read path falls back to the last-known week: every
  * successful load caches the built week, and a load that fails *because the API
@@ -357,6 +368,59 @@ export function ChoreBoard({
   // from storage below: a tap must not refetch the week.
   const liveTapsRef = useRef(new Map<string, LiveTap>());
 
+  // The chores celebrating a completing tap right now (#119), and the timer that
+  // ends each one. The timer owns the celebration's lifecycle rather than an
+  // animation callback, so it ends on time with or without motion; the timers are
+  // bookkeeping that never renders, so they live in a ref.
+  const [celebrating, setCelebrating] = useState<ReadonlySet<string>>(() => new Set());
+  const celebrationTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const reducedMotion = useReducedMotion();
+
+  const stopCelebration = useCallback((choreId: string) => {
+    const timers = celebrationTimersRef.current;
+    const timer = timers.get(choreId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timers.delete(choreId);
+    }
+    setCelebrating((prev) => {
+      if (!prev.has(choreId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(choreId);
+      return next;
+    });
+  }, []);
+
+  const startCelebration = useCallback(
+    (choreId: string) => {
+      const timers = celebrationTimersRef.current;
+      const existing = timers.get(choreId);
+      if (existing !== undefined) {
+        clearTimeout(existing);
+      }
+      timers.set(
+        choreId,
+        setTimeout(() => stopCelebration(choreId), CELEBRATION_DURATION_MS),
+      );
+      setCelebrating((prev) => new Set(prev).add(choreId));
+    },
+    [stopCelebration],
+  );
+
+  // A board unmounted mid-celebration (the hub switching away) leaves no timer
+  // behind to set state on it.
+  useEffect(() => {
+    const timers = celebrationTimersRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        clearTimeout(timer);
+      }
+      timers.clear();
+    };
+  }, []);
+
   useEffect(() => {
     let active = true;
     // Taken now, before the requests are sent, so a tap that settles after this
@@ -541,6 +605,10 @@ export function ChoreBoard({
   //   an unreadable body): that is a refusal, not an outage, so the row reverts
   //   exactly as it did before O3 - the board never lies about the server.
   // - Otherwise the row reconciles to the status the response confirms.
+  //
+  // A complete starts the row's celebration with the optimistic flip (#119), so
+  // it shows whether the write goes to the API or the queue; an undo ends it, and
+  // so does a refusal that reverts a complete. A queued write keeps it.
   const toggle = useCallback(
     async (choreId: string) => {
       // Re-checked here rather than reused from render: a wall hub can sit
@@ -585,6 +653,11 @@ export function ChoreBoard({
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: optimistic } : item)),
       );
+      if (action === 'complete') {
+        startCelebration(choreId);
+      } else {
+        stopCelebration(choreId);
+      }
 
       if (fromCache) {
         queueWrite();
@@ -611,6 +684,9 @@ export function ChoreBoard({
         setItems((prev) =>
           prev.map((item) => (item.choreId === choreId ? { ...item, status: previous } : item)),
         );
+        if (action === 'complete') {
+          stopCelebration(choreId);
+        }
         return;
       }
 
@@ -622,7 +698,18 @@ export function ChoreBoard({
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );
     },
-    [client, householdId, weekIso, activePersonId, items, fromCache, enqueue, recheckWeek],
+    [
+      client,
+      householdId,
+      weekIso,
+      activePersonId,
+      items,
+      fromCache,
+      enqueue,
+      recheckWeek,
+      startCelebration,
+      stopCelebration,
+    ],
   );
 
   // "Try again" on the error state: show the skeleton, then bump the reload
@@ -723,6 +810,8 @@ export function ChoreBoard({
                         item={item}
                         accent={accent}
                         glow={isActive}
+                        celebrating={celebrating.has(item.choreId)}
+                        reducedMotion={reducedMotion}
                         styles={styles}
                         // Read-only when no participant is active, or when the board's
                         // week has since rolled over, live or cached (that row must
@@ -748,12 +837,16 @@ export function ChoreBoard({
 /**
  * One tappable chore row. It glows in the person's claim colour when it belongs
  * to the active participant, and reads as a distinct dimmed/checked state once
- * `Done`.
+ * `Done`. While a completing tap celebrates (#119) it shows the
+ * {@link ChoreCelebration} after the title and holds off the dimming, then
+ * settles into the muted done look when the celebration ends.
  */
 function ChoreItem({
   item,
   accent,
   glow,
+  celebrating,
+  reducedMotion,
   styles,
   inert,
   onPress,
@@ -761,11 +854,14 @@ function ChoreItem({
   item: BoardItem;
   accent: string;
   glow: boolean;
+  celebrating: boolean;
+  reducedMotion: boolean;
   styles: BoardStyles;
   inert: boolean;
   onPress: () => void;
 }) {
   const done = item.status === 'Done';
+  const showCelebration = celebrating && done;
   return (
     <Pressable
       onPress={onPress}
@@ -774,7 +870,7 @@ function ChoreItem({
       style={[
         styles.item,
         glow && { borderColor: accent, borderWidth: 2 },
-        done && styles.itemDone,
+        done && !showCelebration && styles.itemDone,
       ]}
       testID={`chore-item-${item.choreId}`}
     >
@@ -787,6 +883,13 @@ function ChoreItem({
       <Text style={[styles.itemTitle, done && styles.itemTitleDone]} numberOfLines={1}>
         {item.title}
       </Text>
+      {showCelebration ? (
+        <ChoreCelebration
+          accent={accent}
+          reducedMotion={reducedMotion}
+          testID={`chore-item-celebration-${item.choreId}`}
+        />
+      ) : null}
     </Pressable>
   );
 }

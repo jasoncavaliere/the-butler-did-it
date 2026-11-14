@@ -68,9 +68,10 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/auth/` | Organizer auth providers (dev / Entra), `OrganizerGate`, hub pairing. |
 | `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding), `Household` (organizer room/chore editor). |
 | `src/setup/` | Starter-chore template catalog (versioned JSON fixture) and matching helpers used by `HouseholdSetup`. |
-| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `Screen`. |
+| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `Screen`. |
 | `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect. |
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
+| `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
 | `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration and the PWA post-export step. |
 | `design-tokens.json`, `design/` | Design tokens and the design decision record. |
 

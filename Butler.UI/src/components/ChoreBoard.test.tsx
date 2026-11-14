@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 
 import {
   CLOCK_NOTICE_AFTER,
@@ -12,6 +13,8 @@ import {
   type BoardItem,
   type LiveTap,
 } from './ChoreBoard';
+import { CELEBRATION_DURATION_MS, CELEBRATION_MESSAGE } from './ChoreCelebration';
+import { colors } from './Screen';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type {
   AssignmentView,
@@ -150,8 +153,22 @@ async function renderBoard(
   );
 }
 
+// The RN jest preset mocks this with a `jest.fn` resolving `false`. Spying on it
+// returns that same mock, and `mockRestore` would wipe its implementation for
+// every later test, so the preset's implementation is put back instead.
+const isReduceMotionEnabled = AccessibilityInfo.isReduceMotionEnabled as unknown as jest.Mock;
+const originalReduceMotion = isReduceMotionEnabled.getMockImplementation();
+
+beforeEach(() => {
+  // Most blocks tap on the real clock, where the #119 celebration animation would
+  // tick outside act. They are not about motion, so the board runs as if the
+  // platform asked for reduced motion; the celebration block opts back in.
+  isReduceMotionEnabled.mockImplementation(() => Promise.resolve(true));
+});
+
 afterEach(() => {
   useApiClientMock.mockReset();
+  isReduceMotionEnabled.mockImplementation(originalReduceMotion);
 });
 
 describe('ChoreBoard', () => {
@@ -629,6 +646,269 @@ describe('ChoreBoard', () => {
 
     await waitFor(() => expect(screen.getByTestId('chore-board-person-today-stranger')).toBeOnTheScreen());
     expect(screen.getByText('stranger')).toBeOnTheScreen();
+  });
+});
+
+/**
+ * #119: completing a chore celebrates it with a check in the active
+ * participant's claim colour and a short message, animated unless the platform
+ * asks for reduced motion. The celebration is a child of the row with no
+ * overlay, so the #65 undo and the next tap work exactly as before.
+ *
+ * Fake timers drive the celebration's own timer. After a completing tap the
+ * assertions are synchronous (waitFor would advance the clock while it polls),
+ * and time moves only through `advance`. No `now` is pinned: the board's `WEEK`
+ * is the real current week, and a pinned date in another week would make every
+ * tap a no-op.
+ */
+describe('ChoreBoard celebration (#119)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Motion allowed, so the animated variant runs (on the fake clock). The
+    // top-level afterEach puts the preset's implementation back.
+    isReduceMotionEnabled.mockImplementation(() => Promise.resolve(false));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const tap = async (choreId: string) => {
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`chore-item-${choreId}`));
+    });
+  };
+
+  const advance = async (ms: number) => {
+    await act(async () => {
+      jest.advanceTimersByTime(ms);
+    });
+  };
+
+  const styleOf = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style);
+
+  const celebration = (choreId: string) => `chore-item-celebration-${choreId}`;
+
+  async function loadFocused(client: ApiClient, activePersonId = 'p1', choreId = 'c1') {
+    await renderBoard(client, { activePersonId });
+    await waitFor(() => expect(screen.getByTestId(`chore-item-${choreId}`)).toBeOnTheScreen());
+  }
+
+  it("celebrate-on-complete: completing an Open chore shows the check in the active participant's claim color with the message, animated", async () => {
+    await loadFocused(boardClient());
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+
+    await tap('c1');
+
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+    expect(screen.getByTestId(`${celebration('c1')}-motion`)).toBeOnTheScreen();
+    expect(styleOf(`${celebration('c1')}-check`).color).toBe('#B0206F');
+    expect(screen.getByTestId(`${celebration('c1')}-message`)).toHaveTextContent(
+      CELEBRATION_MESSAGE,
+    );
+  });
+
+  it('no celebration on undo: tapping a Done chore never celebrates', async () => {
+    const client = boardClient();
+    await loadFocused(client, 'p1', 'c4');
+    expect(screen.queryByTestId(celebration('c4'))).toBeNull();
+
+    await tap('c4');
+
+    expect(client.update).toHaveBeenCalledWith(
+      `/households/hh-1/assignments/${WEEK}/c4/undo`,
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
+    expect(screen.getByTestId('chore-item-mark-c4')).toHaveTextContent('○');
+    expect(screen.queryByTestId(celebration('c4'))).toBeNull();
+  });
+
+  it('celebrates in brass for a participant with no claim color', async () => {
+    await loadFocused(boardClient(), 'p2', 'c3');
+
+    await tap('c3');
+
+    expect(styleOf(`${celebration('c3')}-check`).color).toBe(colors.brass);
+  });
+
+  it('a refused completion removes its celebration with the revert', async () => {
+    await loadFocused(boardClient({ complete: () => refused }));
+
+    await tap('c1');
+
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+  });
+
+  it('an unreachable completion is queued and keeps its celebration', async () => {
+    await loadFocused(boardClient({ complete: () => unreachable }));
+
+    await tap('c1');
+
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+  });
+
+  it('celebration ends after CELEBRATION_DURATION_MS and the row settles to muted done', async () => {
+    await loadFocused(boardClient());
+
+    await tap('c1');
+    // Not muted while it celebrates.
+    expect(styleOf('chore-item-c1').opacity).toBeUndefined();
+
+    await advance(CELEBRATION_DURATION_MS - 1);
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+
+    await advance(1);
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
+    expect(styleOf('chore-item-c1').opacity).toBe(0.5);
+  });
+
+  it('reduced-motion: completing a chore shows a static claim-color confirmation with no animation', async () => {
+    isReduceMotionEnabled.mockImplementation(() => Promise.resolve(true));
+    await loadFocused(boardClient());
+
+    await tap('c1');
+
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+    expect(screen.queryByTestId(`${celebration('c1')}-motion`)).toBeNull();
+    expect(styleOf(`${celebration('c1')}-check`).color).toBe('#B0206F');
+    expect(screen.getByTestId(`${celebration('c1')}-message`)).toHaveTextContent(
+      CELEBRATION_MESSAGE,
+    );
+  });
+
+  it('undo-during-celebration: tapping the Done chore while its celebration plays flips it back to Open', async () => {
+    const client = boardClient();
+    await loadFocused(client);
+
+    await tap('c1');
+    await advance(CELEBRATION_DURATION_MS / 2);
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+
+    await tap('c1');
+
+    expect(client.update).toHaveBeenCalledWith(
+      `/households/hh-1/assignments/${WEEK}/c1/undo`,
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(false);
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+  });
+
+  it('undo-after-celebration: tapping the Done chore after its celebration finished flips it back to Open', async () => {
+    const client = boardClient();
+    await loadFocused(client);
+
+    await tap('c1');
+    // The completing tap must have started a celebration (red on code without
+    // #119), so the undo below runs after a real celebration has finished.
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+    await advance(CELEBRATION_DURATION_MS);
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+
+    await tap('c1');
+
+    expect(client.update).toHaveBeenCalledWith(
+      `/households/hh-1/assignments/${WEEK}/c1/undo`,
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(false);
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+  });
+
+  it('a re-completion after an undo celebrates for the full duration again', async () => {
+    await loadFocused(boardClient());
+
+    await tap('c1');
+    await advance(CELEBRATION_DURATION_MS / 2);
+    await tap('c1'); // undo
+    await tap('c1'); // complete again
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+
+    // The first celebration's timer would have fired here; it was cleared.
+    await advance(CELEBRATION_DURATION_MS / 2);
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+
+    await advance(CELEBRATION_DURATION_MS / 2);
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+  });
+
+  it('a completion the service answers as Open, then completed again, restarts its celebration', async () => {
+    let answers = 0;
+    await loadFocused(
+      boardClient({
+        complete: (choreId) => {
+          answers += 1;
+          return ok({ weekIso: WEEK, choreId, assignedPersonId: '', status: answers === 1 ? 'Open' : 'Done' });
+        },
+      }),
+    );
+
+    await tap('c1');
+    // The service did not record it, so the row reconciles to Open: nothing shows.
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+
+    await advance(CELEBRATION_DURATION_MS / 2);
+    await tap('c1');
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+
+    // The first tap's timer was replaced, so this one runs its full length.
+    await advance(CELEBRATION_DURATION_MS / 2);
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+    await advance(CELEBRATION_DURATION_MS / 2);
+    expect(screen.queryByTestId(celebration('c1'))).toBeNull();
+  });
+
+  it('next-tap-not-blocked: while a celebration plays, tapping another Open chore completes it', async () => {
+    const client = boardClient({
+      assignments: [
+        { choreId: 'c1', assignedPersonId: 'p1', effort: 1, status: 'Open' },
+        { choreId: 'c3', assignedPersonId: 'p1', effort: 1, status: 'Open' },
+      ],
+    });
+    await loadFocused(client);
+
+    await tap('c1');
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+
+    await tap('c3');
+
+    expect(client.update).toHaveBeenCalledWith(
+      `/households/hh-1/assignments/${WEEK}/c3/complete`,
+      { personId: 'p1' },
+      { method: 'POST' },
+    );
+    expect(screen.getByTestId('chore-item-mark-c3')).toHaveTextContent('✓');
+    expect(screen.getByTestId(celebration('c1'))).toBeOnTheScreen();
+    expect(screen.getByTestId(celebration('c3'))).toBeOnTheScreen();
+  });
+
+  it('clears its celebration timers on unmount', async () => {
+    await loadFocused(boardClient());
+    const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout');
+    const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout');
+    await tap('c1');
+    const index = setTimeoutSpy.mock.calls.findIndex(
+      ([, delay]) => delay === CELEBRATION_DURATION_MS,
+    );
+    expect(index).toBeGreaterThanOrEqual(0);
+    const celebrationTimer = setTimeoutSpy.mock.results[index].value;
+    expect(clearTimeoutSpy).not.toHaveBeenCalledWith(celebrationTimer);
+
+    await screen.unmount();
+
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(celebrationTimer);
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 });
 
