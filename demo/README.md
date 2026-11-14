@@ -40,7 +40,7 @@ pwsh demo/demo.ps1 unshare
 
 | Command | What it does |
 | --- | --- |
-| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing or older than the `Butler.UI` sources (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and returns only when every service reports healthy. If the export build fails, `up` deletes `Butler.UI/dist/index.html`, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
+| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and returns only when every service reports healthy. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`, or `logs -f azurite`). See [Logs](#logs). |
@@ -64,7 +64,10 @@ sections below are the fallback when you want to run the steps yourself.
 
 ## Build the hub export
 
-`demo.sh up` does this for you when the export is missing or out of date.
+`demo.sh up` does this for you when the export is missing, out of date, or
+was not built by `up` (it has no matching, current
+`Butler.UI/dist/.demo-build-env` stamp). A hand build like the one below is
+therefore rebuilt once by the next `up`.
 
 The `web` service serves the export from `Butler.UI/dist`, which is built on
 the host. Build it once, and again after any UI change, with the API base set
@@ -99,8 +102,8 @@ organizer in against the Demo API.
 the API image as `BUILD_SHA` and the export build gets as
 `EXPO_PUBLIC_BUILD_SHA`. The organizer's Version button shows both and flags a
 mismatch. A hand-built export without `EXPO_PUBLIC_BUILD_SHA` reports `dev`.
-`up` rebuilds the export only when the UI sources are newer than `dist`, so
-after a commit that touched only the API the hub keeps its older SHA and the
+`up` rebuilds an export it built itself only when the UI sources are newer
+than `dist` (the build stamp leaves the SHA out), so after a commit that touched only the API the hub keeps its older SHA and the
 Version panel honestly flags the mismatch.
 
 `Butler.UI/metro.config.js` keys Metro's transform cache on every

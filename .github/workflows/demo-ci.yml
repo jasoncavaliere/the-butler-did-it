@@ -32,6 +32,12 @@
 #            demo/ci/check-export-failure.sh): with a stub npm whose build:web
 #            fails after writing dist/index.html, both scripts delete that
 #            marker and the next `up` rebuilds the export.
+#            And the export build stamp (#184,
+#            demo/ci/check-export-stamp.sh): with stub npm and docker, an
+#            export without up's matching, current
+#            Butler.UI/dist/.demo-build-env (a hand build) is rebuilt with
+#            EXPO_PUBLIC_API_BASE_URL=/api, and both scripts write and read
+#            the same stamp.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080 (with the precache list build:web
 #            injects, demo/ci/check-precache.cjs, #178), the single origin
@@ -267,6 +273,12 @@ jobs:
       # up rebuilds; demo.sh and demo.ps1 behave the same. Stub npm and docker.
       - name: "demo CLI: failed export build is rebuilt by the next up (#183)"
         run: bash demo/ci/check-export-failure.sh
+
+      # #184 AC1-AC2: an export up did not build with the demo settings (no
+      # matching, current dist/.demo-build-env) is rebuilt; demo.sh and
+      # demo.ps1 behave the same and read each other's stamp. Stub npm and docker.
+      - name: "demo CLI: export without the demo build stamp is rebuilt by up (#184)"
+        run: bash demo/ci/check-export-stamp.sh
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -557,6 +569,8 @@ jobs:
           printf '%s\n' "$out" | grep -qF 'Hub export is older than its sources'
           [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo stack is up and healthy: http://localhost:8080' ]
           grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
+          # #184: the rebuild wrote up's build stamp, byte for byte.
+          printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' | cmp - Butler.UI/dist/.demo-build-env
           # #105: the rebuilt hub still offers the PIN pad (the script set the provider).
           NODE_PATH="$RUNNER_TEMP/pw/node_modules" PW_CHANNEL=chrome node demo/ci/check-household-flow.cjs "$HUB_URL/"
           health="$(docker compose -f "$COMPOSE_FILE_PATH" ps --format '{{.Service}} {{.Health}}')"
@@ -586,6 +600,7 @@ jobs:
               -e 'Hub export is up to date (Butler.UI/dist).' \
               -e 'Hub export is missing; building Butler.UI/dist ...' \
               -e 'Hub export is older than its sources; building Butler.UI/dist ...' \
+              -e 'Hub export was not built with the demo settings; building Butler.UI/dist ...' \
               -e 'Installing Butler.UI dependencies (npm ci) ...' \
               -e 'Starting the demo stack ...' \
               -e 'Recreating web to serve the new export ...' \
