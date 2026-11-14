@@ -2086,6 +2086,8 @@ describe('ChoreBoard offline write queue', () => {
    *   `releaseGenerate()`, so a drain can confirm before the load resolves.
    *   `holdOnlineGenerate: n` parks the nth instead (the first is `1`); either
    *   way the snapshot is still taken when the request is made.
+   *   `releaseGenerate(answer)` answers the parked generate with that failure
+   *   instead (#154).
    * - `holdComplete` parks the first complete until `releaseComplete()`, and the
    *   server only records it on release, so the load can resolve first.
    * - `extra` seeds more chores, Open and assigned to p1, after c1/c4 in every
@@ -2122,7 +2124,7 @@ describe('ChoreBoard offline write queue', () => {
       onlineGenerates: 0,
     };
     const holdGenerateAt = opts.holdOnlineGenerate ?? (opts.holdFirstOnlineGenerate ? 1 : 0);
-    let releaseGenerate: () => void = () => {};
+    let releaseGenerate: (override?: ApiResult<unknown>) => void = () => {};
     let releaseComplete: () => void = () => {};
     let releaseLiveComplete: () => void = () => {};
     let completeHeld = false;
@@ -2161,7 +2163,7 @@ describe('ChoreBoard offline write queue', () => {
           const answer = snapshot();
           if (server.onlineGenerates === holdGenerateAt) {
             return new Promise((resolve) => {
-              releaseGenerate = () => resolve(answer);
+              releaseGenerate = (override) => resolve(override ?? answer);
             });
           }
           return Promise.resolve(answer);
@@ -2211,7 +2213,7 @@ describe('ChoreBoard offline write queue', () => {
     return {
       client,
       server,
-      releaseGenerate: () => releaseGenerate(),
+      releaseGenerate: (answer?: ApiResult<unknown>) => releaseGenerate(answer),
       releaseComplete: () => releaseComplete(),
       releaseLiveComplete: () => releaseLiveComplete(),
       releaseLive: (index: number, answer?: ApiResult<unknown>) => parkedLive[index](answer),
@@ -2536,6 +2538,79 @@ describe('ChoreBoard offline write queue', () => {
     await flush();
     expectC2('Done');
     expect(fake.server.status.c2).toBe('Done');
+  });
+
+  it('live-tap-cache-fallback: a live tap still in flight when a load falls back to the cached week keeps its tapped state', async () => {
+    // #154: c2 is tapped on the live board and its POST is still on its way when
+    // the parked confirm refetch finds the network gone. The load falls back to
+    // the cached week, whose snapshot has c2 Open; without the live-tap overlay
+    // on that path the row would redraw as undone.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    expect(fake.parkedLiveCount()).toBe(1);
+
+    await settle(() => fake.releaseGenerate(unreachable));
+    expectC2('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+
+    await settle(() => fake.releaseLive(0));
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+
+    // The board ends on the cached week, listening for a reconnect, so unmount
+    // it before afterEach restores the event-listener globals it subscribed to.
+    await screen.unmount();
+  });
+
+  it('live-tap-cache-fallback: a live tap that settles while the falling-back load is in flight is kept', async () => {
+    // #154: the tap's POST lands after the confirm refetch was sent, so that
+    // load's snapshot may not carry it. When the load falls back to the cached
+    // week, the tap is kept, as it would be on a live load.
+    const fake = serverClient({ holdComplete: true, holdOnlineGenerate: 2, extra: ['c2'] });
+    await liveBoardWithParkedRefetch(fake);
+
+    await tapC2();
+    await flush();
+    expect(fake.server.status.c2).toBe('Done');
+
+    await settle(() => fake.releaseGenerate(unreachable));
+    expectC2('Done');
+
+    await screen.unmount();
+  });
+
+  it('live-tap-cache-fallback: a live tap that settled before the falling-back load started is pruned, as on a live load', async () => {
+    // #154: the tap settles before the drain confirms, so the confirm refetch is
+    // a load the tap predates and prunes it, just as a successful load would.
+    // That load finds the network gone and falls back to the cached week.
+    const fake = serverClient({ holdComplete: true, extra: ['c2'] });
+    await goOnlineWithQueuedTap(fake);
+    await waitFor(() => expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen());
+    await waitFor(() => expect(fake.server.onlineGenerates).toBe(1));
+    // The drain's c1 complete must be on the wire before releaseComplete can answer it.
+    await waitFor(() =>
+      expect(
+        (fake.client.update as jest.Mock).mock.calls.some(([path]) => String(path).endsWith('/c1/complete')),
+      ).toBe(true),
+    );
+
+    await tapC2();
+    await flush();
+    expect(fake.server.status.c2).toBe('Done');
+    expectC2('Done');
+
+    fake.server.offline = true;
+    await settle(() => fake.releaseComplete());
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await waitFor(() => expect(generateCalls(fake.client)).toBe(3));
+    await flush();
+
+    // The cache was written by the reconnect load, before the tap, so it holds
+    // c2 Open, and the pruned tap no longer covers it. Pinned by #154 AC2.
+    expectC2('Open');
+
+    await screen.unmount();
   });
 
   it('sync-refetch: a drain that confirms nothing does not refetch', async () => {
