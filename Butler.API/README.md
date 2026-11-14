@@ -78,6 +78,7 @@ variables):
 | `Storage:AccountName` | Storage account for the managed-identity path in deployed envs (endpoint derived as `https://<account>.table.core.windows.net`). |
 | `Storage:TableServiceUri` | Explicit table service endpoint (overrides the derived one; e.g. sovereign clouds). |
 | `Storage:UseInMemoryStore` | Explicit override: `true` forces the in-memory store, `false` forces real storage. Unset = in-memory only when no connection is configured. |
+| `Storage:ProvisioningTimeout` | Upper bound on creating all tables at startup (TimeSpan, e.g. `00:00:30`). Unset or non-positive = 30 seconds. On timeout, startup fails and the error log names the table being created. |
 
 ## Run as a container (Demo environment)
 

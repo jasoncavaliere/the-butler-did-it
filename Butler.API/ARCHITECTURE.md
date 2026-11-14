@@ -26,7 +26,9 @@ missing, `412` when stale). A feature registers its table with
 `services.AddTableRepository<TEntity>("<TableName>")`; the flag picks in-memory vs Table automatically. Each
 call also records the table name, and in Table mode `TableProvisioningHostedService` (an `IHostedService`,
 so the host awaits it before serving) creates every distinct registered table with `CreateIfNotExists` at
-startup. A table that cannot be created is logged by name and fails startup; a restart against existing
+startup. A table that cannot be created is logged by name and fails startup. The whole pass is bounded by
+`Storage:ProvisioningTimeout` (default 30s): on expiry the table in flight is logged (event 9104) and startup
+fails with a `TimeoutException` instead of waiting out the SDK retry window (#174). A restart against existing
 tables is a no-op; in-memory mode skips provisioning and never builds a storage client. `--seed-demo`
 runs before the hosted services, so it provisions the tables itself first. Deploy prerequisite: the API's
 managed identity needs the `Storage Table Data Contributor` role on the storage account to create tables. Each

@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Azure;
 using Azure.Data.Tables;
+using Azure.Data.Tables.Models;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.Extensions.Configuration;
@@ -15,8 +17,10 @@ namespace Butler.Api.Tests.Storage;
 /// Criteria (#91 AC1, AC2, AC4, AC5, AC6): the provisioner creates each distinct
 /// registered table once in Table mode, logs the name of a table it cannot
 /// create and rethrows so startup fails, never touches storage in in-memory
-/// mode, and is safe to run again against tables that already exist. The
-/// <see cref="TableClient"/>s are substituted, so no Azurite is needed.
+/// mode, and is safe to run again against tables that already exist. #174 AC2:
+/// a create that never completes fails the pass with a
+/// <see cref="TimeoutException"/> after the configured bound, logging the table.
+/// The <see cref="TableClient"/>s are substituted, so no Azurite is needed.
 /// </summary>
 public sealed class TableProvisionerTests
 {
@@ -72,14 +76,84 @@ public sealed class TableProvisionerTests
     }
 
     [Fact]
-    public async Task ProvisionAsync_passes_the_cancellation_token_through()
+    public async Task ProvisionAsync_cancels_the_create_call_when_the_caller_cancels()
     {
+        var pending = new TaskCompletionSource<Response<TableItem>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requested = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var households = Substitute.For<TableClient>();
+        households.CreateIfNotExistsAsync(Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            requested.TrySetResult(call.Arg<CancellationToken>());
+            return pending.Task;
+        });
+        _clients["Households"] = households;
         using var cancellation = new CancellationTokenSource();
-        var provisioner = CreateProvisioner(new StorageOptions { ConnectionString = Connection }, "Households");
+        var provisioner = CreateProvisioner(new StorageOptions { ConnectionString = Connection }, "Households", "Rooms");
 
-        await provisioner.ProvisionAsync(cancellation.Token);
+        var provisioning = provisioner.ProvisionAsync(cancellation.Token);
+        var passed = await requested.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await cancellation.CancelAsync();
 
-        await _clients["Households"].Received(1).CreateIfNotExistsAsync(cancellation.Token);
+        // The SDK call gets a token that follows the caller's (observed while the
+        // call is still pending: the linked source is disposed once the pass ends).
+        Assert.True(passed.IsCancellationRequested);
+        Assert.Same(provisioning, await Task.WhenAny(provisioning, Task.Delay(TimeSpan.FromSeconds(10))));
+        var thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provisioning);
+        Assert.IsNotType<TimeoutException>(thrown);
+        var error = Assert.Single(_logger.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Equal(9102, error.EventId.Id);
+        Assert.Contains("Households", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rooms", _clients.Keys);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_times_out_and_logs_the_table_when_create_never_completes()
+    {
+        var requested = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rooms = Substitute.For<TableClient>();
+        rooms.CreateIfNotExistsAsync(Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            requested.TrySetResult(call.Arg<CancellationToken>());
+            return new TaskCompletionSource<Response<TableItem>>().Task;
+        });
+        _clients["Rooms"] = rooms;
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Storage:ConnectionString"] = Connection,
+                ["Storage:ProvisioningTimeout"] = "00:00:00.200",
+            })
+            .Build();
+        // The factory goes in before AddStorage, which only TryAdds its own.
+        using var provider = new ServiceCollection()
+            .AddSingleton<ILogger<TableProvisioner>>(_logger)
+            .AddSingleton(_factory)
+            .AddStorage(configuration)
+            .AddTableRepository<FakeEntity>("Households")
+            .AddTableRepository<FakeEntity>("Rooms")
+            .AddTableRepository<FakeEntity>("Chores")
+            .BuildServiceProvider();
+        var provisioner = provider.GetRequiredService<TableProvisioner>();
+        var stopwatch = Stopwatch.StartNew();
+
+        var provisioning = provisioner.ProvisionAsync();
+
+        // Guard so red code fails here instead of hanging the run.
+        Assert.Same(provisioning, await Task.WhenAny(provisioning, Task.Delay(TimeSpan.FromSeconds(10))));
+        stopwatch.Stop();
+        var thrown = await Assert.ThrowsAsync<TimeoutException>(() => provisioning);
+        Assert.True(
+            stopwatch.Elapsed >= TimeSpan.FromMilliseconds(190),
+            $"Timed out after only {stopwatch.Elapsed}.");
+        Assert.Contains("Rooms", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("Storage:ProvisioningTimeout", thrown.Message, StringComparison.Ordinal);
+        Assert.IsAssignableFrom<OperationCanceledException>(thrown.InnerException);
+        Assert.True((await requested.Task).IsCancellationRequested);
+        var error = Assert.Single(_logger.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Equal(9104, error.EventId.Id);
+        Assert.Contains("Rooms", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chores", _clients.Keys);
+        Assert.DoesNotContain(_logger.Entries, entry => entry.EventId.Id == 9101);
     }
 
     [Fact]
@@ -150,6 +224,7 @@ public sealed class TableProvisionerTests
             Options.Create(new StorageOptions { ConnectionString = connection, UseInMemoryStore = useInMemory }),
             [new TableRegistration("Households")],
             services,
+            TimeProvider.System,
             _logger);
 
         await provisioner.ProvisionAsync();
@@ -189,10 +264,13 @@ public sealed class TableProvisionerTests
         var services = Substitute.For<IServiceProvider>();
         TableRegistration[] registrations = [];
 
-        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(null!, registrations, services, _logger));
-        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, null!, services, _logger));
-        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, registrations, null!, _logger));
-        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, registrations, services, null!));
+        var time = TimeProvider.System;
+
+        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(null!, registrations, services, time, _logger));
+        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, null!, services, time, _logger));
+        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, registrations, null!, time, _logger));
+        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, registrations, services, null!, _logger));
+        Assert.Throws<ArgumentNullException>(() => new TableProvisioner(options, registrations, services, time, null!));
         Assert.Throws<ArgumentNullException>(() => new TableProvisioningHostedService(null!));
     }
 
@@ -203,6 +281,7 @@ public sealed class TableProvisionerTests
             Options.Create(options),
             tables.Select(table => new TableRegistration(table)),
             services,
+            TimeProvider.System,
             _logger);
     }
 }
