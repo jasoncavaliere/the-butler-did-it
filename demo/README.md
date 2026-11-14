@@ -156,8 +156,10 @@ The demo flow:
    pairing) disappear. To sign in again, tap "Organizer sign in" and enter the
    PIN.
 
-The organizer token also expires after 15 minutes without use; the hub then
-drops back to the same participant-only view on its own. The demo scripts
+The organizer token also expires after 15 minutes without use. The hub does
+not notice this on its own (#195): it keeps showing the organizer bar, and the
+next organizer action is refused until you tap "Sign out" and sign in again
+with the PIN. The demo scripts
 (#98, #99) sign in the same way, with the PIN from `demo/.env`:
 `POST /api/auth/pin/sign-in` with `{"pin":"<pin>"}` returns a `token` to send
 as `Authorization: Bearer <token>`.
