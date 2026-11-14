@@ -6,7 +6,7 @@ tags: [vision, strategy, household, chores, fair assignment, grocery, store conn
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [00-overview, 11-hub-hardware-findings, 20-architecture-overview, 90-glossary]
+related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 20-architecture-overview, 90-glossary]
 sources:
   - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
   - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
@@ -111,7 +111,7 @@ Execution wins the family. The data model keeps them.
 
 **Consumer subscription, one price per household, not per person.** Per-household pricing reinforces the shared-hub model and removes a barrier to whole-family adoption - nobody is counting seats.
 
-Price against the established band. Existing family-org subscriptions run roughly **$40 to $90 per year**: Cozi Gold at $39, Maple+ at $40, Skylight Plus around $79, Hearth around $86, with hardware hubs also charging $180 to $700 upfront [8]. There is headroom above that band: the average US household already spends about **$219 a month** on subscriptions and underestimates that spend by about 2.5 times [9]. Butler's job is to be obviously worth its line on that list.
+Price against the established band. Existing family-org subscriptions run roughly **$40 to $90 per year**: Cozi Gold at $39, Maple+ at $40, Skylight Plus around $79, Hearth around $86, with hardware hubs also charging $180 to $700 upfront [8]. There is headroom above that band: the average US household already spends about **$219 a month** on subscriptions and underestimates that spend by about 2.5 times [9]. Butler's job is to be obviously worth its line on that list. For the proposed price points inside this band, the pilot-to-paid offer, and how willingness to pay is tested, see the [Pricing Hypothesis](12-pricing-hypothesis.md).
 
 The category already pays. Skylight reports about **9.3 million connected users**, **99 percent** year-over-year revenue growth, roughly **$75 million** in revenue (2022), and **$50 million** raised in debt while bootstrapped [10]. Cozi has cited **20 million-plus registered users** [11]. The question is not whether families pay for this; it is who becomes the hub.
 
@@ -186,5 +186,6 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 
 - [Overview](00-overview.md) - what Butler is and how this knowledge base is organized.
 - [Hub Hardware Findings](11-hub-hardware-findings.md) - which tablet the hub runs on and how it boots into Butler.
+- [Pricing Hypothesis](12-pricing-hypothesis.md) - the per-household price points, the pilot-to-paid offer, and how willingness to pay is tested.
 - [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.
