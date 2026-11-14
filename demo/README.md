@@ -49,6 +49,10 @@ it once with
 If `Butler.UI/dist` is missing, `up` fails with a bind-mount error rather than
 serving an empty site.
 
+A build replaces the `dist` folder, so if the stack is already running,
+recreate `web` afterwards or Caddy keeps serving the old folder:
+`docker compose -f demo/docker-compose.yml up -d --force-recreate web`.
+
 ## Start the stack
 
 From the repo root:
@@ -83,6 +87,19 @@ Any other path that is not a file in the export returns `index.html`, so deep
 links work. `index.html`, `sw.js` and `manifest.json` are sent with
 `Cache-Control: no-cache`; the content-hashed files under `/_expo/static/` and
 `/assets/` are cached for a year.
+
+To check it end to end, `demo/ci/check-household-flow.cjs` (run by demo-ci)
+opens the hub in a headless browser, creates a household through the setup
+screens and waits for the hub to read it back. It fails if any API call is not
+under `http://localhost:8080/api/`, any request leaves that origin, or the
+console shows a CORS error. It needs Playwright, which is not a repo
+dependency:
+
+```bash
+npm install --no-save --prefix /tmp/pw playwright@1.64.1
+/tmp/pw/node_modules/.bin/playwright install chromium
+NODE_PATH=/tmp/pw/node_modules node demo/ci/check-household-flow.cjs http://localhost:8080/
+```
 
 ## Stop the stack
 

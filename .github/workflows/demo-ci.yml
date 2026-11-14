@@ -12,8 +12,10 @@
 #            git-ignored, and demo/README.md documents the commands.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080, the single origin (SPA fallback, cache
-#            headers, /api proxy, #96), the API's table provisioning, and that
-#            a household survives `down` + `up`.
+#            headers, /api proxy, #96), a household created and read back
+#            through the hub UI with every API call same-origin (#96), the
+#            API's table provisioning, and that a household survives `down` +
+#            `up`.
 name: demo-ci
 
 on:
@@ -205,6 +207,16 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
           PW_CHANNEL: chrome
         run: node demo/ci/check-service-worker.cjs "$HUB_URL/"
+
+      # #96 AC8: open the hub in Chrome, create a household through the
+      # onboarding UI and let the hub read it back; every API call must go to
+      # $HUB_URL/api/..., no request may leave the hub origin, and the console
+      # must show zero CORS errors.
+      - name: "Single origin: hub creates and reads back a household"
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PW_CHANNEL: chrome
+        run: node demo/ci/check-household-flow.cjs "$HUB_URL/"
 
       # AC3: a household created before `down` is still there after `up`.
       - name: Household survives down/up
