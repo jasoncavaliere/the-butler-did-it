@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { TodayPanel } from './TodayPanel';
+import { LANDSCAPE_COMPACT } from '../layout/hubLayout';
 
 describe('TodayPanel', () => {
   it('renders the calm empty placeholder when given no children', async () => {
@@ -33,6 +34,26 @@ describe('TodayPanel', () => {
 
     expect(screen.getByText("Alex's day")).toBeOnTheScreen();
     expect(screen.queryByText('Today')).toBeNull();
+  });
+
+  it('scrolls its body inside the panel in a landscape layout (#118)', async () => {
+    await render(
+      <TodayPanel layout={LANDSCAPE_COMPACT}>
+        <Text testID="board-content">Chore board goes here</Text>
+      </TodayPanel>,
+    );
+
+    const scroll = screen.getByTestId('today-panel-scroll');
+    expect(within(scroll).getByTestId('board-content')).toBeOnTheScreen();
+    expect(StyleSheet.flatten(screen.getByTestId('today-panel').props.style)).toMatchObject({
+      padding: LANDSCAPE_COMPACT.panelPadding,
+    });
+  });
+
+  it('keeps a plain body (no inner scroll) in the default portrait layout', async () => {
+    await render(<TodayPanel />);
+
+    expect(screen.queryByTestId('today-panel-scroll')).toBeNull();
   });
 
   it('falls back to the brass accent when the active participant has no claim colour', async () => {

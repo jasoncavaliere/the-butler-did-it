@@ -1,7 +1,9 @@
-import { type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo, type ReactNode } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from './Screen';
+import { DEFAULT_HUB_LAYOUT, type HubLayout } from '../layout/hubLayout';
+import { radii } from '../layout/tokens';
 import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
 /**
@@ -20,6 +22,10 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * "what's mine glows": the panel is accented in the participant's claim colour
  * and labelled as their day. With no active participant the panel stays in the
  * neutral glance state.
+ *
+ * Its padding and heading size come from the hub `layout` (#118). In a landscape
+ * layout the panel fills its zone and its body scrolls, so a board taller than
+ * the fit model's budget scrolls inside the panel instead of pushing the page.
  */
 export type TodayPanelParticipant = { displayName: string; claimColor: string | null };
 
@@ -38,12 +44,16 @@ export function TodayPanel({
   activeParticipant = null,
   state = 'ready',
   onRetry,
+  layout = DEFAULT_HUB_LAYOUT,
 }: {
   children?: ReactNode;
   activeParticipant?: TodayPanelParticipant | null;
   state?: TodayPanelState;
   onRetry?: () => void;
+  /** The hub layout to size the panel for; portrait when omitted. */
+  layout?: HubLayout;
 }) {
+  const styles = useMemo(() => makePanelStyles(layout), [layout]);
   // `false`/`null`/`undefined` all mean "no board yet"; anything else is real
   // content C5 has slotted in.
   const hasContent = children !== undefined && children !== null && children !== false;
@@ -58,11 +68,15 @@ export function TodayPanel({
       <Text
         style={[styles.heading, accent !== null && { color: accent }]}
         accessibilityRole="header"
+        numberOfLines={1}
       >
         {activeParticipant ? `${activeParticipant.displayName}'s day` : 'Today'}
       </Text>
-      <View style={styles.body}>
-        {state === 'loading' ? (
+      {/* The body: scrolls inside the panel in landscape, plain in portrait. */}
+      {renderBody(
+        layout,
+        styles,
+        state === 'loading' ? (
           <WidgetSkeleton testID="today-panel-loading" caption={COPY.loading} />
         ) : state === 'error' ? (
           <WidgetError
@@ -79,29 +93,51 @@ export function TodayPanel({
             title={COPY.emptyTitle}
             detail={COPY.emptyDetail}
           />
-        )}
-      </View>
+        ),
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  panel: {
-    flex: 1,
-    minHeight: 240,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 24,
-  },
-  heading: {
-    color: colors.brass,
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    marginBottom: 16,
-  },
-  body: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-});
+type PanelStyles = ReturnType<typeof makePanelStyles>;
+
+function renderBody(layout: HubLayout, styles: PanelStyles, body: ReactNode) {
+  if (layout.orientation === 'landscape') {
+    return (
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        testID="today-panel-scroll"
+      >
+        {body}
+      </ScrollView>
+    );
+  }
+  return <View style={styles.body}>{body}</View>;
+}
+
+function makePanelStyles(layout: HubLayout) {
+  return StyleSheet.create({
+    panel: {
+      flex: 1,
+      minHeight: 240,
+      backgroundColor: colors.card,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: layout.panelPadding,
+    },
+    heading: {
+      color: colors.brass,
+      fontSize: layout.panelHeadingSize,
+      lineHeight: layout.panelHeadingLineHeight,
+      fontWeight: '700',
+      letterSpacing: 3,
+      textTransform: 'uppercase',
+      marginBottom: layout.panelHeadingGap,
+    },
+    body: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    scroll: { flex: 1 },
+    scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  });
+}

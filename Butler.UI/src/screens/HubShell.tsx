@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentRef,
+  type ReactNode,
+} from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiClient, ApiError } from '../api/client';
 import { describeApiError } from '../api/errors';
@@ -20,6 +28,8 @@ import { OrderReceipt } from '../components/OrderReceipt';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { TodayPanel } from '../components/TodayPanel';
 import { colors } from '../components/Screen';
+import { TILE_BORDER, useHubLayout, type HubLayout } from '../layout/hubLayout';
+import { nameTileMinWidth, radii, space } from '../layout/tokens';
 import type { DatasetCheck } from '../offline/datasetGuard';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useDatasetGuard } from '../offline/useDatasetGuard';
@@ -137,6 +147,16 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * and the hub body is remounted on the guard's revision, so every region
  * reloads from the API and no stale tap is ever replayed into the new data. An
  * API that does not answer changes nothing: the cache and the queue are kept.
+ *
+ * The layout follows the window (#118, `src/layout/hubLayout.ts`). A landscape
+ * tablet gets the ADR-0005 three-zone band: the header, then one row of name
+ * tiles, then a main row with the Today panel (two columns of person groups,
+ * scrolling inside the panel if it ever overflows) beside a side column that
+ * holds the groceries and the balance. 1280x800 renders it at the compact type
+ * steps and 1920x1200 at the roomy ones, and both fit a 4-person household with
+ * 8 chores due today without a page scroll. A portrait window keeps the single
+ * stack (every region a direct child of the shell) inside a page scroll. Every
+ * size and gap is read from the layout, which reads `design-tokens.json`.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -197,6 +217,9 @@ export function HubShell({
   const client = useApiClient();
   const { householdId } = useHousehold();
   const guard = useDatasetGuard(householdId, client);
+  // Above the guard's early return (hook rules).
+  const layout = useHubLayout();
+  const styles = useMemo(() => makeHubStyles(layout), [layout]);
 
   // Hold everything - the board, the cached glance, the queue's mount drain -
   // until the startup dataset check has settled, so nothing from a replaced
@@ -237,6 +260,8 @@ function HubShellBody({
   const client = useApiClient();
   const { householdId } = useHousehold();
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
+  const layout = useHubLayout();
+  const styles = useMemo(() => makeHubStyles(layout), [layout]);
 
   // The active participant is UI state only: the person a tap claimed, holding
   // the T1 session (incl. its token) that Epic 40 C4 attributes completions to.
@@ -387,6 +412,46 @@ function HubShellBody({
   const lastKnownAtIso: string | null =
     view.phase === 'ready' ? view.cachedAtIso ?? boardCachedAtIso : null;
 
+  const ready = view.phase === 'ready' && householdId !== null;
+
+  // Fed from the real load phase: a missing household is a derived calm state
+  // (the panel's empty state), never its error.
+  const todayPanel = (
+    <TodayPanel
+      activeParticipant={activeParticipant}
+      state={householdId === null ? 'ready' : state.phase}
+      onRetry={handleRetry}
+      layout={layout}
+    >
+      {ready ? (
+        <ChoreBoard
+          householdId={householdId}
+          people={members}
+          activePersonId={activeParticipant?.personId ?? null}
+          onLastKnown={handleBoardLastKnown}
+          layout={layout}
+        />
+      ) : null}
+    </TodayPanel>
+  );
+
+  const groceries = ready ? (
+    <View ref={groceriesRef} style={styles.panel} testID="hub-groceries">
+      <GroceryCart
+        householdId={householdId}
+        activePersonId={activeParticipant?.personId ?? null}
+        confirmRef={cartConfirmRef}
+        onConfirmed={handleCartConfirmed}
+      />
+    </View>
+  ) : null;
+
+  const balance = ready ? (
+    <View style={styles.panel} testID="hub-balance">
+      <FairnessView householdId={householdId} people={members} />
+    </View>
+  ) : null;
+
   const content = (
     <View style={styles.hub} testID="hub-shell">
       {householdId !== null ? (
@@ -395,14 +460,21 @@ function HubShellBody({
       {/* Household (#112, when the navigator supplies it) and Confirm order are
           wired. Edit roster (#167) and Household teardown (#168) are deliberately
           not passed, so OrganizerBar does not render them. */}
-      <OrganizerBar onEditHousehold={onEditHousehold} onConfirmOrder={handleConfirmOrder} />
-      <HubPairing />
+      <View style={styles.chrome} testID="hub-chrome">
+        <OrganizerBar onEditHousehold={onEditHousehold} onConfirmOrder={handleConfirmOrder} />
+        <HubPairing />
+      </View>
       <View style={styles.header} testID="hub-header">
-        <Text style={styles.householdName} accessibilityRole="header" testID="hub-household-name">
+        <Text
+          style={styles.householdName}
+          accessibilityRole="header"
+          numberOfLines={1}
+          testID="hub-household-name"
+        >
           {householdName}
         </Text>
         <View style={styles.headerStatus}>
-          <Text style={styles.date} testID="hub-date">
+          <Text style={styles.date} numberOfLines={1} testID="hub-date">
             {todayLabel()}
           </Text>
           {householdId !== null ? <SyncIndicator apiUnreachable={lastKnownAtIso !== null} /> : null}
@@ -436,6 +508,7 @@ function HubShellBody({
                 key={person.personId}
                 person={person}
                 isActive={activeParticipant?.personId === person.personId}
+                styles={styles}
                 // A `ready` view is only derived when a household is selected
                 // (a null household forces the error state), so this is non-null.
                 onPress={() => claim(householdId as string, person.personId)}
@@ -444,57 +517,61 @@ function HubShellBody({
           ))}
       </View>
 
-      {/* Fed from the real load phase: a missing household is a derived calm
-          state (the panel's empty state), never its error. */}
-      <TodayPanel
-        activeParticipant={activeParticipant}
-        state={householdId === null ? 'ready' : state.phase}
-        onRetry={handleRetry}
-      >
-        {view.phase === 'ready' && householdId !== null ? (
-          <ChoreBoard
-            householdId={householdId}
-            people={members}
-            activePersonId={activeParticipant?.personId ?? null}
-            onLastKnown={handleBoardLastKnown}
-          />
-        ) : null}
-      </TodayPanel>
-
-      {view.phase === 'ready' && householdId !== null ? (
-        <View ref={groceriesRef} style={styles.panel} testID="hub-groceries">
-          <GroceryCart
-            householdId={householdId}
-            activePersonId={activeParticipant?.personId ?? null}
-            confirmRef={cartConfirmRef}
-            onConfirmed={handleCartConfirmed}
-          />
+      {layout.sideColumn ? (
+        // Landscape: Today beside a side column holding groceries and the balance.
+        <View style={styles.main} testID="hub-main-landscape">
+          <View style={styles.todayZone} testID="hub-today-zone">
+            {todayPanel}
+          </View>
+          <ScrollView
+            style={styles.side}
+            contentContainerStyle={styles.sideContent}
+            testID="hub-side"
+          >
+            {groceries}
+            {balance}
+          </ScrollView>
         </View>
-      ) : null}
-
-      {view.phase === 'ready' && householdId !== null ? (
-        <View style={styles.panel} testID="hub-balance">
-          <FairnessView householdId={householdId} people={members} />
-        </View>
-      ) : null}
+      ) : (
+        // Portrait: the single stack, every region a direct child of the shell.
+        <>
+          {todayPanel}
+          {groceries}
+          {balance}
+        </>
+      )}
     </View>
   );
 
+  // Portrait stacks taller than the window, so it scrolls as a page; landscape
+  // is sized to fit and scrolls only inside its panels.
+  const page = (node: ReactNode) =>
+    layout.sideColumn ? (
+      node
+    ) : (
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} testID="hub-scroll">
+        {node}
+      </ScrollView>
+    );
+
   // A receipt only ever comes from a confirmed cart, which needs a household, so
-  // it always renders inside the provider below.
+  // it always renders inside the provider below. It can run longer than any
+  // window, so it always scrolls as a page.
   const body =
     receipt !== null ? (
-      <View style={styles.hub} testID="hub-receipt">
-        <OrderReceipt cart={receipt} people={members} onDismiss={handleReceiptDismiss} />
-      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} testID="hub-scroll">
+        <View style={styles.hub} testID="hub-receipt">
+          <OrderReceipt cart={receipt} people={members} onDismiss={handleReceiptDismiss} />
+        </View>
+      </ScrollView>
     ) : (
-      content
+      page(content)
     );
 
   // One queue per household, shared by the board and the header indicator. With
   // no household there is nothing to queue, so there is no provider either.
   return householdId === null ? (
-    content
+    page(content)
   ) : (
     <WriteQueueProvider householdId={householdId} client={client} verifyDataset={verifyDataset}>
       {body}
@@ -547,10 +624,13 @@ function claimParticipant(client: ApiClient, householdId: string, personId: stri
 function NameTile({
   person,
   isActive,
+  styles,
   onPress,
 }: {
   person: RosterEntryResponse;
   isActive: boolean;
+  /** The shell's styles for the current layout (sizes the tile). */
+  styles: HubStyles;
   onPress: () => void;
 }) {
   const accent = person.claimColor ?? colors.brass;
@@ -570,45 +650,93 @@ function NameTile({
   );
 }
 
-const styles = StyleSheet.create({
-  hub: { flex: 1, backgroundColor: colors.page, padding: 32, gap: 24 },
-  // Shared card shell for the bounded regions below the today panel (groceries,
-  // the fairness balance).
-  panel: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  householdName: { color: colors.ink, fontSize: 40, fontWeight: '700' },
-  // The date and the sync indicator share the header's right-hand side, in flow.
-  headerStatus: { alignItems: 'flex-end', gap: 8 },
-  date: { color: colors.muted, fontSize: 22 },
-  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, minHeight: 96 },
-  centeredRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  status: { color: colors.muted, fontSize: 20 },
-  tile: {
-    minWidth: 160,
-    minHeight: 88,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    borderWidth: 2,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
-    gap: 10,
-  },
-  tileDot: { width: 20, height: 20, borderRadius: 10 },
-  tileName: { color: colors.ink, fontSize: 24, fontWeight: '600' },
-  // Active tile glows: its own colour fills the card, so the name flips to the
-  // dark page ink for contrast against the accent.
-  tileNameActive: { color: colors.page },
-});
+type HubStyles = ReturnType<typeof makeHubStyles>;
+
+/**
+ * The shell's styles for a hub layout (#118). Sizes and gaps come from the
+ * layout or the tokens; fixed boxes are a `minHeight` over single-line content,
+ * so the rendered heights match `measureHubBoard`.
+ */
+function makeHubStyles(layout: HubLayout) {
+  const landscape = layout.orientation === 'landscape';
+  return StyleSheet.create({
+    scroll: { flex: 1, backgroundColor: colors.page },
+    scrollContent: { flexGrow: 1 },
+    hub: {
+      flex: 1,
+      backgroundColor: colors.page,
+      padding: layout.pagePadding,
+      gap: layout.zoneGap,
+    },
+    // The organizer sign-in and hub pairing: one touch-target-tall row.
+    chrome: { minHeight: layout.chromeHeight, justifyContent: 'center', gap: layout.chromeGap },
+    // Shared card shell for the groceries and the fairness balance.
+    panel: {
+      backgroundColor: colors.card,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: layout.panelPadding,
+    },
+    header: {
+      flexDirection: 'row',
+      flexWrap: landscape ? 'nowrap' : 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: layout.headerGap,
+      minHeight: layout.headerHeight,
+    },
+    householdName: {
+      color: colors.ink,
+      fontSize: layout.nameSize,
+      lineHeight: layout.nameLineHeight,
+      fontWeight: '700',
+      flexShrink: 1,
+    },
+    // The date and the sync indicator share the header's right-hand side, in
+    // flow: side by side in landscape, stacked in portrait.
+    headerStatus: landscape
+      ? { flexDirection: 'row', alignItems: 'center', gap: space.s3 }
+      : { alignItems: 'flex-end', gap: space.s2 },
+    date: { color: colors.muted, fontSize: layout.dateSize, lineHeight: layout.dateLineHeight },
+    tiles: {
+      flexDirection: 'row',
+      flexWrap: layout.tilesPerRow === null ? 'nowrap' : 'wrap',
+      gap: layout.tileGap,
+      minHeight: layout.tileHeight,
+    },
+    centeredRow: { flexDirection: 'row', alignItems: 'center', gap: space.s3 },
+    status: { color: colors.muted, fontSize: layout.statusSize },
+    // A tile is a row (dot beside the name). Landscape shares one row equally;
+    // portrait wraps three to a row.
+    tile: {
+      minWidth: nameTileMinWidth,
+      minHeight: layout.tileHeight,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: radii.lg,
+      borderWidth: TILE_BORDER,
+      paddingVertical: layout.tilePaddingY,
+      paddingHorizontal: layout.tilePaddingX,
+      gap: space.s3,
+      ...(landscape ? { flexGrow: 1, flexBasis: 0 } : { flexGrow: 1, flexBasis: '30%' }),
+    },
+    tileDot: { width: 20, height: 20, borderRadius: 10 },
+    tileName: {
+      color: colors.ink,
+      fontSize: layout.tileNameSize,
+      lineHeight: layout.tileNameLineHeight,
+      fontWeight: '600',
+      flexShrink: 1,
+    },
+    // Active tile glows: its own colour fills the card, so the name flips to the
+    // dark page ink for contrast against the accent.
+    tileNameActive: { color: colors.page },
+    // Landscape main row: Today takes two thirds, the side column one third.
+    main: { flex: 1, flexDirection: 'row', gap: layout.zoneGap },
+    todayZone: { flex: 2 },
+    side: { flex: 1 },
+    sideContent: { gap: layout.zoneGap },
+  });
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiResult } from '../api/client';
@@ -10,6 +10,8 @@ import type {
   UndoChoreResponse,
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import { DEFAULT_HUB_LAYOUT, type HubLayout } from '../layout/hubLayout';
+import { radii, space, typeScale } from '../layout/tokens';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';
@@ -280,10 +282,17 @@ export function ChoreBoard({
   people,
   activePersonId,
   onLastKnown,
+  layout = DEFAULT_HUB_LAYOUT,
 }: {
   householdId: string;
   people: RosterEntryResponse[];
   activePersonId: string | null;
+  /**
+   * The hub layout (#118) the board is sized for: its type steps, row height
+   * and spacing, and how many columns the person groups use. Portrait (one
+   * column) when omitted.
+   */
+  layout?: HubLayout;
   /**
    * Reports whether this board is being served from the offline cache: the
    * record's freshness stamp when it is, `null` when it is live. The shell uses
@@ -623,6 +632,9 @@ export function ChoreBoard({
     setReloadRevision((previous) => previous + 1);
   }, []);
 
+  // Sized from the hub layout; above the early returns (hook rules).
+  const styles = useMemo(() => makeBoardStyles(layout), [layout]);
+
   if (phase === 'loading') {
     return <WidgetSkeleton testID="chore-board-loading" caption={COPY.loading} />;
   }
@@ -685,42 +697,47 @@ export function ChoreBoard({
 
         return (
           <View key={bucket.key} style={styles.day} testID={`chore-board-day-${bucket.key}`}>
-            <Text style={styles.dayLabel} accessibilityRole="header">
+            <Text style={styles.dayLabel} accessibilityRole="header" numberOfLines={1}>
               {bucket.label}
             </Text>
-            {personIds.map((personId) => {
-              const person = people.find((entry) => entry.personId === personId);
-              const name = person?.displayName ?? personId;
-              const accent = person?.claimColor ?? colors.brass;
-              const isActive = personId === activePersonId;
-              const personItems = dayItems.filter((item) => item.assignedPersonId === personId);
+            <View style={styles.groups} testID={`chore-board-groups-${bucket.key}`}>
+              {personIds.map((personId) => {
+                const person = people.find((entry) => entry.personId === personId);
+                const name = person?.displayName ?? personId;
+                const accent = person?.claimColor ?? colors.brass;
+                const isActive = personId === activePersonId;
+                const personItems = dayItems.filter((item) => item.assignedPersonId === personId);
 
-              return (
-                <View
-                  key={personId}
-                  style={styles.personGroup}
-                  testID={`chore-board-person-${bucket.key}-${personId}`}
-                >
-                  <Text style={[styles.personName, isActive && { color: accent }]}>{name}</Text>
-                  {personItems.map((item) => (
-                    <ChoreItem
-                      key={item.choreId}
-                      item={item}
-                      accent={accent}
-                      glow={isActive}
-                      // Read-only when no participant is active, or when the board's
-                      // week has since rolled over, live or cached (that row must
-                      // never write - see `toggle`). Otherwise both an Open item
-                      // (tap to complete) and a Done item (tap to undo) are
-                      // actionable, online or off - offline the tap is queued.
-                      // The tap handler still makes a read-only press a safe no-op.
-                      inert={staleWeek || activePersonId === null}
-                      onPress={() => toggle(item.choreId)}
-                    />
-                  ))}
-                </View>
-              );
-            })}
+                return (
+                  <View
+                    key={personId}
+                    style={styles.personGroup}
+                    testID={`chore-board-person-${bucket.key}-${personId}`}
+                  >
+                    <Text style={[styles.personName, isActive && { color: accent }]} numberOfLines={1}>
+                      {name}
+                    </Text>
+                    {personItems.map((item) => (
+                      <ChoreItem
+                        key={item.choreId}
+                        item={item}
+                        accent={accent}
+                        glow={isActive}
+                        styles={styles}
+                        // Read-only when no participant is active, or when the board's
+                        // week has since rolled over, live or cached (that row must
+                        // never write - see `toggle`). Otherwise both an Open item
+                        // (tap to complete) and a Done item (tap to undo) are
+                        // actionable, online or off - offline the tap is queued.
+                        // The tap handler still makes a read-only press a safe no-op.
+                        inert={staleWeek || activePersonId === null}
+                        onPress={() => toggle(item.choreId)}
+                      />
+                    ))}
+                  </View>
+                );
+              })}
+            </View>
           </View>
         );
       })}
@@ -737,12 +754,14 @@ function ChoreItem({
   item,
   accent,
   glow,
+  styles,
   inert,
   onPress,
 }: {
   item: BoardItem;
   accent: string;
   glow: boolean;
+  styles: BoardStyles;
   inert: boolean;
   onPress: () => void;
 }) {
@@ -772,34 +791,69 @@ function ChoreItem({
   );
 }
 
-const styles = StyleSheet.create({
-  board: { flex: 1, alignSelf: 'stretch', gap: 20 },
-  status: { color: colors.muted, fontSize: 20, textAlign: 'center' },
-  day: { gap: 10 },
-  dayLabel: {
-    color: colors.brass,
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  personGroup: { gap: 8, marginBottom: 8 },
-  personName: { color: colors.muted, fontSize: 16, fontWeight: '600' },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  itemDone: { opacity: 0.5 },
-  itemMark: { color: colors.muted, fontSize: 20, width: 24, textAlign: 'center' },
-  itemTitle: { color: colors.ink, fontSize: 20, flexShrink: 1 },
-  // A completed chore is struck through as well as dimmed, so it reads as done
-  // at a glance.
-  itemTitleDone: { textDecorationLine: 'line-through', color: colors.muted },
-});
+type BoardStyles = ReturnType<typeof makeBoardStyles>;
+
+/**
+ * The board's styles for a hub layout. Every size and gap comes from the layout
+ * (or the tokens), and the only spacing between measured boxes is `gap`, so the
+ * rendered board matches `measureHubBoard` (#118).
+ */
+function makeBoardStyles(layout: HubLayout) {
+  const columns = layout.boardColumns > 1;
+  return StyleSheet.create({
+    board: { flex: 1, alignSelf: 'stretch', gap: layout.groupSpacing },
+    status: { color: colors.muted, fontSize: typeScale.body, textAlign: 'center' },
+    day: { gap: layout.dayGap },
+    dayLabel: {
+      color: colors.brass,
+      fontSize: layout.dayLabelSize,
+      lineHeight: layout.dayLabelLineHeight,
+      fontWeight: '700',
+      letterSpacing: 2,
+      textTransform: 'uppercase',
+    },
+    // Person groups: two columns in landscape (each takes about half the row),
+    // one stacked column in portrait.
+    groups: {
+      flexDirection: columns ? 'row' : 'column',
+      flexWrap: 'wrap',
+      gap: layout.groupSpacing,
+    },
+    personGroup: columns ? { gap: layout.groupGap, flexBasis: '40%', flexGrow: 1 } : { gap: layout.groupGap },
+    personName: {
+      color: colors.muted,
+      fontSize: layout.personLabelSize,
+      lineHeight: layout.personLabelLineHeight,
+      fontWeight: '600',
+    },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.s3,
+      minHeight: layout.rowHeight,
+      backgroundColor: colors.card,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: layout.rowPaddingY,
+      paddingHorizontal: layout.rowPaddingX,
+    },
+    itemDone: { opacity: 0.5 },
+    itemMark: {
+      color: colors.muted,
+      fontSize: layout.rowTitleSize,
+      lineHeight: layout.rowTitleLineHeight,
+      width: 24,
+      textAlign: 'center',
+    },
+    itemTitle: {
+      color: colors.ink,
+      fontSize: layout.rowTitleSize,
+      lineHeight: layout.rowTitleLineHeight,
+      flexShrink: 1,
+    },
+    // A completed chore is struck through as well as dimmed, so it reads as done
+    // at a glance.
+    itemTitleDone: { textDecorationLine: 'line-through', color: colors.muted },
+  });
+}
