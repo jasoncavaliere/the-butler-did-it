@@ -538,7 +538,7 @@ hub drops to participant-only mode without an error. With the PIN provider, `Org
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
-does nothing. Today that is Household (#112), Edit roster (#167), Insights (#123) and Your data (#125), which open their
+does nothing. Today that is Household (#112), Edit roster (#167), Insights (#123), Your data (#125) and Delete household (#168), which open their
 routes through the handlers `RootNavigator` passes to `HubShell`, Version (#126), and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
 cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Version is
 hub-internal state, not a route: it toggles a panel (`hub-version-panel`) rendered after the fixed-height
@@ -549,8 +549,7 @@ open. `VersionInfo` shows the hub's build SHA (`EXPO_PUBLIC_BUILD_SHA`, inlined 
 fails the API version is `unavailable` and no mismatch is claimed. Expo inlines `EXPO_PUBLIC_*` values
 while it transforms a module, and Metro's transform cache is not keyed on env values, so
 `metro.config.js` folds every `EXPO_PUBLIC_*` value into Metro's `cacheVersion`
-(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache. Household
-teardown is #168; until it lands, `HubShell` does not pass that handler. This is defense-in-depth only: the API enforces the
+(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache. This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.
@@ -574,7 +573,29 @@ it reads correctly offline and shows no household data; its only entry, the Your
 `OrganizerBar`, appears only for a signed-in organizer and only when the hub is given `onShowYourData`.
 Every string lives in the exported `YOUR_DATA_COPY` constant and the screen renders only from it, so the
 test that scans it for non-ASCII characters covers every rendered word. Keep the table list in step with
-the API's registrations. #168 adds a link from this page to household teardown.
+the API's registrations. A signed-in organizer also sees a Delete household link in the deletion
+section, rendered only when `RootNavigator` passes `onOpenTeardown` (#168).
+
+**Household teardown** (`src/screens/HouseholdTeardownScreen.tsx`, #168) is the `HouseholdTeardown`
+route in the signed-in stack, opened from Delete household on `OrganizerBar` or the link on Your data;
+Cancel pops to the top of the stack, so it returns to the hub from either entry. It is deliberately not
+behind `OrganizerGate`: the gate re-probes `/me` whenever the API client changes, so offline it would
+replace the screen (and the offline message with it), and it would block the screen as the teardown signs
+the organizer out. The screen instead disables Delete with a sign-in line while no organizer is signed in;
+the API enforces the `Organizer` policy. It reads the household name, lists what will be deleted, says it
+cannot be undone, and enables Delete only when the typed text equals the name exactly (ordinal and
+case-sensitive, no trimming). Offline (`useBrowserOnline`) Delete is disabled with a needs-a-connection
+line, and the request never goes through the write queue, so a teardown can never replay later. Confirm
+sends one `DELETE /households/{id}` with `{ confirmName }` (#124). On success, using the household id
+captured before the call, it runs `forgetHouseholdOffline` (`src/offline/forgetHousehold.ts`: the write
+queue, then the glance cache; the dataset guard uses the same helper), clears the hub-device token, signs
+the organizer out, calls `onDeleted`, and clears the household id last. On any failure (the name-mismatch
+400 or anything else) it shows `describeApiError`'s message (the problem detail) and changes nothing
+local. Clearing the household id removes the whole signed-in stack, so `RootNavigator` owns the
+"Household deleted" notice (`HouseholdDeletedScreen`): `onDeleted` sets its `showDeleted` state, and it
+renders the notice in place of the `NavigationContainer` for `HOUSEHOLD_DELETED_NOTICE_MS` (3 s; the
+`deletedNoticeMs` prop is the test seam). The container then remounts with no household and lands on the
+setup wizard.
 
 **Household editor** (`src/screens/HouseholdEditor.tsx`, #112) is the organizer's after-setup editor for
 rooms and chores, behind `OrganizerGate` (`HouseholdScreen.tsx`). It reads `GET /households/{id}/rooms` and

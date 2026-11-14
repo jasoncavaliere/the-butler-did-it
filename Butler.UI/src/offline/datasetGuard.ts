@@ -26,9 +26,8 @@
 
 import type { ApiClient } from '../api/client';
 import { fetchDatasetId } from '../api/dataset';
-import { clearGlance } from './glanceCache';
+import { forgetHouseholdOffline } from './forgetHousehold';
 import { sessionFallbackStorage, type LocalStorageLike } from './storage';
-import { clearWriteQueue } from './writeQueue';
 
 /** Storage-key prefix; versioned so a future record shape can coexist. */
 export const DATASET_ID_PREFIX = 'butler.dataset.v1.';
@@ -93,8 +92,7 @@ export async function checkDataset(householdId: string, client: ApiClient): Prom
     return 'unchanged';
   }
 
-  clearWriteQueue(householdId);
-  clearGlance(householdId);
+  forgetHouseholdOffline(householdId);
   writeLastSeenDatasetId(householdId, datasetId);
   return 'changed';
 }
