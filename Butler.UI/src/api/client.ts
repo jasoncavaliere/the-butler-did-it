@@ -46,6 +46,12 @@ export type ApiError = {
   type?: string;
   /** The full RFC 7807 payload when {@link kind} is `problem`. */
   problem?: ProblemDetails;
+  /**
+   * `true` when the failed request was sent on the hub device token
+   * ({@link DEVICE_TOKEN_HEADER}); absent otherwise. Lets a caller tell a refused
+   * device apart from a refused organizer or anonymous caller (#188).
+   */
+  viaDeviceToken?: boolean;
 };
 
 /** The result of any client call: a success carrying data, or a normalized error. */
@@ -103,6 +109,14 @@ export type CreateApiClientOptions = {
    * so the hub drops to participant-only mode without surfacing an error.
    */
   onUnauthorized?: () => void;
+  /**
+   * Called when a request sent on {@link DEVICE_TOKEN_HEADER} gets a `401` - on
+   * the first attempt, or on the device retry after an organizer `401` - meaning
+   * the API does not recognise the device token (revoked or unknown), so the hub
+   * should forget its pairing (#188). Never called on a `403`: a valid device
+   * token gets `403` from any organizer-only endpoint, which is not a rejection.
+   */
+  onDeviceRejected?: () => void;
 };
 
 function messageOf(cause: unknown): string {
@@ -246,6 +260,20 @@ export function createApiClient(options: CreateApiClientOptions): ApiClient {
     return outcome.response.ok ? toSuccessResult<T>(outcome.response) : toErrorResult(outcome.response);
   }
 
+  /**
+   * The result of a request that carried the device token: report a `401` as a
+   * rejected device, and mark any failure as sent on the device token.
+   */
+  async function deviceResult<T>(
+    outcome: { response: Response } | { failure: ApiResult<never> },
+  ): Promise<ApiResult<T>> {
+    if ('response' in outcome && outcome.response.status === 401) {
+      options.onDeviceRejected?.();
+    }
+    const result = await toResult<T>(outcome);
+    return result.ok ? result : { ok: false, error: { ...result.error, viaDeviceToken: true } };
+  }
+
   async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
     const url = apiUrl(path, baseUrl);
 
@@ -266,10 +294,13 @@ export function createApiClient(options: CreateApiClientOptions): ApiClient {
       // paired hub, retry once as the device so the hub keeps working.
       options.onUnauthorized?.();
       if (deviceToken) {
-        return toResult<T>(await fetchWith(url, init, { device: deviceToken }));
+        return deviceResult<T>(await fetchWith(url, init, { device: deviceToken }));
       }
     }
 
+    if (credential && 'device' in credential) {
+      return deviceResult<T>(first);
+    }
     return toResult<T>(first);
   }
 

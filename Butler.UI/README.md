@@ -119,10 +119,14 @@ touching anything under `public/` or `scripts/`.
   `demo/demo.sh up` sets it to the same SHA it stamps into the API image. `metro.config.js` keys
   Metro's transform cache on every `EXPO_PUBLIC_*` value, so a changed value always reaches the bundle.
 - Hub device pairing (`HubPairing`, `HubDeviceContext`, T5) is wired up: a signed-in organizer can pair
-  the tablet and the resulting device token is held in memory for the process lifetime. The API client
-  sends it on the `X-Device-Token` header (never as `Authorization: Bearer`) whenever no organizer is
-  signed in; an organizer's token goes as the bearer instead, one credential per request. When the
-  organizer signs out or their token expires, the hub keeps working on the device token.
+  the tablet, and `HubPairingProvider` keeps the device token and household id in `localStorage` under
+  `butler.hubPairing.v1`, so the hub stays paired across a page reload (#188). The organizer token is
+  never stored, so a reload signs the organizer out. Without usable storage the pairing lasts for the
+  session only. The API client sends the device token on the `X-Device-Token` header (never as
+  `Authorization: Bearer`) whenever no organizer is signed in; an organizer's token goes as the bearer
+  instead, one credential per request. When the organizer signs out or their token expires, the hub
+  keeps working on the device token. When the API refuses the device token (a `401` on any request, or a
+  `403` on the household read), the hub forgets the stored pairing and returns to setup.
 - The web export is an installable PWA (O1): manifest, icons, and a service worker that precaches the
   app shell, so a second load of the hub works with the network off. Caching API data (O2, the
   last-known glance) and queuing writes while offline (O3, the durable write queue) both build on top

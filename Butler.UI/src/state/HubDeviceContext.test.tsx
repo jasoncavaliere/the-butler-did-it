@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { useEffect } from 'react';
 import { Text, TouchableOpacity } from 'react-native';
 
 import { HubDeviceProvider, useHubDevice } from './HubDeviceContext';
 
 function Probe() {
-  const { deviceToken, isPaired, setDeviceToken } = useHubDevice();
+  const { deviceToken, isPaired, setDeviceToken, rejectDevice } = useHubDevice();
   return (
     <>
       <Text testID="token">tok:{deviceToken ?? 'none'}</Text>
@@ -14,6 +15,9 @@ function Probe() {
       </TouchableOpacity>
       <TouchableOpacity testID="clear" onPress={() => setDeviceToken(null)}>
         <Text>clear</Text>
+      </TouchableOpacity>
+      <TouchableOpacity testID="reject" onPress={() => rejectDevice()}>
+        <Text>reject</Text>
       </TouchableOpacity>
     </>
   );
@@ -61,5 +65,69 @@ describe('HubDeviceContext / useHubDevice', () => {
       expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
     });
     expect(screen.getByTestId('paired')).toHaveTextContent('paired:no');
+  });
+  it('rejectDevice is a safe no-op outside a provider', async () => {
+    await render(<Probe />);
+
+    fireEvent.press(screen.getByTestId('reject'));
+    expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
+  });
+
+  it('rejectDevice clears the token and calls onDeviceRejected (#188)', async () => {
+    const onDeviceRejected = jest.fn();
+    await render(
+      <HubDeviceProvider initialDeviceToken="seed-token" onDeviceRejected={onDeviceRejected}>
+        <Probe />
+      </HubDeviceProvider>,
+    );
+
+    fireEvent.press(screen.getByTestId('reject'));
+    await waitFor(() => {
+      expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
+    });
+    expect(screen.getByTestId('paired')).toHaveTextContent('paired:no');
+    expect(onDeviceRejected).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejectDevice works without an onDeviceRejected callback', async () => {
+    await render(
+      <HubDeviceProvider initialDeviceToken="seed-token">
+        <Probe />
+      </HubDeviceProvider>,
+    );
+
+    fireEvent.press(screen.getByTestId('reject'));
+    await waitFor(() => {
+      expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
+    });
+  });
+
+  it('rejectDevice keeps its identity across token changes (the API client memo depends on it)', async () => {
+    const seen = new Set<() => void>();
+    function Recorder() {
+      const { rejectDevice } = useHubDevice();
+      useEffect(() => {
+        seen.add(rejectDevice);
+      }, [rejectDevice]);
+      return null;
+    }
+    const onDeviceRejected = jest.fn();
+    await render(
+      <HubDeviceProvider onDeviceRejected={onDeviceRejected}>
+        <Probe />
+        <Recorder />
+      </HubDeviceProvider>,
+    );
+
+    fireEvent.press(screen.getByTestId('set'));
+    await waitFor(() => {
+      expect(screen.getByTestId('token')).toHaveTextContent('tok:tok-1');
+    });
+    fireEvent.press(screen.getByTestId('clear'));
+    await waitFor(() => {
+      expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
+    });
+
+    expect(seen.size).toBe(1);
   });
 });

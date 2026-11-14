@@ -210,3 +210,149 @@ describe('createApiClient device token and expiry (#105)', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('device token rejection (#188)', () => {
+  it('calls onDeviceRejected on a 401 to a request sent on the device token, and marks the error', async () => {
+    const fetchImpl = jest.fn(async () => statusResponse(401));
+    const onDeviceRejected = jest.fn();
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetchImpl,
+      getDeviceToken: () => 'device-xyz',
+      onDeviceRejected,
+    });
+
+    const result = await client.get('/households/hh-1');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(onDeviceRejected).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      ok: false,
+      error: { kind: 'http', status: 401, title: 'HTTP 401', viaDeviceToken: true },
+    });
+  });
+
+  it('does not call onDeviceRejected on a device 403, but still marks the error', async () => {
+    const fetchImpl = jest.fn(async () => statusResponse(403));
+    const onDeviceRejected = jest.fn();
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetchImpl,
+      getDeviceToken: () => 'device-xyz',
+      onDeviceRejected,
+    });
+
+    const result = await client.get('/me');
+
+    expect(onDeviceRejected).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.viaDeviceToken).toBe(true);
+  });
+
+  it('calls both callbacks when an organizer 401 is retried on the device and that gets a 401 too', async () => {
+    const fetchImpl = jest.fn(async () => statusResponse(401));
+    const onUnauthorized = jest.fn();
+    const onDeviceRejected = jest.fn();
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetchImpl,
+      getAuthToken: () => 'expired',
+      getDeviceToken: () => 'device-xyz',
+      onUnauthorized,
+      onDeviceRejected,
+    });
+
+    const result = await client.get('/households/hh-1');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(headersOf(fetchImpl)[DEVICE_TOKEN_HEADER]).toBe('device-xyz');
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(onDeviceRejected).toHaveBeenCalledTimes(1);
+    expect(!result.ok && result.error.viaDeviceToken).toBe(true);
+  });
+
+  it('calls neither rejection callback when the device retry gets a 403', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(statusResponse(401))
+      .mockResolvedValueOnce(statusResponse(403));
+    const onDeviceRejected = jest.fn();
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetchImpl,
+      getAuthToken: () => 'expired',
+      getDeviceToken: () => 'device-xyz',
+      onDeviceRejected,
+    });
+
+    const result = await client.get('/me');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(onDeviceRejected).not.toHaveBeenCalled();
+    expect(!result.ok && result.error).toEqual({
+      kind: 'http',
+      status: 403,
+      title: 'HTTP 403',
+      viaDeviceToken: true,
+    });
+  });
+
+  it('tolerates a missing onDeviceRejected callback', async () => {
+    const fetchImpl = jest.fn(async () => statusResponse(401));
+    const client = createApiClient({ baseUrl: BASE, fetchImpl, getDeviceToken: () => 'device-xyz' });
+
+    const result = await client.get('/households/hh-1');
+
+    expect(result.ok).toBe(false);
+  });
+
+  it('marks a network failure on the device token but does not treat it as a rejection', async () => {
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('offline');
+    });
+    const onDeviceRejected = jest.fn();
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetchImpl,
+      getDeviceToken: () => 'device-xyz',
+      onDeviceRejected,
+    });
+
+    const result = await client.get('/households/hh-1');
+
+    expect(onDeviceRejected).not.toHaveBeenCalled();
+    expect(!result.ok && result.error.kind).toBe('network');
+    expect(!result.ok && result.error.viaDeviceToken).toBe(true);
+  });
+
+  it('leaves a device success, an organizer failure and an anonymous failure unmarked', async () => {
+    const onDeviceRejected = jest.fn();
+
+    const ok = createApiClient({
+      baseUrl: BASE,
+      fetchImpl: jest.fn(async () => okResponse()),
+      getDeviceToken: () => 'device-xyz',
+      onDeviceRejected,
+    });
+    expect((await ok.get('/households/hh-1')).ok).toBe(true);
+
+    const organizer = createApiClient({
+      baseUrl: BASE,
+      fetchImpl: jest.fn(async () => statusResponse(401)),
+      getAuthToken: () => 'expired',
+      onDeviceRejected,
+    });
+    const organizerResult = await organizer.get('/me');
+    expect(!organizerResult.ok && 'viaDeviceToken' in organizerResult.error).toBe(false);
+
+    const anonymous = createApiClient({
+      baseUrl: BASE,
+      fetchImpl: jest.fn(async () => statusResponse(401)),
+      onDeviceRejected,
+    });
+    const anonymousResult = await anonymous.get('/me');
+    expect(!anonymousResult.ok && 'viaDeviceToken' in anonymousResult.error).toBe(false);
+
+    expect(onDeviceRejected).not.toHaveBeenCalled();
+  });
+});

@@ -39,6 +39,7 @@ import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { KioskSurface } from '../pwa/KioskSurface';
 import { useHousehold } from '../state/HouseholdContext';
+import { useHubDevice } from '../state/HubDeviceContext';
 import { useOrganizer } from '../state/OrganizerContext';
 
 /**
@@ -340,6 +341,7 @@ function HubShellBody({
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
+  const { rejectDevice } = useHubDevice();
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const layout = useHubLayout();
   const styles = useMemo(() => makeHubStyles(layout), [layout]);
@@ -389,6 +391,14 @@ function HubShellBody({
         return;
       }
       if (!householdResult.ok) {
+        // GET /households/{id} uses the OrganizerOrHubDevice policy, so a 403 on
+        // the device token means the API will not accept this device for this
+        // household: forget the pairing and fall back to setup (#188). A device
+        // 401 (revoked or unknown token) is already handled by the API client.
+        if (householdResult.error.status === 403 && householdResult.error.viaDeviceToken) {
+          rejectDevice();
+          return;
+        }
         setState(resolveShellFailure(householdId, householdResult.error));
         return;
       }
@@ -417,7 +427,7 @@ function HubShellBody({
     // what makes the hub reload itself rather than sitting on last-known data;
     // `retrySignal` bumps when the today panel's "Try again" is tapped, and
     // `refreshSignal` when the hub regains focus after another route (#167).
-  }, [client, householdId, reconnectSignal, queueSignal, retrySignal, refreshSignal]);
+  }, [client, householdId, reconnectSignal, queueSignal, retrySignal, refreshSignal, rejectDevice]);
 
   // Tapping a name claims that person through T1 and makes them active. There is
   // no password/PIN step: a successful claim sets the session, a switch (tapping

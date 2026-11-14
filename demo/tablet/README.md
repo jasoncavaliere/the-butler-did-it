@@ -47,7 +47,7 @@ Booleans are JSON `true`/`false`; Fully stores numbers and times as strings.
 | `enablePullToRefresh` | `false` | Web Browsing Settings > Enable Pull to Refresh | A swipe down on the chore board must not reload the page. |
 | `enableZoom` | `false` | Web Zoom and Scaling > Enable Zoom | A pinch or double tap must not zoom the board out of its layout. |
 | `remoteAdmin` | `false` | Remote Administration (PLUS) > Enable Remote Administration | Off by default: nothing on the network can control the tablet unless you turn it on yourself. |
-| `deleteWebstorageOnReload` | `false` | Web Auto Reload > Delete Webstorage on Auto Reload | Safety pin. The hub keeps its offline last-known week and its queue of unsent writes in web storage (`Butler.UI/src/offline/`); clearing it on every reload would lose both. |
+| `deleteWebstorageOnReload` | `false` | Web Auto Reload > Delete Webstorage on Auto Reload | Safety pin. The hub keeps its offline last-known week and its queue of unsent writes in web storage (`Butler.UI/src/offline/`), and its hub pairing too (`butler.hubPairing.v1`, #188); clearing it on every reload would lose all three and unpair the tablet. |
 | `deleteCacheOnReload` | `false` | Web Auto Reload > Delete Cache on Auto Reload | Safety pin. Keeps the cached hub files, so a reload while offline still shows the board. |
 
 The file deliberately leaves out a screensaver (it would cover the board during
