@@ -1,0 +1,15 @@
+{
+  "deleteCacheOnReload": false,
+  "deleteWebstorageOnReload": false,
+  "enablePullToRefresh": false,
+  "enableZoom": false,
+  "keepScreenOn": true,
+  "kioskMode": true,
+  "kioskPin": "__KIOSK_PIN__",
+  "launchOnBoot": true,
+  "reloadOnWifiOn": true,
+  "reloadPageFailure": "15",
+  "remoteAdmin": false,
+  "sleepSchedule": "[{\"sleepTime\":\"22:00\",\"wakeupTime\":\"06:00\",\"dayOfWeek\":8}]",
+  "startURL": "__START_URL__"
+}

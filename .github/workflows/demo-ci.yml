@@ -21,6 +21,9 @@
 #            demo/.env is git-ignored and untracked, compose passes
 #            BUTLER_DEMO_PIN to the API, no PIN is committed, and `up` without
 #            a PIN fails fast with the same message through both scripts.
+#            And the Fully Kiosk hub settings (#129,
+#            demo/ci/check-fully-settings.sh): placeholder-only start URL and
+#            kiosk PIN, pinned values, no secrets, every key documented.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080, the single origin (SPA fallback, cache
 #            headers, /api proxy, #96), a household created and read back
@@ -149,6 +152,12 @@ jobs:
           grep -F 'tailscale serve --bg 8080' demo/README.md
           grep -F 'mkcert' demo/README.md
           grep -F 'adb reverse tcp:8080 tcp:8080' demo/README.md
+
+      # #129 AC1-AC4: the Fully Kiosk settings file has the hub settings with
+      # only the __START_URL__ and __KIOSK_PIN__ placeholders (no real PIN or
+      # secret), and demo/tablet/README.md documents every key and the import.
+      - name: "Tablet: Fully settings file is placeholder-only and documented (#129)"
+        run: bash demo/ci/check-fully-settings.sh
 
       # #102 AC7-AC11: the demo CLI scripts. pwsh is preinstalled on
       # ubuntu-latest. No stack is needed: usage is printed before docker is

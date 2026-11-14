@@ -222,6 +222,9 @@ secure context: HTTPS, or `http://localhost`. On a tablet,
 hub silently stops working the moment the tablet goes offline. Use one of the
 three options below. Checking them on real devices is tracked in #132.
 
+For a hub tablet running Fully Kiosk Browser, import the reviewed hub settings
+from [tablet/README.md](tablet/README.md) (#129).
+
 ### Tailscale (default)
 
 `share` puts the hub on your tailnet at `https://<host>.<tailnet>.ts.net` with
