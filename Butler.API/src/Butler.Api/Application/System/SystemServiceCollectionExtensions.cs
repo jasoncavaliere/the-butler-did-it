@@ -1,3 +1,4 @@
+using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Infrastructure.System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -18,6 +19,12 @@ public static class SystemServiceCollectionExtensions
     {
         // Infrastructure: the status provider stands in for a repository.
         services.TryAddSingleton<ISystemStatusProvider, SystemStatusProvider>();
+
+        // Dataset id (#100 D7): one deployment-wide row in the Datasets table.
+        // The service is a singleton so its lock is shared across requests.
+        services.AddTableRepository<DatasetEntity>(DatasetEntity.TableName);
+        services.TryAddSingleton<IDatasetRepository, TableDatasetRepository>();
+        services.TryAddSingleton<IDatasetService, DatasetService>();
 
         // A clock is injected so handlers stay deterministically testable
         // (Section 7.5). MediatR handlers themselves are discovered by the

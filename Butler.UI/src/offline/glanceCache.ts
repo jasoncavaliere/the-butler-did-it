@@ -247,6 +247,33 @@ export function writeGlance(
   return next;
 }
 
+/**
+ * Drop the household's cached glance (#100 D7), so nothing from a dataset the
+ * API no longer serves can be shown as last-known. Deletes the record where the
+ * store can, and otherwise overwrites it with `null`, which {@link readGlance}
+ * reads as a miss. Like {@link writeGlance} it never throws: no storage is a
+ * no-op, and a failing store is swallowed.
+ */
+export function clearGlance(
+  householdId: string,
+  storage: GlanceStorage | undefined = defaultLocalStorage(),
+): void {
+  if (!storage) {
+    return;
+  }
+  const key = glanceCacheKey(householdId);
+  try {
+    if (typeof storage.removeItem === 'function') {
+      storage.removeItem(key);
+    } else {
+      storage.setItem(key, 'null');
+    }
+  } catch {
+    // Nothing more can be done; a record the store will not drop cannot be read
+    // as current anyway once the dataset guard has moved on.
+  }
+}
+
 /** Plural suffix for a whole-number count ("1 minute", "2 minutes"). */
 function plural(count: number): string {
   return count === 1 ? '' : 's';

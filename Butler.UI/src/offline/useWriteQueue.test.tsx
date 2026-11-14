@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
+import type { DatasetCheck } from './datasetGuard';
 import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
 import { useWriteQueue } from './useWriteQueue';
 import { currentWeekIso } from './weekIso';
@@ -591,5 +592,155 @@ describe('useWriteQueue', () => {
 
     expect(readWriteQueue('hh-2')).toEqual([]);
     expect(globalThis.localStorage.getItem(writeQueueKey('hh-1'))).not.toBeNull();
+  });
+
+  describe('the dataset gate (#100 D7)', () => {
+    it('drains normally when the dataset is unchanged', async () => {
+      saveWriteQueue('hh-1', [stored('c1')]);
+      const client = queueClient(() => confirmed);
+      const verify = jest.fn(async (): Promise<DatasetCheck> => 'unchanged');
+
+      const { result } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+
+      await waitFor(() => expect(result.current.pending).toBe(0));
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(client.update).toHaveBeenCalledTimes(1);
+      expect(result.current.unreachable).toBe(false);
+    });
+
+    it('drains on a first-seen dataset too', async () => {
+      saveWriteQueue('hh-1', [stored('c1')]);
+      const client = queueClient(() => confirmed);
+      const verify = jest.fn(async (): Promise<DatasetCheck> => 'first-seen');
+
+      const { result } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+
+      await waitFor(() => expect(result.current.pending).toBe(0));
+      expect(client.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not verify when nothing is pending', async () => {
+      const client = queueClient(() => confirmed);
+      const verify = jest.fn(async (): Promise<DatasetCheck> => 'unchanged');
+
+      const { result } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+      await act(async () => {
+        result.current.flush();
+      });
+
+      expect(verify).not.toHaveBeenCalled();
+      expect(client.update).not.toHaveBeenCalled();
+    });
+
+    it('does not send queued writes when the dataset changed', async () => {
+      saveWriteQueue('hh-1', [stored('c1'), stored('c2')]);
+      const client = queueClient(() => confirmed);
+      // The real guard empties the queue before it answers `changed`.
+      const verify = jest.fn(async (): Promise<DatasetCheck> => {
+        saveWriteQueue('hh-1', []);
+        return 'changed';
+      });
+
+      await renderHook(() => useWriteQueue('hh-1', client, verify));
+
+      await waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      expect(client.update).not.toHaveBeenCalled();
+      expect(readWriteQueue('hh-1')).toEqual([]);
+    });
+
+    it('unverified dataset holds the queue, reports unreachable, and retries after OFFLINE_RETRY_MS', async () => {
+      jest.useFakeTimers();
+      saveWriteQueue('hh-1', [stored('c1')]);
+      const client = queueClient(() => confirmed);
+      let answer: DatasetCheck = 'unverified';
+      const verify = jest.fn(async (): Promise<DatasetCheck> => answer);
+
+      const { result } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
+
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(client.update).not.toHaveBeenCalled();
+      expect(result.current.pending).toBe(1);
+      expect(result.current.unreachable).toBe(true);
+      expect(readWriteQueue('hh-1')).toHaveLength(1);
+
+      // Nothing before the slow re-probe...
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(OFFLINE_RETRY_MS - 1);
+      });
+      expect(verify).toHaveBeenCalledTimes(1);
+
+      // ...then the API answers with the same dataset and the write goes.
+      answer = 'unchanged';
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1);
+      });
+      expect(verify).toHaveBeenCalledTimes(2);
+      expect(client.update).toHaveBeenCalledTimes(1);
+      expect(result.current.pending).toBe(0);
+      expect(result.current.unreachable).toBe(false);
+    });
+
+    it('keeps an earlier pass confirmation when a later pass is held', async () => {
+      // Pass one syncs c1, then picks up c2 (tapped mid-sync) and finds the API
+      // gone. The tap also asked for a second pass, whose dataset check cannot
+      // reach the API either. The confirmation from pass one still counts.
+      saveWriteQueue('hh-1', [stored('c1')]);
+      const gate = { release: () => {} };
+      let sends = 0;
+      const client = queueClient(() =>
+        sends++ === 0
+          ? new Promise<ApiResult<unknown>>((resolve) => {
+              gate.release = () => resolve(confirmed);
+            })
+          : unreachable,
+      );
+      const answers: DatasetCheck[] = ['unchanged', 'unverified'];
+      const verify = jest.fn(async (): Promise<DatasetCheck> => answers.shift() ?? 'unverified');
+
+      const { result } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+      await waitFor(() => expect(client.update).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        result.current.enqueue(completion('c2'));
+      });
+      await act(async () => {
+        gate.release();
+      });
+
+      await waitFor(() => expect(result.current.confirmedRevision).toBe(1));
+      expect(verify).toHaveBeenCalledTimes(2);
+      expect(result.current.unreachable).toBe(true);
+      expect(readWriteQueue('hh-1').map((write) => write.dedupeKey)).toEqual([
+        assignmentDedupeKey(WEEK, 'c2'),
+      ]);
+    });
+
+    it('abandons the drain when the hook unmounts during the check', async () => {
+      saveWriteQueue('hh-1', [stored('c1')]);
+      const client = queueClient(() => confirmed);
+      let answer: (check: DatasetCheck) => void = () => {};
+      const verify = jest.fn(
+        () =>
+          new Promise<DatasetCheck>((resolve) => {
+            answer = resolve;
+          }),
+      );
+
+      const { unmount } = await renderHook(() => useWriteQueue('hh-1', client, verify));
+      await waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        unmount();
+      });
+      await act(async () => {
+        answer('unchanged');
+      });
+
+      expect(client.update).not.toHaveBeenCalled();
+      expect(readWriteQueue('hh-1')).toHaveLength(1);
+    });
   });
 });

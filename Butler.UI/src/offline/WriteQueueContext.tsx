@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
 import type { ApiClient } from '../api/client';
+import type { DatasetCheck } from './datasetGuard';
 import { useWriteQueue, type WriteQueueState } from './useWriteQueue';
 
 /**
@@ -23,14 +24,17 @@ const WriteQueueContext = createContext<WriteQueueState | null>(null);
 export function WriteQueueProvider({
   householdId,
   client,
+  verifyDataset,
   children,
 }: {
   householdId: string;
   /** The client queued writes replay through (the hub's own, see useWriteQueue). */
   client: ApiClient;
+  /** The dataset guard's check, gating every replay (#100 D7, see useWriteQueue). */
+  verifyDataset?: () => Promise<DatasetCheck>;
   children: ReactNode;
 }) {
-  const queue = useWriteQueue(householdId, client);
+  const queue = useWriteQueue(householdId, client, verifyDataset);
   return <WriteQueueContext.Provider value={queue}>{children}</WriteQueueContext.Provider>;
 }
 

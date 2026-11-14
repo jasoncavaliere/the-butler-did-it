@@ -24,6 +24,12 @@ namespace Butler.Api.Application.Demo;
 /// clock's ISO week is the current week, and the history fills the three weeks
 /// before it.
 /// </para>
+/// <para>
+/// <b>New dataset id.</b> Every seed regenerates the deployment's dataset id
+/// (#100 D7) before it purges anything, so a hub holding a cache or queued
+/// writes from the previous seed sees the change and discards them instead of
+/// replaying them against the new data.
+/// </para>
 /// </remarks>
 public interface IDemoSeeder
 {

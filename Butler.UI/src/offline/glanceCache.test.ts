@@ -1,5 +1,6 @@
 import {
   GLANCE_CACHE_PREFIX,
+  clearGlance,
   defaultGlanceStorage,
   describeLastKnown,
   glanceCacheKey,
@@ -344,6 +345,58 @@ describe('writeGlance / readGlance', () => {
     writeGlance('hh-1', { board }, undefined, '2026-07-20T09:00:00.000Z');
 
     expect(readGlance('hh-1')?.board).toEqual(board);
+  });
+});
+
+describe('clearGlance', () => {
+  it('deletes the household record when the store can delete', () => {
+    const storage = fakeStorage();
+    const removeItem = jest.fn((key: string) => {
+      storage.entries.delete(key);
+    });
+    const withRemove: GlanceStorage = { ...storage, removeItem };
+    writeGlance('hh-1', { household: { name: 'Home', people } }, withRemove);
+    writeGlance('hh-2', { household: { name: 'Other', people } }, withRemove);
+
+    clearGlance('hh-1', withRemove);
+
+    expect(removeItem).toHaveBeenCalledWith(glanceCacheKey('hh-1'));
+    expect(readGlance('hh-1', withRemove)).toBeNull();
+    // Only that household's record goes.
+    expect(readGlance('hh-2', withRemove)?.household?.name).toBe('Other');
+  });
+
+  it('overwrites the record with a miss when the store cannot delete', () => {
+    const storage = fakeStorage();
+    writeGlance('hh-1', { household: { name: 'Home', people } }, storage);
+
+    clearGlance('hh-1', storage);
+
+    expect(storage.entries.get(glanceCacheKey('hh-1'))).toBe('null');
+    expect(readGlance('hh-1', storage)).toBeNull();
+  });
+
+  it('clears the ambient store by default, and no-ops when there is none', () => {
+    const storage = fakeStorage();
+    setGlobalStorage(storage);
+    writeGlance('hh-1', { household: { name: 'Home', people } });
+
+    clearGlance('hh-1');
+    expect(readGlance('hh-1')).toBeNull();
+
+    setGlobalStorage(undefined);
+    expect(() => clearGlance('hh-1')).not.toThrow();
+  });
+
+  it('swallows a store that throws', () => {
+    const throwing: GlanceStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('quota');
+      },
+    };
+
+    expect(() => clearGlance('hh-1', throwing)).not.toThrow();
   });
 });
 

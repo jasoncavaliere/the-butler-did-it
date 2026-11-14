@@ -24,7 +24,7 @@ public sealed class TableProvisioningSmokeTests
     internal static readonly string[] Tables =
     [
         "Households", "People", "Rooms", "Chores", "ChoreCompletions",
-        "Assignments", "Carts", "CartItems", "HubDevices",
+        "Assignments", "Carts", "CartItems", "HubDevices", "Datasets",
     ];
 
     /// <summary><see cref="Tables"/> as theory data.</summary>

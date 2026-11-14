@@ -10,6 +10,7 @@ import {
   assignmentDedupeKey,
   assignmentWeekIso,
   backoffDelayMs,
+  clearWriteQueue,
   countFailed,
   countPending,
   drainWriteQueue,
@@ -795,5 +796,27 @@ describe('countPending / countFailed', () => {
     expect(countFailed(queue)).toBe(1);
     expect(countPending([])).toBe(0);
     expect(countFailed([])).toBe(0);
+  });
+});
+
+describe('clearWriteQueue', () => {
+  it("empties one household's queue and leaves another household's alone", () => {
+    const storage = fakeStorage();
+    enqueueWrite('hh-1', completion('c1'), storage, 1);
+    enqueueWrite('hh-2', completion('c2'), storage, 2);
+
+    expect(clearWriteQueue('hh-1', storage)).toBe(true);
+
+    expect(readWriteQueue('hh-1', storage)).toEqual([]);
+    expect(readWriteQueue('hh-2', storage)).toHaveLength(1);
+  });
+
+  it('clears through the session fallback by default', () => {
+    setGlobalStorage(fakeStorage());
+    enqueueWrite('hh-1', completion('c1'));
+
+    clearWriteQueue('hh-1');
+
+    expect(readWriteQueue('hh-1')).toEqual([]);
   });
 });

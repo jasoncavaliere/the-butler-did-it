@@ -35,13 +35,26 @@
  * a write is confirmed it has also left the queue - so no overlay of queued writes
  * can cover for that stale answer any more. Bumping once per drain run that
  * confirmed something is what lets the surface refetch the post-sync truth (#88).
+ *
+ * **The dataset gate (#100 D7).** When the hub hands in `verifyDataset`, every
+ * drain pass that has something pending asks it first, and replays only when the
+ * API is still serving the dataset the writes were taken against:
+ * - `changed` - the guard has already emptied the queue and will remount the hub,
+ *   so the run stops without sending anything;
+ * - `unverified` - the API did not give a usable answer, so nothing is sent; the
+ *   hook reports unreachable and re-probes after {@link OFFLINE_RETRY_MS}, exactly
+ *   like a drain that found the API down;
+ * - `unchanged` / `first-seen` - the drain goes ahead.
+ * A pass with nothing pending sends nothing, so it asks nothing.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ApiClient } from '../api/client';
+import type { DatasetCheck } from './datasetGuard';
 import { useReconnectSignal } from './useReconnect';
 import {
+  OFFLINE_RETRY_MS,
   countFailed,
   countPending,
   drainWriteQueue,
@@ -89,8 +102,15 @@ export type WriteQueueState = {
  * no opinion about how a caller authenticates - the board already holds the
  * client it loads with, and a queued write must replay through exactly that one
  * (the paired hub-device or organizer bearer of T4/T5).
+ *
+ * `verifyDataset` is the dataset guard's check (see the module doc); without it
+ * the drain replays unconditionally, as before D7.
  */
-export function useWriteQueue(householdId: string, client: ApiClient): WriteQueueState {
+export function useWriteQueue(
+  householdId: string,
+  client: ApiClient,
+  verifyDataset?: () => Promise<DatasetCheck>,
+): WriteQueueState {
   const [entries, setEntries] = useState<QueuedWrite[]>(() => readWriteQueue(householdId));
   // Bumped whenever something should cause a drain that is not a reconnect: the
   // first mount, a fresh enqueue, an explicit flush, or a backoff timer firing.
@@ -138,14 +158,30 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
     draining.current = true;
     cancelRetry();
     try {
-      let outcome: DrainOutcome;
+      // How the run ended: its final drain pass, or a pass the dataset gate held.
+      let ending: Pick<DrainOutcome, 'offline' | 'retryDelayMs'>;
       let confirmedTotal = 0;
       do {
         drainAgain.current = false;
+        // The dataset gate (#100 D7): never replay into a dataset the writes
+        // were not taken against. Only a pass that would send something asks.
+        if (verifyDataset && countPending(readWriteQueue(householdId)) > 0) {
+          const check = await verifyDataset();
+          if (!mounted.current || check === 'changed') {
+            // Unmounted, or the guard has emptied the queue and is remounting
+            // the hub, which re-hydrates the (now empty) queue.
+            return;
+          }
+          if (check === 'unverified') {
+            // Hold the queue and re-probe, exactly as if the API were down.
+            ending = { offline: true, retryDelayMs: OFFLINE_RETRY_MS };
+            break;
+          }
+        }
         // The drain judges each assignment write's week against the real clock
         // as it goes, so a write whose week ended during the outage is flagged
         // rather than replayed into last week (#89).
-        outcome = await drainWriteQueue(householdId, (write) =>
+        const outcome = await drainWriteQueue(householdId, (write) =>
           clientRef.current.update(write.path, write.body, { method: write.method }),
         );
         if (!mounted.current) {
@@ -153,11 +189,12 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
         }
         setEntries(outcome.queue);
         confirmedTotal += outcome.confirmed;
+        ending = outcome;
       } while (drainAgain.current);
 
       // Only the run's final pass decides it: an earlier unreachable pass that a
       // repeated pass got past is not a current outage.
-      setUnreachable(outcome.offline);
+      setUnreachable(ending.offline);
 
       // One bump for the whole run, not one per write or per pass, so a surface
       // listening to it refetches once after a sync. A run that confirmed nothing
@@ -166,16 +203,17 @@ export function useWriteQueue(householdId: string, client: ApiClient): WriteQueu
         setConfirmedRevision((previous) => previous + 1);
       }
 
-      if (outcome.retryDelayMs !== null) {
+      if (ending.retryDelayMs !== null) {
+        const delayMs = ending.retryDelayMs;
         retryTimer.current = setTimeout(() => {
           retryTimer.current = null;
           setRevision((previous) => previous + 1);
-        }, outcome.retryDelayMs);
+        }, delayMs);
       }
     } finally {
       draining.current = false;
     }
-  }, [householdId, cancelRetry]);
+  }, [householdId, cancelRetry, verifyDataset]);
 
   useEffect(() => {
     mounted.current = true;

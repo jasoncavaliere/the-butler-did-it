@@ -32,6 +32,12 @@ export type LocalStorageLike = {
    * that can accept a write it cannot make durable.
    */
   isDurable?(key: string): boolean;
+  /**
+   * Delete `key`. Optional because not every store offers it; Web Storage does.
+   * A caller that needs a record gone falls back to overwriting it with a value
+   * its reader treats as absent when a store lacks it.
+   */
+  removeItem?(key: string): void;
 };
 
 /** The ambient browser storage, or `undefined` where there is none or it is blocked. */

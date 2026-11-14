@@ -179,6 +179,39 @@ alone (ADR-0010), and a polite live region for screen readers.
   overlap the name tiles or the board. A `HubShell` component test walks the styles from the
   indicator up to the shell to hold that line.
 
+### The dataset guard (D7)
+
+The cache (O2) and the queue (O3) both outlive the data they were built from. When that data is
+replaced - a demo reseed, or storage wiped - the cache shows a household that is gone and the queue
+holds taps aimed at rows that no longer exist (or new rows that happen to share their ids). The API
+serves a **dataset id** for this (`GET /api/system/dataset`, #100; see `Butler.API/ARCHITECTURE.md`),
+and the hub compares it with the id it last saw.
+
+- **The check.** `checkDataset(householdId, client)` (`src/offline/datasetGuard.ts`) reads the id via
+  `fetchDatasetId` (`src/api/dataset.ts`). Any failure - unreachable API, any error status (the proxy
+  answers `502` while the API is down), a malformed body - is `unverified` and clears nothing. With
+  no stored id it is `first-seen`: store the id, keep everything. The same id is `unchanged`. A
+  different id is `changed`: clear the household's write queue (`clearWriteQueue`, the only path
+  that discards writes), then its glance (`clearGlance`), then store the new id. Everything after the
+  fetch is synchronous, so two racing checks can never both act on the old id.
+- **Where the id lives.** Per household at `butler.dataset.v1.<householdId>`, through
+  `sessionFallbackStorage`, so it is durable exactly when the queue is.
+- **When it runs.** `useDatasetGuard` (`src/offline/useDatasetGuard.ts`) checks when the shell mounts
+  with a household (the hub does not persist its household, so that is "startup") and on every
+  `online` event, live or degraded. `HubShell` renders only a `hub-dataset-check` placeholder
+  ("Waking up the hub...") until the startup check settles, so no cached glance is shown and no
+  queued write drains before the guard has had its say.
+- **The drain gate.** `HubShell` passes the guard's `verify` into `WriteQueueProvider`, and
+  `useWriteQueue` asks it before every drain pass that has something pending: `changed` stops the run
+  (the guard has emptied the queue), `unverified` sends nothing, reports unreachable, and re-probes
+  after `OFFLINE_RETRY_MS`; `unchanged` and `first-seen` drain. This covers an API-only outage (a demo
+  reset) that never fires `online`.
+- **The reload.** A `changed` check bumps the guard's `revision`, and `HubShell` keys its body on it.
+  The remount reloads every household read from the API and re-hydrates the queue from the storage
+  the guard just emptied, so a stale tap is never replayed into the new dataset.
+- **Known limits.** A dataset fetch that hangs holds the placeholder (no timeout yet), and a write
+  already in flight at the moment of a reseed is not recalled.
+
 ## Project structure
 
 Application code lives under `src/`, layered so later capability tickets have a clear home:

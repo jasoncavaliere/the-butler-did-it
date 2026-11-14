@@ -301,6 +301,23 @@ export function saveWriteQueue(
 }
 
 /**
+ * Empty a household's queue (#100 D7).
+ *
+ * This is the only path that discards queued writes, and only the dataset guard
+ * calls it: once the API serves a different dataset, every queued write targets
+ * rows that no longer exist (or, worse, rows that happen to share their ids), so
+ * replaying them would be wrong. Everywhere else the queue's rule stands - a tap
+ * is synced or surfaced, never dropped. Returns {@link saveWriteQueue}'s
+ * durability answer.
+ */
+export function clearWriteQueue(
+  householdId: string,
+  storage: LocalStorageLike = sessionFallbackStorage(),
+): boolean {
+  return saveWriteQueue(householdId, [], storage);
+}
+
+/**
  * Queue `request` and return the resulting queue.
  *
  * A new target is appended, so replay order is tap order. A target that is

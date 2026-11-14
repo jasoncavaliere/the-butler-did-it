@@ -314,3 +314,11 @@ export type CaptureResponse = {
   weekIso: string;
   item: CartItemView;
 };
+
+/**
+ * Body of `GET /api/system/dataset` (#100 D7): the id of the dataset the API is
+ * currently serving. It changes when the data is replaced (a demo reseed, or
+ * storage wiped), which tells the hub its offline cache and queued writes are
+ * for data that no longer exists.
+ */
+export type DatasetResponse = { datasetId: string };

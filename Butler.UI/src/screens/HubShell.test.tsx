@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet, View } from 'react-native';
 
 import { HubShell, revealAndFocus } from './HubShell';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
+import { DATASET_PATH } from '../api/dataset';
 import type { ParticipantSessionResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import type { IAuthProvider, OrganizerSession } from '../auth/authProvider';
@@ -33,6 +34,17 @@ const okHousehold = (name: string): ApiResult<unknown> => ({
   data: { householdId: 'hh-1', name },
   etag: null,
 });
+
+// The dataset guard (#100 D7) reads the API's dataset id before the hub shows
+// anything; every fake client answers it with the same id, so the guard sees an
+// unchanged dataset and stays out of the way unless a test says otherwise.
+const DATASET_ID = 'ds-1';
+const okDataset: ApiResult<unknown> = {
+  ok: true,
+  status: 200,
+  data: { datasetId: DATASET_ID },
+  etag: null,
+};
 
 const unreachable: ApiResult<unknown> = {
   ok: false,
@@ -71,6 +83,9 @@ function clientWith(responses: Responses): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
     get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      if (path === DATASET_PATH) {
+        return okDataset;
+      }
       if (path.includes('/chores')) {
         return okChores;
       }
@@ -112,6 +127,9 @@ function interactiveClient(claimResult?: ApiResult<unknown>): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
     get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      if (path === DATASET_PATH) {
+        return okDataset;
+      }
       if (path.includes('/chores')) {
         return okChores;
       }
@@ -344,7 +362,9 @@ describe('HubShell', () => {
       // the grocery region's cart read (which only fires once the shell is ready)
       // is answered separately so it cannot consume a leg.
       get: jest.fn((path: string) =>
-        path.includes('/carts/') ? Promise.resolve(okCart) : pending.then((pair) => pair[call++]),
+        path === DATASET_PATH || path.includes('/carts/')
+          ? Promise.resolve(path === DATASET_PATH ? okDataset : okCart)
+          : pending.then((pair) => pair[call++]),
       ) as unknown as ApiClient['get'],
       update: jest.fn() as unknown as ApiClient['update'],
     });
@@ -370,7 +390,9 @@ describe('HubShell', () => {
     useApiClientMock.mockReturnValue({
       baseUrl: 'http://api.test:1',
       get: jest.fn((path: string) =>
-        path.includes('/carts/') ? Promise.resolve(okCart) : pending.then((pair) => pair[call++]),
+        path === DATASET_PATH || path.includes('/carts/')
+          ? Promise.resolve(path === DATASET_PATH ? okDataset : okCart)
+          : pending.then((pair) => pair[call++]),
       ) as unknown as ApiClient['get'],
       update: jest.fn() as unknown as ApiClient['update'],
     });
@@ -803,14 +825,18 @@ describe('HubShell offline cache', () => {
     reconnectCleanups = [];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Unmount before the stand-in event target goes away: the dataset guard
+    // listens for reconnects for as long as the hub is mounted (#100 AC5), so
+    // its unsubscribe has to find the stand-in still there.
+    await cleanup();
     Object.defineProperty(globalThis, 'localStorage', {
       value: undefined,
       configurable: true,
       writable: true,
     });
-    for (const cleanup of reconnectCleanups) {
-      cleanup();
+    for (const restore of reconnectCleanups) {
+      restore();
     }
     useApiClientMock.mockReset();
   });
@@ -1015,14 +1041,20 @@ describe('HubShell offline cache', () => {
     await renderHub();
     await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
 
-    const readsBefore = (client.get as jest.Mock).mock.calls.length;
+    const reads = (dataset: boolean) =>
+      (client.get as jest.Mock).mock.calls.filter(([path]: [string]) => (path === DATASET_PATH) === dataset)
+        .length;
+    const readsBefore = reads(false);
+    const datasetReadsBefore = reads(true);
     await act(async () => {
       emitOnline();
     });
 
-    // A healthy hub subscribes to nothing, so a stray reconnect cannot start a
-    // refetch storm on a device that is on all day.
-    expect((client.get as jest.Mock).mock.calls.length).toBe(readsBefore);
+    // A healthy hub reloads nothing on a reconnect, so a stray `online` cannot
+    // start a refetch storm on a device that is on all day. The one read it does
+    // make is the dataset guard's (#100 AC5), which checks on every reconnect.
+    await waitFor(() => expect(reads(true)).toBe(datasetReadsBefore + 1));
+    expect(reads(false)).toBe(readsBefore);
   });
 
   it('cache-refresh-on-a-later-load: the live data returns, the indication clears, the stamp moves', async () => {
@@ -1344,5 +1376,234 @@ describe('HubShell sync indicator', () => {
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
     expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
     expect(screen.getByTestId('sync-indicator-synced')).toHaveTextContent(/All synced\./);
+  });
+});
+
+describe('HubShell dataset guard (#100 D7)', () => {
+  let restores: (() => void)[] = [];
+  let emitOnline: () => void = () => {};
+
+  beforeEach(() => {
+    const entries = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (key: string) => entries.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          entries.set(key, value);
+        },
+        removeItem: (key: string) => {
+          entries.delete(key);
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+    resetSessionFallbackStorage();
+
+    // Stand in for the browser's `online` event.
+    restores = [];
+    const listeners = new Set<() => void>();
+    const original = {
+      add: (globalThis as { addEventListener?: unknown }).addEventListener,
+      remove: (globalThis as { removeEventListener?: unknown }).removeEventListener,
+    };
+    const define = (name: string, value: unknown) =>
+      Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+    define('addEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.add(listener);
+      }
+    });
+    define('removeEventListener', (type: string, listener: () => void) => {
+      if (type === 'online') {
+        listeners.delete(listener);
+      }
+    });
+    restores.push(() => {
+      define('addEventListener', original.add);
+      define('removeEventListener', original.remove);
+    });
+    emitOnline = () => {
+      for (const listener of Array.from(listeners)) {
+        listener();
+      }
+    };
+  });
+
+  afterEach(async () => {
+    // Unmount while the stand-in event target is still there (see above).
+    await cleanup();
+    for (const restore of restores) {
+      restore();
+    }
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    resetSessionFallbackStorage();
+  });
+
+  const week = currentWeekIso();
+  const staleTap = {
+    kind: 'chore-complete' as const,
+    dedupeKey: assignmentDedupeKey(week, 'c1'),
+    method: 'POST' as const,
+    path: `/households/hh-1/assignments/${week}/c1/complete`,
+    body: { personId: 'p1' },
+    enqueuedAtMs: 1,
+    attempts: 0,
+    status: 'pending' as const,
+  };
+
+  /** What the hub saw before this boot: a cached glance, a queued tap, and dataset `ds-old`. */
+  function seedPreviousSession(): void {
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Stale Home', people: roster } },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    saveWriteQueue('hh-1', [staleTap]);
+    globalThis.localStorage.setItem('butler.dataset.v1.hh-1', 'ds-old');
+  }
+
+  /**
+   * A live API (`Live Home`, Alex + Sam) serving `api.datasetId`, or an
+   * unreachable one while `api.down`. The same object throughout, so anything
+   * that changes mid-test came from the hub, not from a new client.
+   */
+  function apiClient(api: { down: boolean; datasetId: string }): ApiClient {
+    const live = clientWith({
+      household: okHousehold('Live Home'),
+      people: { ok: true, status: 200, data: roster, etag: null },
+    });
+    return {
+      baseUrl: live.baseUrl,
+      get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+        if (api.down) {
+          return unreachable;
+        }
+        if (path === DATASET_PATH) {
+          return { ok: true, status: 200, data: { datasetId: api.datasetId }, etag: null };
+        }
+        return live.get<unknown>(path);
+      }) as unknown as ApiClient['get'],
+      update: jest.fn(async (path: string, body: unknown, options?: UpdateOptions) =>
+        api.down ? unreachable : live.update<unknown>(path, body, options),
+      ) as unknown as ApiClient['update'],
+    };
+  }
+
+  const completes = (client: ApiClient) =>
+    (client.update as jest.Mock).mock.calls.filter(([path]: [string]) => path.endsWith('/c1/complete'));
+
+  it('holds the hub on the dataset check before rendering the board or draining the queue', async () => {
+    seedPreviousSession();
+    let answer: (result: ApiResult<unknown>) => void = () => {};
+    const live = apiClient({ down: false, datasetId: 'ds-old' });
+    const client: ApiClient = {
+      ...live,
+      get: jest.fn((path: string) =>
+        path === DATASET_PATH
+          ? new Promise<ApiResult<unknown>>((resolve) => {
+              answer = resolve;
+            })
+          : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
+    };
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    // Only the placeholder: no household read, no board, no cached glance, and
+    // the queued tap is not replayed while the check is open.
+    expect(screen.getByTestId('hub-dataset-check')).toBeOnTheScreen();
+    expect(within(screen.getByTestId('hub-dataset-check')).getByTestId('hub-loading')).toHaveTextContent(
+      /Waking up the hub/,
+    );
+    expect(screen.queryByTestId('hub-shell')).toBeNull();
+    expect((client.get as jest.Mock).mock.calls.map(([path]: [string]) => path)).toEqual([DATASET_PATH]);
+    expect(client.update).not.toHaveBeenCalled();
+
+    await act(async () => {
+      answer({ ok: true, status: 200, data: { datasetId: 'ds-old' }, etag: null });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Live Home'));
+    expect(screen.queryByTestId('hub-dataset-check')).toBeNull();
+  });
+
+  it('same dataset: the queued tap replays and the cache is kept', async () => {
+    seedPreviousSession();
+    const client = apiClient({ down: false, datasetId: 'ds-old' });
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    expect(completes(client)).toHaveLength(1);
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Live Home'));
+    expect(readGlance('hh-1')?.household?.name).toBe('Live Home');
+  });
+
+  it('changed dataset on startup: stale cache gone, live household rendered, stale tap never replayed', async () => {
+    seedPreviousSession();
+    const client = apiClient({ down: false, datasetId: 'ds-new' });
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Live Home'));
+    expect(screen.queryByText('Stale Home')).toBeNull();
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    // The queue was emptied before anything could drain it: zero /complete sends.
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(completes(client)).toHaveLength(0);
+    expect(screen.queryByTestId('sync-indicator-pending')).toBeNull();
+    // The cache now holds only what the new dataset served.
+    expect(readGlance('hh-1')?.household?.name).toBe('Live Home');
+    expect(globalThis.localStorage.getItem('butler.dataset.v1.hh-1')).toBe('ds-new');
+  });
+
+  it('API unreachable at startup: the cached glance renders and the queue is kept', async () => {
+    seedPreviousSession();
+    const client = apiClient({ down: true, datasetId: 'ds-new' });
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Stale Home'));
+    expect(screen.getByTestId('last-known-banner')).toBeOnTheScreen();
+    await waitFor(() =>
+      expect(screen.getByTestId('sync-indicator-pending')).toHaveTextContent(/1 waiting to sync/),
+    );
+    expect(readWriteQueue('hh-1')).toHaveLength(1);
+    expect(completes(client)).toHaveLength(0);
+    expect(globalThis.localStorage.getItem('butler.dataset.v1.hh-1')).toBe('ds-old');
+  });
+
+  it('a reconnect into a changed dataset clears the cache and queue and reloads the hub', async () => {
+    seedPreviousSession();
+    const api = { down: true, datasetId: 'ds-old' };
+    const client = apiClient(api);
+    useApiClientMock.mockReturnValue(client);
+
+    await renderHub();
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Stale Home'));
+    expect(readWriteQueue('hh-1')).toHaveLength(1);
+
+    // The API was reseeded during the outage, then the network returns.
+    api.down = false;
+    api.datasetId = 'ds-new';
+    await act(async () => {
+      emitOnline();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Live Home'));
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(completes(client)).toHaveLength(0);
+    expect(readGlance('hh-1')?.household?.name).toBe('Live Home');
   });
 });
