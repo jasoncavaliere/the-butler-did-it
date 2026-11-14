@@ -714,9 +714,10 @@ describe('HubShell', () => {
     async function renderHubWithOrganizer(
       authProvider: IAuthProvider,
       hubProps: ComponentProps<typeof HubShell> = {},
+      householdId: string | null = 'hh-1',
     ) {
       return render(
-        <HouseholdProvider initialHouseholdId="hh-1">
+        <HouseholdProvider initialHouseholdId={householdId}>
           <OrganizerProvider authProvider={authProvider}>
             <HubShell {...hubProps} />
           </OrganizerProvider>
@@ -1242,6 +1243,108 @@ describe('HubShell', () => {
         expect(focusSpy).not.toHaveBeenCalled();
         expect(confirmCalls(client)).toHaveLength(0);
         expect(screen.getByTestId('hub-groceries')).toBeOnTheScreen();
+      });
+
+      // #171: Confirm order targets the grocery region, which mounts only once
+      // the hub has a ready household, so the bar offers it only then.
+      it('offers no Confirm order while the hub is loading, and offers it once ready (#171)', async () => {
+        const base = interactiveClient();
+        let resolve: (value: [ApiResult<unknown>, ApiResult<unknown>]) => void = () => {};
+        const pending = new Promise<[ApiResult<unknown>, ApiResult<unknown>]>((r) => {
+          resolve = r;
+        });
+        const client: ApiClient = {
+          ...base,
+          // Hold the two shell reads on one pending pair; everything else
+          // (dataset, cart, chores) answers straight away.
+          get: jest.fn((path: string, ...rest: unknown[]) => {
+            if (path === '/households/hh-1') {
+              return pending.then((pair) => pair[0]);
+            }
+            if (path === '/households/hh-1/people') {
+              return pending.then((pair) => pair[1]);
+            }
+            return (base.get as unknown as (p: string, ...r: unknown[]) => Promise<ApiResult<unknown>>)(
+              path,
+              ...rest,
+            );
+          }) as unknown as ApiClient['get'],
+        };
+        useApiClientMock.mockReturnValue(client);
+
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() => expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen());
+        await signIn();
+
+        expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+        expect(screen.getByTestId('hub-loading')).toBeOnTheScreen();
+        expect(screen.queryByTestId('affordance-confirm-order')).toBeNull();
+
+        await act(async () => {
+          resolve([okHousehold('Home'), { ok: true, status: 200, data: roster, etag: null }]);
+          await pending;
+        });
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByTestId('grocery-confirm')).toBeOnTheScreen());
+        expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen();
+        focusSpy.mockClear();
+
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('affordance-confirm-order'));
+        });
+
+        expect(focusSpy).toHaveBeenCalledTimes(1);
+        const target = focusSpy.mock.contexts[0] as { props: { testID?: string } };
+        expect(target.props.testID).toBe('grocery-confirm');
+        expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+      });
+
+      it('offers no Confirm order when the hub is in its error state, and offers it after Try again succeeds (#171)', async () => {
+        const base = interactiveClient();
+        // An http 500 (not a network failure), so the glance cache cannot stand in.
+        let failing = true;
+        const serverError: ApiResult<unknown> = {
+          ok: false,
+          error: { kind: 'http', status: 500, title: 'Internal Server Error' },
+        };
+        const client: ApiClient = {
+          ...base,
+          get: jest.fn(async (path: string, ...rest: unknown[]) =>
+            failing && (path === '/households/hh-1' || path === '/households/hh-1/people')
+              ? serverError
+              : (base.get as unknown as (p: string, ...r: unknown[]) => Promise<ApiResult<unknown>>)(
+                  path,
+                  ...rest,
+                ),
+          ) as unknown as ApiClient['get'],
+        };
+        useApiClientMock.mockReturnValue(client);
+
+        await renderHubWithOrganizer(fakeProvider());
+        await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+        await signIn();
+
+        expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+        expect(screen.queryByTestId('affordance-confirm-order')).toBeNull();
+
+        failing = false;
+        await act(async () => fireEvent.press(screen.getByTestId('today-panel-retry')));
+
+        await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+        expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen();
+      });
+
+      it('offers no Confirm order when no household is selected (#171)', async () => {
+        useApiClientMock.mockReturnValue(interactiveClient());
+
+        await renderHubWithOrganizer(fakeProvider(), {}, null);
+        await waitFor(() =>
+          expect(screen.getByTestId('hub-error')).toHaveTextContent('No household is set up yet.'),
+        );
+        await signIn();
+
+        expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+        expect(screen.queryByTestId('affordance-confirm-order')).toBeNull();
       });
     });
 

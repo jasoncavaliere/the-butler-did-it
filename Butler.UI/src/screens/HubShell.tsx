@@ -110,7 +110,9 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * actions, Household, Edit roster (#167), Insights, Your data and Delete
  * household (#168) are wired through handlers the navigator supplies, and Confirm order is wired here. Confirm order never
  * confirms anything: it scrolls to the {@link GroceryCart} and focuses the
- * cart's own Confirm button, which keeps the final tap (G4).
+ * cart's own Confirm button, which keeps the final tap (G4). It is offered only
+ * once the hub has a ready household, because the cart is not mounted while
+ * loading, with no household, or in the error state (#171).
  *
  * When that tap succeeds the cart hands the confirm response up, and the shell
  * shows an {@link OrderReceipt} in place of its whole body (#115): the lines,
@@ -457,7 +459,8 @@ function HubShellBody({
   // button, which still owns the confirm. When the cart has no Confirm to focus
   // (no building cart, or the week is already confirmed) it just reveals the
   // region, since a plain View is not focusable on web. Refs are stable, so the
-  // handler is too.
+  // handler is too. It is passed to the bar only while `ready`, the same flag
+  // that mounts the cart, so the button never shows with nothing to target (#171).
   const cartConfirmRef = useRef<ComponentRef<typeof View>>(null);
   const groceriesRef = useRef<ComponentRef<typeof View>>(null);
   const handleConfirmOrder = useCallback(() => {
@@ -567,7 +570,8 @@ function HubShellBody({
       ) : null}
       {/* Household (#112), Edit roster (#167), Insights (#123), Your data
           (#125) and Delete household (#168), when the navigator supplies them,
-          and Confirm order and Version (#126) are wired. */}
+          and Version (#126) are wired. Confirm order is wired only once the hub
+          has a ready household, since its target cart mounts only then (#171). */}
       <View style={styles.chrome} testID="hub-chrome">
         <OrganizerBar
           onEditHousehold={onEditHousehold}
@@ -576,7 +580,7 @@ function HubShellBody({
           onShowInsights={onShowInsights}
           onShowYourData={onShowYourData}
           onShowVersion={handleShowVersion}
-          onConfirmOrder={handleConfirmOrder}
+          onConfirmOrder={ready ? handleConfirmOrder : undefined}
         />
         <HubPairing />
       </View>
