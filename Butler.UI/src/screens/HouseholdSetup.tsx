@@ -14,6 +14,11 @@ import type {
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { Screen, colors } from '../components/Screen';
+import {
+  templatesForRoom,
+  toCreateChoreRequest,
+  type StarterTemplate,
+} from '../setup/starterTemplates';
 import { useHousehold } from '../state/HouseholdContext';
 
 /**
@@ -45,16 +50,30 @@ const CLAIM_COLORS = ['#D9B25A', '#7FB2E5', '#E58B7F', '#8FD98F', '#C79FE5'] as 
 /** The chore recurrence options the API accepts. */
 const CADENCES = ['Daily', 'Weekly'] as const;
 
+/** Selection key for a starter template under one created room. */
+function templateKey(room: RoomResponse, template: StarterTemplate): string {
+  return `${room.roomId}:${template.id}`;
+}
+
+/** Chip label for a starter template, e.g. "Wipe the counters (Daily, effort 1, age 8+)". */
+function templateLabel(template: StarterTemplate): string {
+  const age = template.minAge !== null ? `, age ${template.minAge}+` : '';
+  return `${template.title} (${template.cadence}, effort ${template.effort}${age})`;
+}
+
 /**
  * Organizer onboarding: a multi-step wizard that stands up a household on top of
  * the H1-H4 endpoints, driven entirely through the F7 typed API client (no
  * ad-hoc fetch). The steps run in order - create the household, add rooms, add
  * people (each with a child flag and claim colour), then map starter chores to
- * rooms. Each step POSTs to its endpoint; a failure surfaces the API's problem
- * details as an in-screen message and does not advance. The created household id
- * is carried through the flow so later steps can scope their paths, and is
- * published to {@link useHousehold} only on completion, so the rest of the app
- * then reads the correct household.
+ * rooms. The chores step offers starter chores from the bundled catalog
+ * (`src/setup/`) under each created room whose name or alias matches a catalog
+ * room; the organizer toggles the ones they want and adds them in one tap, next
+ * to the custom-chore form. Each step POSTs to its endpoint; a failure surfaces
+ * the API's problem details as an in-screen message and does not advance. The
+ * created household id is carried through the flow so later steps can scope
+ * their paths, and is published to {@link useHousehold} only on completion, so
+ * the rest of the app then reads the correct household.
  */
 export function HouseholdSetup() {
   const client = useApiClient();
@@ -74,6 +93,9 @@ export function HouseholdSetup() {
   const [choreRoomId, setChoreRoomId] = useState<string | null>(null);
   const [choreCadence, setChoreCadence] = useState<(typeof CADENCES)[number]>('Weekly');
   const [choreEffort, setChoreEffort] = useState('1');
+  // Starter-template keys (`${roomId}:${templateId}`) toggled on, and ones already created.
+  const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
+  const [addedTemplates, setAddedTemplates] = useState<string[]>([]);
 
   async function submitHousehold() {
     const name = householdName.trim();
@@ -204,6 +226,47 @@ export function HouseholdSetup() {
     setChoreTitle('');
   }
 
+  function toggleTemplate(key: string) {
+    setSelectedTemplates((keys) =>
+      keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key],
+    );
+  }
+
+  async function addTemplates(current: ChoresState) {
+    // Rooms order, then catalog order: a deterministic create order.
+    const work = current.rooms.flatMap((room) =>
+      templatesForRoom(room.name)
+        .filter((template) => selectedTemplates.includes(templateKey(room, template)))
+        .map((template) => ({ room, template })),
+    );
+    if (work.length === 0) {
+      setError('Pick at least one starter chore.');
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    const created: ChoreResponse[] = [];
+    const createdKeys: string[] = [];
+    // Sequential, not Promise.all: stop on the first failure and keep the rest selected.
+    for (const { room, template } of work) {
+      const result = await client.update<ChoreResponse>(
+        `/households/${current.householdId}/chores`,
+        toCreateChoreRequest(template, room.roomId),
+        { method: 'POST' },
+      );
+      if (!result.ok) {
+        setError(describeApiError(result.error));
+        break;
+      }
+      created.push(result.data);
+      createdKeys.push(templateKey(room, template));
+    }
+    setSubmitting(false);
+    setFlow({ ...current, chores: [...current.chores, ...created] });
+    setAddedTemplates((keys) => [...keys, ...createdKeys]);
+    setSelectedTemplates((keys) => keys.filter((k) => !createdKeys.includes(k)));
+  }
+
   function finish(current: ChoresState) {
     // Completion: publish the new household to app-wide context so every
     // subsequent screen reads the correct household.
@@ -328,6 +391,14 @@ export function HouseholdSetup() {
 
       {flow.step === 'chores' && (
         <View>
+          <StarterChores
+            rooms={flow.rooms}
+            selected={selectedTemplates}
+            added={addedTemplates}
+            onToggle={toggleTemplate}
+            onAdd={() => addTemplates(flow)}
+            disabled={submitting}
+          />
           <Field
             label="Chore title"
             testID="input-chore-title"
@@ -411,6 +482,68 @@ function StepHeading({ step }: { step: FlowState['step'] }) {
     <Text style={styles.title} accessibilityRole="header" testID={`step-${step}`}>
       {titles[step]}
     </Text>
+  );
+}
+
+/**
+ * The "Starter chores" section of the chores step: one group per created room
+ * (in creation order) that matches a catalog room, listing its not-yet-added
+ * templates as toggle chips, plus one "Add selected" button. Renders nothing
+ * when no created room matches the catalog.
+ */
+function StarterChores({
+  rooms,
+  selected,
+  added,
+  onToggle,
+  onAdd,
+  disabled,
+}: {
+  rooms: RoomResponse[];
+  selected: string[];
+  added: string[];
+  onToggle: (key: string) => void;
+  onAdd: () => void;
+  disabled: boolean;
+}) {
+  const groups = rooms
+    .map((room) => ({
+      room,
+      templates: templatesForRoom(room.name).filter(
+        (template) => !added.includes(templateKey(room, template)),
+      ),
+    }))
+    .filter((group) => group.templates.length > 0);
+  if (groups.length === 0) {
+    return null;
+  }
+  return (
+    <View style={styles.starter}>
+      <Text style={styles.label}>Starter chores</Text>
+      {groups.map(({ room, templates }) => (
+        <View key={room.roomId} testID={`template-room-${room.roomId}`}>
+          <Text style={styles.starterRoom}>{room.name}</Text>
+          <View style={styles.swatches}>
+            {templates.map((template) => {
+              const key = templateKey(room, template);
+              return (
+                <Chip
+                  key={key}
+                  testID={`template-${room.roomId}-${template.id}`}
+                  selected={selected.includes(key)}
+                  onPress={() => onToggle(key)}
+                >
+                  {templateLabel(template)}
+                </Chip>
+              );
+            })}
+          </View>
+        </View>
+      ))}
+      <ActionButton testID="add-templates" onPress={onAdd} disabled={disabled}>
+        Add selected
+      </ActionButton>
+    </View>
   );
 }
 
@@ -581,5 +714,12 @@ const styles = StyleSheet.create({
   buttonText: { color: colors.page, fontSize: 16, fontWeight: '700' },
   buttonSecondaryText: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   added: { marginBottom: 16 },
+  starter: { marginBottom: 24 },
+  starterRoom: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
   addedItem: { color: colors.ink, fontSize: 15, marginBottom: 4 },
 });
