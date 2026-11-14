@@ -234,8 +234,23 @@ one cart per ISO week - `CartEntity` (`Carts` table, `PartitionKey = householdId
 carries `Status` (`Building`/`Confirmed`, `CartStatus`), `ConfirmedByPersonId`, and `ConfirmedUtc` behind
 `ICartRepository`; `CartItemEntity` (`CartItems` table, `RowKey = {cartWeekIso}_{itemId}`) is one line
 item - `ProductId`, `DisplayName`, `Quantity`, `AddedByPersonId`, `SourceConnector` (from the G1
-connector) - behind `ICartItemRepository`. Both share the F3 storage seam, so every read/write stays
+connector), `IndicativePrice` (the connector's price as captured when the line was added), and
+`IsCustom` - behind `ICartItemRepository`. Both share the F3 storage seam, so every read/write stays
 inside the household's partition (7.3).
+
+**Custom items and totals (#113).** A term the catalog cannot match can still go on the list as a
+custom line: `ICartService.AddCustomItemAsync` writes a `CartItems` row with `IsCustom = true`, an
+empty `ProductId`, `SourceConnector = custom` (`CartItemSources.Custom`), and no price. It validates the
+display name **before** any storage access (a blank name writes nothing, not even the week's cart row),
+then reuses the get-or-create rules (unknown household, malformed week, confirmed week) and the same
+two-step write as a capture: the cart row's version advances under its `ETag` before the line is added,
+so a confirm holding the older version is a `412`. On read, a custom line has `productId` and
+`indicativePrice` `null` and `isCustom: true`. `CartResponse` carries two computed members:
+`estimatedTotal` (quantity times the parsed indicative price, summed over catalog lines; see
+`CartPricing`, which strips a leading `$` and parses culture-invariant) and `customItemCount`. Prices
+are read from the persisted line, never looked up from the connector, so the cart path stays inside the
+IL guard below; a line written before prices were persisted totals as `0`. Custom lines ride through
+the G4 confirm unchanged, so the confirmed cart (the D-8 order intent) keeps them.
 
 `ICartService` is the read/compose surface: `GetOrCreateBuildingCartAsync` get-or-creates the current
 week's `Building` cart (the week comes from a supplied `weekIso` or the injected `TimeProvider`, never
@@ -266,6 +281,7 @@ non-compliant canary proving the scan is red on a real violation).
 | --- | --- |
 | `GET /households/{householdId}/carts/current` | Returns the household's current `Building` cart with its items, creating the week's cart on first use (get-or-create); calling it twice returns the same cart. The week defaults to the injected clock's current week or takes an optional `weekIso` query string. Returns `200` with a `CartResponse`, `404` RFC 7807 problem details for an unknown `householdId`, `400` for a malformed `weekIso`, or `409` when that week's cart is already `Confirmed`. Open to the hub and participants - no `Organizer` policy required: this is the review a human does before the final tap, and confirm is the sensitive action. |
 | `GET /households/{householdId}/carts/{weekIso}` | Reads one week's cart with its items exactly as it stands - this route creates nothing. Returns `200` with a `CartResponse`, or `404` RFC 7807 problem details with distinct titles for an unknown `householdId` versus a week with no cart yet. |
+| `POST /households/{householdId}/carts/{weekIso}/items` | Adds a custom item (a name the catalog could not match) to the week's `Building` cart, creating the cart on first use (`{ "displayName": "unicorn steaks", "personId": "...", "quantity": 1 }`; `quantity` defaults to `1`). Returns `201` with the created `CartItemView` (`isCustom: true`, no `productId`, no `indicativePrice`) and a `Location` of the by-week read. A blank `displayName` is `400` RFC 7807 and adds nothing; a missing actor is `400`; an unknown `householdId` is `404`; a malformed `weekIso` is `400`; a week already `Confirmed` is `409`. Requires only authentication, like capture (D-3) - an unauthenticated caller is `401`; the acting person comes from a participant session when one is presented, otherwise from `personId` in the body. |
 | `POST /households/{householdId}/carts/{weekIso}/confirm` | Confirms the reviewed cart (G4): `Status` becomes `Confirmed` with the confirming organizer's person and the injected clock's time, returned as `200` with the full `CartResponse`. Carries `[Authorize(Policy = "Organizer")]` - a participant session or paired hub device is `403`, an unauthenticated caller `401`. Idempotent: confirming an already-`Confirmed` cart is a no-op success that leaves `ConfirmedByPersonId`/`ConfirmedUtc` untouched. Send the reviewed cart's `ETag` as `If-Match` (`428` when missing, `412` when stale). An unknown `householdId` and a week with no cart are distinct `404` RFC 7807 documents; a malformed `weekIso` is `400`. **No order is placed and no money moves** (D-8). |
 
 ### Capture (utterance -> cart item)
@@ -284,8 +300,9 @@ survive), drop leading fillers (`please`, `add`, `a`, `an`, `some`), drop a trai
 `to the list` - and no NLP; a quantity is never read out of the sentence. The term then resolves through
 `IStoreConnector.SearchProductsAsync` (G1) and the resolved product is added to the household's
 `Building` cart from `ICartService.GetOrCreateBuildingCartAsync` (G2), with `Quantity` defaulting to `1`,
-`AddedByPersonId` from the active participant/hub session, and `SourceConnector` carried straight off the
-G1 result. Adding a line also advances the **cart row's** version stamp under the `ETag` the
+`AddedByPersonId` from the active participant/hub session, and `SourceConnector` and `IndicativePrice`
+carried straight off the G1 result (the price is persisted so the cart read can total it without a
+connector call). Adding a line also advances the **cart row's** version stamp under the `ETag` the
 get-or-create read returned (7.3), so a G4 confirm holding an older version is a `412` and must re-read
 rather than confirm a cart that grew underneath it.
 
@@ -297,7 +314,7 @@ document and never an unhandled exception. The feature registers via `AddCapture
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /households/{householdId}/capture/text` | Captures text typed at the hub (`{ "utterance": "add oat milk", "personId": "...", "weekIso": "...", "quantity": 2 }`; every member optional) and adds the resolved product to the household's current building cart. Returns `200` with a `CaptureResponse` (capture source, resolved term, week, and the created line). Ambiguous input is `400` RFC 7807 carrying `suggestions` (the candidate products) plus `resolvedTerm`; an unrecognised product is `404`; an utterance with no product term is `400`; an unknown `householdId` is `404`; a week already `Confirmed` is `409`. Requires only authentication, not the `Organizer` policy - anyone at the hub may add (D-3); the acting person comes from a participant session when one is presented, otherwise from `personId` in the body (a missing actor is `400`). |
+| `POST /households/{householdId}/capture/text` | Captures text typed at the hub (`{ "utterance": "add oat milk", "personId": "...", "weekIso": "...", "quantity": 2 }`; every member optional) and adds the resolved product to the household's current building cart. Returns `200` with a `CaptureResponse` (`outcome`, capture source, resolved term, week, `item`, and `suggestions`): `outcome` is `Added` with the created line, or `NoMatch` with `item` `null` and an empty `suggestions` list when the store matched nothing (#113 - the hub then offers the term as a custom item). Ambiguous input is `400` RFC 7807 carrying `suggestions` (the candidate products) plus `resolvedTerm`; an utterance with no product term is `400`; an unknown `householdId` is `404`; a week already `Confirmed` is `409`. Requires only authentication, not the `Organizer` policy - anyone at the hub may add (D-3); the acting person comes from a participant session when one is presented, otherwise from `personId` in the body (a missing actor is `400`). |
 | `POST /households/{householdId}/capture/voice` | The same operation for a simulated voice transcript (`"Hey Butler, add eggs."`), through the same shared handler with the wake word stripped first. Identical request body, responses, and authorization. |
 
 Per the vision's modularity tenet, the API will eventually organize around the **household model** as

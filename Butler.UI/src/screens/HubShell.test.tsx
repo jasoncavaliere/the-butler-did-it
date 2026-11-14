@@ -75,6 +75,8 @@ const okCart: ApiResult<unknown> = {
     confirmedUtc: null,
     eTag: 'W/"cart-1"',
     items: [],
+    estimatedTotal: 0,
+    customItemCount: 0,
   },
   etag: null,
 };

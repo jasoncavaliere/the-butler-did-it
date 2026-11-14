@@ -228,6 +228,159 @@ public sealed class CartServiceTests
     }
 
     [Fact]
+    public async Task Compose_marks_custom_lines_and_hides_their_product_id()
+    {
+        var fixture = await SeededAsync();
+        await fixture.Service.GetOrCreateBuildingCartAsync(HouseholdId, null, CancellationToken.None);
+
+        await fixture.ItemRepository.AddAsync(
+            HouseholdId,
+            new CartItemEntity
+            {
+                RowKey = CartItemEntity.RowKeyFor(CurrentWeek, "item-1"),
+                CartWeekIso = CurrentWeek,
+                ItemId = "item-1",
+                ProductId = "heb-oat-milk",
+                DisplayName = "Oat Milk",
+                Quantity = 2,
+                AddedByPersonId = "person-7",
+                SourceConnector = "simulated-heb",
+                IndicativePrice = "$3.79",
+            },
+            CancellationToken.None);
+
+        // A custom row that (wrongly) carries a stray product id and price: the
+        // read still presents it as unpriced and product-less.
+        await fixture.ItemRepository.AddAsync(
+            HouseholdId,
+            new CartItemEntity
+            {
+                RowKey = CartItemEntity.RowKeyFor(CurrentWeek, "item-2"),
+                CartWeekIso = CurrentWeek,
+                ItemId = "item-2",
+                ProductId = "stray",
+                DisplayName = "Unicorn Steaks",
+                Quantity = 1,
+                AddedByPersonId = "person-7",
+                SourceConnector = CartItemSources.Custom,
+                IndicativePrice = "$99.00",
+                IsCustom = true,
+            },
+            CancellationToken.None);
+
+        var read = await fixture.Service.GetCartAsync(HouseholdId, CurrentWeek, CancellationToken.None);
+
+        var catalog = Assert.Single(read.Cart!.Items, item => item.ItemId == "item-1");
+        Assert.Equal("heb-oat-milk", catalog.ProductId);
+        Assert.Equal("$3.79", catalog.IndicativePrice);
+        Assert.False(catalog.IsCustom);
+
+        var custom = Assert.Single(read.Cart.Items, item => item.ItemId == "item-2");
+        Assert.Null(custom.ProductId);
+        Assert.Null(custom.IndicativePrice);
+        Assert.True(custom.IsCustom);
+
+        Assert.Equal(7.58m, read.Cart.EstimatedTotal);
+        Assert.Equal(1, read.Cart.CustomItemCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Add_custom_item_rejects_a_blank_display_name_before_writing(string? displayName)
+    {
+        var fixture = await SeededAsync();
+
+        await Assert.ThrowsAsync<ValidationException>(
+            () => fixture.Service.AddCustomItemAsync(
+                HouseholdId, null, displayName, null, "person-1", CancellationToken.None));
+
+        // Nothing was written: not even the week's cart row.
+        Assert.Null(await fixture.CartRepository.GetAsync(HouseholdId, CurrentWeek, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Add_custom_item_writes_an_unpriced_custom_line_and_advances_the_cart_version()
+    {
+        var fixture = await SeededAsync();
+        var before = await fixture.Service.GetOrCreateBuildingCartAsync(HouseholdId, null, CancellationToken.None);
+
+        var item = await fixture.Service.AddCustomItemAsync(
+            HouseholdId, null, "  Unicorn Steaks ", null, "person-1", CancellationToken.None);
+
+        Assert.NotNull(item);
+        Assert.Equal("Unicorn Steaks", item!.DisplayName);
+        Assert.Equal(1, item.Quantity);
+        Assert.Equal("person-1", item.AddedByPersonId);
+        Assert.Equal(CartItemSources.Custom, item.SourceConnector);
+        Assert.Null(item.ProductId);
+        Assert.Null(item.IndicativePrice);
+        Assert.True(item.IsCustom);
+
+        var stored = Assert.Single(
+            await fixture.ItemRepository.ListForWeekAsync(HouseholdId, CurrentWeek, CancellationToken.None));
+        Assert.True(stored.IsCustom);
+        Assert.Equal(string.Empty, stored.ProductId);
+        Assert.Null(stored.IndicativePrice);
+        Assert.Equal(CartItemEntity.RowKeyFor(CurrentWeek, item.ItemId), stored.RowKey);
+
+        var after = await fixture.Service.GetCartAsync(HouseholdId, CurrentWeek, CancellationToken.None);
+        Assert.NotEqual(before!.ETag, after.Cart!.ETag);
+        Assert.Equal(CartStatus.Building, after.Cart.Status);
+    }
+
+    [Theory]
+    [InlineData(4, 4)]
+    [InlineData(0, 1)]
+    [InlineData(-2, 1)]
+    public async Task Add_custom_item_defaults_a_missing_or_non_positive_quantity_to_one(int requested, int expected)
+    {
+        var fixture = await SeededAsync();
+
+        var item = await fixture.Service.AddCustomItemAsync(
+            HouseholdId, "2026-W40", "Candles", requested, "person-1", CancellationToken.None);
+
+        Assert.Equal(expected, item!.Quantity);
+    }
+
+    [Fact]
+    public async Task Add_custom_item_for_an_unknown_household_is_null()
+    {
+        var fixture = new Fixture(Now);
+
+        Assert.Null(await fixture.Service.AddCustomItemAsync(
+            "no-such-household", null, "Candles", null, "person-1", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Add_custom_item_rejects_a_blank_household_or_person()
+    {
+        var fixture = await SeededAsync();
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => fixture.Service.AddCustomItemAsync("", null, "Candles", null, "person-1", CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => fixture.Service.AddCustomItemAsync(HouseholdId, null, "Candles", null, " ", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task The_add_custom_item_handler_delegates_to_the_service()
+    {
+        var fixture = await SeededAsync();
+        Assert.Throws<ArgumentNullException>(() => new AddCustomCartItemCommandHandler(null!));
+
+        var handler = new AddCustomCartItemCommandHandler(fixture.Service);
+        var item = await handler.Handle(
+            new AddCustomCartItemCommand(HouseholdId, "2026-W41", "Candles", 2, "person-1"),
+            CancellationToken.None);
+
+        Assert.Equal("Candles", item!.DisplayName);
+        Assert.Equal(2, item.Quantity);
+        Assert.Single(await fixture.ItemRepository.ListForWeekAsync(HouseholdId, "2026-W41", CancellationToken.None));
+    }
+
+    [Fact]
     public async Task A_malformed_week_on_the_read_is_a_validation_failure()
     {
         var fixture = await SeededAsync();

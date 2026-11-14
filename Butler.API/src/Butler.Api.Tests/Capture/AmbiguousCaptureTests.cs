@@ -10,10 +10,11 @@ namespace Butler.Api.Tests.Capture;
 
 /// <summary>
 /// Criterion (G3): ambiguous or no-match input returns a clear, structured result -
-/// candidate suggestions or an RFC 7807 problem detail - and never throws an
-/// unhandled exception. Every case below comes back as a <c>4xx</c> problem
-/// document with the term Butler thought it heard, and none of them adds a line to
-/// the cart.
+/// candidate suggestions, a no-match answer, or an RFC 7807 problem detail - and
+/// never throws an unhandled exception. A term the store cannot match is a
+/// <c>200</c> with outcome <c>NoMatch</c> (so the hub can offer a custom item);
+/// every other case comes back as a <c>4xx</c> problem document with the term
+/// Butler thought it heard. None of them adds a line to the cart.
 /// </summary>
 public sealed class AmbiguousCaptureTests : IClassFixture<ButlerApiFactory>
 {
@@ -57,21 +58,23 @@ public sealed class AmbiguousCaptureTests : IClassFixture<ButlerApiFactory>
     }
 
     [Fact]
-    public async Task An_utterance_the_store_cannot_match_is_a_404()
+    public async Task An_utterance_the_store_cannot_match_is_a_200_NoMatch_with_no_suggestions()
     {
         using var client = _factory.CreateClient();
         var householdId = await CaptureTestHelper.CreateHouseholdAsync(client);
         const string week = "2026-W46";
 
-        using var response = await CaptureTestHelper.PostAsync(
+        var captured = await CaptureTestHelper.CaptureAsync(
             client,
             CaptureTestHelper.TextRoute(householdId),
             new { utterance = "add unicorn steaks", personId = "person-21", weekIso = week });
 
-        var problem = await CaptureTestHelper.AssertProblemAsync(
-            response, HttpStatusCode.NotFound, "No product matched.");
-        Assert.Equal("unicorn steaks", problem.GetProperty("resolvedTerm").GetString());
-        Assert.Empty(problem.GetProperty("suggestions").EnumerateArray());
+        Assert.Equal(nameof(CaptureOutcome.NoMatch), captured.GetProperty("outcome").GetString());
+        Assert.Equal(CaptureSourceNames.HubText, captured.GetProperty("captureSource").GetString());
+        Assert.Equal("unicorn steaks", captured.GetProperty("resolvedTerm").GetString());
+        Assert.Equal(week, captured.GetProperty("weekIso").GetString());
+        Assert.Equal(JsonValueKind.Null, captured.GetProperty("item").ValueKind);
+        Assert.Empty(captured.GetProperty("suggestions").EnumerateArray());
 
         var cart = await CaptureTestHelper.GetCartAsync(client, householdId, week);
         Assert.Empty(cart.GetProperty("items").EnumerateArray());
@@ -203,20 +206,25 @@ public sealed class AmbiguousCaptureTests : IClassFixture<ButlerApiFactory>
     }
 
     [Fact]
-    public async Task A_no_match_result_carries_no_suggestions_in_its_document()
+    public async Task A_voice_no_match_is_a_200_NoMatch_with_an_empty_suggestions_list()
     {
         using var client = _factory.CreateClient();
         var householdId = await CaptureTestHelper.CreateHouseholdAsync(client);
+        const string week = "2026-W49";
 
-        using var response = await CaptureTestHelper.PostAsync(
+        var captured = await CaptureTestHelper.CaptureAsync(
             client,
             CaptureTestHelper.VoiceRoute(householdId),
-            new { utterance = "Butler, add caviar.", personId = "person-26", weekIso = "2026-W49" });
+            new { utterance = "Butler, add caviar.", personId = "person-26", weekIso = week });
 
-        var problem = await CaptureTestHelper.AssertProblemAsync(
-            response, HttpStatusCode.NotFound, "No product matched.");
-        Assert.Equal(CaptureSourceNames.SimulatedVoice, problem.GetProperty("captureSource").GetString());
-        Assert.Equal(JsonValueKind.Array, problem.GetProperty("suggestions").ValueKind);
-        Assert.Empty(problem.GetProperty("suggestions").EnumerateArray());
+        Assert.Equal(nameof(CaptureOutcome.NoMatch), captured.GetProperty("outcome").GetString());
+        Assert.Equal(CaptureSourceNames.SimulatedVoice, captured.GetProperty("captureSource").GetString());
+        Assert.Equal("caviar", captured.GetProperty("resolvedTerm").GetString());
+        Assert.Equal(JsonValueKind.Null, captured.GetProperty("item").ValueKind);
+        Assert.Equal(JsonValueKind.Array, captured.GetProperty("suggestions").ValueKind);
+        Assert.Empty(captured.GetProperty("suggestions").EnumerateArray());
+
+        var cart = await CaptureTestHelper.GetCartAsync(client, householdId, week);
+        Assert.Empty(cart.GetProperty("items").EnumerateArray());
     }
 }
