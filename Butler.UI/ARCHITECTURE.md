@@ -212,6 +212,29 @@ and the hub compares it with the id it last saw.
 - **Known limits.** A dataset fetch that hangs holds the placeholder (no timeout yet), and a write
   already in flight at the moment of a reseed is not recalled.
 
+### The hub layout (#118)
+
+`HubShell` picks its layout from the window (`useHubLayout()` = `selectHubLayout(useWindowDimensions())`,
+in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, which default to portrait.
+
+| Layout | Selected when | Arrangement | Type steps (name / tile / row) |
+| --- | --- | --- | --- |
+| `landscape-compact` (1280x800) | width >= height, height < 1000 | ADR-0005 zones: header, one tile row, then Today (2 columns of person groups, scrolls inside the panel) beside a side column (groceries, balance) | title / subhead / subhead |
+| `landscape-roomy` (1920x1200) | width >= height, height >= 1000 | same zones, roomier padding and gaps | display / title / title |
+| `portrait` (800x1280, jest default) | height > width | the single stack inside a page `ScrollView`, tiles 3 to a row, 1 column of groups | title / subhead / subhead |
+
+- **Tokens only.** Every font size, line height (`round(size * 1.2)`), padding, gap and fixed height
+  comes from `design-tokens.json` through `src/layout/tokens.ts` (spacing named `s1`..`s9` as in the
+  mockup). Every layout keeps the 64px hub row (ADR-0008). The palette is unchanged.
+- **Fit model.** `measureHubBoard(layout, { people, todayRowsByPerson, weekRowsByPerson })` sums page
+  padding, the chrome row (44), zone gaps, header, tile rows and the Today panel (frame, heading, day
+  labels, person groups chunked by column, rows). Fixed boxes render as `minHeight` over single-line
+  content and spacing is `gap` only, so the model matches the render. A 4-person household with 8
+  chores due today models 666px at compact (budget 800) and 794px at roomy (budget 1200).
+- **Outside the budget:** the signed-in organizer bar or its PIN pad, `LastKnownBanner`, the
+  `SyncIndicator` detail rows, and the board's clock notice. A board over budget scrolls inside the
+  Today panel; there is no automatic paging.
+
 ## Project structure
 
 Application code lives under `src/`, layered so later capability tickets have a clear home:
