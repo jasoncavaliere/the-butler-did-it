@@ -1,0 +1,197 @@
+# CI gate for the local Docker Compose demo stack (demo/, issue #94).
+#
+# Path-filtered: this runs only when a change touches demo/** (or this workflow
+# file itself), so API- and UI-only PRs never pay for it (see api-ci.yml and
+# ui-ci.yml).
+#
+# Two jobs:
+#   config - static checks: the compose file is valid (`docker compose config`
+#            exits 0), Azurite is pinned with its data bind-mounted to
+#            demo/.data/azurite, the API gets an explicit TableEndpoint
+#            connection string, demo/ creates no tables, demo/.data is
+#            git-ignored, and demo/README.md documents the commands.
+#   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
+#            its service worker on :8080, the API's table provisioning, and that
+#            a household survives `down` + `up`.
+name: demo-ci
+
+on:
+  pull_request:
+    paths:
+      - "demo/**"
+      - ".github/workflows/demo-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "demo/**"
+      - ".github/workflows/demo-ci.yml"
+
+# Least privilege: both jobs only read the checked-out source.
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same ref so a new push cancels stale work.
+concurrency:
+  group: demo-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_FILE_PATH: demo/docker-compose.yml
+
+jobs:
+  config:
+    name: compose config + static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # AC10: the compose file parses and resolves (exit code 0).
+      - name: Validate compose file
+        run: docker compose -f "$COMPOSE_FILE_PATH" config --quiet
+
+      # Render once so the following greps check the resolved config (absolute
+      # bind sources, interpolated values) rather than the raw source text.
+      - name: Render compose config
+        run: docker compose -f "$COMPOSE_FILE_PATH" config > "$RUNNER_TEMP/compose.yml"
+
+      # AC2: official Azurite image at a pinned tag, data bind-mounted to
+      # demo/.data/azurite.
+      - name: Assert pinned Azurite image and bind mount
+        run: |
+          grep -E '^\s+image: mcr\.microsoft\.com/azure-storage/azurite:[0-9]+\.[0-9]+\.[0-9]+$' "$RUNNER_TEMP/compose.yml"
+          grep -E 'source: .*/demo/\.data/azurite$' "$RUNNER_TEMP/compose.yml"
+
+      # AC4: explicit connection string to the azurite service, never the
+      # UseDevelopmentStorage shortcut (which resolves to the api container).
+      - name: Assert explicit TableEndpoint connection string
+        run: |
+          grep -F 'TableEndpoint=http://azurite:10002/devstoreaccount1' "$RUNNER_TEMP/compose.yml"
+          if grep -n 'UseDevelopmentStorage' "$RUNNER_TEMP/compose.yml"; then
+            echo "demo compose must not use UseDevelopmentStorage=true" >&2
+            exit 1
+          fi
+
+      # AC7: tables come from the API's startup provisioning (#91), not demo/.
+      - name: Assert no table creation in demo/
+        run: |
+          if grep -rnE 'CreateIfNotExists|CreateTable|az storage table create' demo/; then
+            echo "demo/ must not create tables - the API provisions them (#91)" >&2
+            exit 1
+          fi
+
+      # AC9: the Azurite data folder is git-ignored.
+      - name: Assert demo/.data is git-ignored
+        run: git check-ignore -q demo/.data/azurite/probe
+
+      # AC8: prerequisites and the up/down commands are documented.
+      - name: Assert demo README documents prerequisites and commands
+        run: |
+          grep -F 'Docker Desktop' demo/README.md
+          grep -F 'docker compose -f demo/docker-compose.yml up -d' demo/README.md
+          grep -F 'docker compose -f demo/docker-compose.yml down' demo/README.md
+
+  stack:
+    name: stack (Azurite + API + Caddy)
+    needs: config
+    runs-on: ubuntu-latest
+    env:
+      API_URL: http://127.0.0.1:5108
+      HUB_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same Node pin and npm cache as ui-ci.yml.
+      - name: Set up Node (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Butler.UI/package-lock.json
+
+      # The web service serves the host-built export; build:web (not a bare
+      # expo export) also injects the precache list into dist/sw.js.
+      - name: Build the hub export
+        working-directory: Butler.UI
+        run: |
+          npm ci
+          npm run build:web
+
+      # AC1: all three services come up and stay running.
+      - name: Start the stack
+        run: |
+          docker compose -f "$COMPOSE_FILE_PATH" up -d --build --wait --wait-timeout 240
+          running="$(docker compose -f "$COMPOSE_FILE_PATH" ps --services --status running | sort | tr '\n' ' ')"
+          echo "running: $running"
+          if [ "$running" != "api azurite web " ]; then
+            echo "expected services 'api azurite web ' to be running, got '$running'" >&2
+            exit 1
+          fi
+
+      - name: Wait for API health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fs "$API_URL/health" > /dev/null; then
+              echo "API is healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy within 60s" >&2
+          exit 1
+
+      # AC7: the API created the tables on first boot, with no manual step.
+      - name: Tables provisioned by the API on first boot
+        run: docker compose -f "$COMPOSE_FILE_PATH" logs api | grep -E 'Provisioned [0-9]+ Table Storage tables'
+
+      # AC5: the PWA build is served on host port 8080.
+      - name: Hub served on :8080
+        run: |
+          curl -fsS "$HUB_URL/" | grep -qi '<html'
+          curl -fsS "$HUB_URL/sw.js" | grep -qF 'butler-precache:begin'
+          curl -fsS "$HUB_URL/manifest.json" > /dev/null
+
+      # AC6: the service worker registers and activates in desktop Chrome.
+      # Playwright is installed outside the repo; it is not a UI dependency.
+      - name: Install Playwright
+        run: npm install --no-save --no-package-lock --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright@1.64.1
+
+      - name: Service worker registers on :8080
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PW_CHANNEL: chrome
+        run: node demo/ci/check-service-worker.cjs "$HUB_URL/"
+
+      # AC3: a household created before `down` is still there after `up`.
+      - name: Household survives down/up
+        run: |
+          id="$(curl -fsS -X POST "$API_URL/households" \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"Demo CI Household"}' | jq -er '.householdId')"
+          echo "created household $id"
+          # No sleep: `down` sends SIGINT (stop_signal), so this proves Azurite's
+          # shutdown save, not its 5s autosave.
+          docker compose -f "$COMPOSE_FILE_PATH" down
+          sudo grep -q "$id" demo/.data/azurite/__azurite_db_table__.json
+          docker compose -f "$COMPOSE_FILE_PATH" up -d --wait --wait-timeout 240
+          for i in $(seq 1 60); do
+            curl -fs "$API_URL/health" > /dev/null && break
+            if [ "$i" = 60 ]; then echo "API did not come back within 60s" >&2; exit 1; fi
+            sleep 1
+          done
+          curl -fsS "$API_URL/households/$id" | jq -e '.name == "Demo CI Household"'
+
+      # On failure, surface what each service logged so the cause is visible
+      # without rerunning.
+      - name: Dump stack logs
+        if: failure()
+        run: |
+          docker compose -f "$COMPOSE_FILE_PATH" ps -a || true
+          for svc in azurite api web; do
+            echo "::group::$svc"
+            docker compose -f "$COMPOSE_FILE_PATH" logs --no-color "$svc" || true
+            echo "::endgroup::"
+          done
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose -f "$COMPOSE_FILE_PATH" down || true
