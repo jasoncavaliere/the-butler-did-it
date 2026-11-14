@@ -11,6 +11,7 @@ okf_version: "0.2"
 
 * [10 Product Vision](docs/10-product-vision.md) - The quantified case for Butler and every locked v1 decision, including what v1 will not build. The hub of the graph.
 * [11 Hub Hardware Findings](docs/11-hub-hardware-findings.md) - Research findings (2026-08-13, not a ratified decision) on which tablet the hub runs on and how it boots into Butler: a stock Android tablet in device-owner kiosk mode, not a custom OS.
+* [12 Pricing Hypothesis](docs/12-pricing-hypothesis.md) - Proposed per-household yearly price points inside the vision's $40-90 band, the pilot-to-paid offer, and the willingness-to-pay questions and experiment that test them (a hypothesis, not live pricing).
 
 # Architecture
 
