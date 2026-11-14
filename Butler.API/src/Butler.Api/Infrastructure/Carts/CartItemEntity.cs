@@ -47,6 +47,20 @@ public sealed class CartItemEntity : ITableEntity
     public string SourceConnector { get; set; } = string.Empty;
 
     /// <summary>
+    /// The connector's indicative unit price as captured when the line was added
+    /// (for example <c>$3.79</c>), so a cart read can estimate a total without
+    /// calling the store connector. <c>null</c> for a custom line and for a line
+    /// written before prices were persisted (both total as nothing).
+    /// </summary>
+    public string? IndicativePrice { get; set; }
+
+    /// <summary>
+    /// Whether the line is a shopper-typed custom item that matched no catalog
+    /// product. A custom line has no product id and no price.
+    /// </summary>
+    public bool IsCustom { get; set; }
+
+    /// <summary>
     /// Builds the <c>{cartWeekIso}_{itemId}</c> composite row key. The one place
     /// the key shape is spelled out, so the week prefix a listing scans for and
     /// the key a write produces can never drift apart.

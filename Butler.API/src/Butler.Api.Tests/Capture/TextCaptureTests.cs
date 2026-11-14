@@ -35,6 +35,8 @@ public sealed class TextCaptureTests : IClassFixture<ButlerApiFactory>
             new { utterance = "add oat milk", personId = "person-1", weekIso = week });
 
         // The response echoes what Butler heard and which source heard it.
+        Assert.Equal(nameof(CaptureOutcome.Added), captured.GetProperty("outcome").GetString());
+        Assert.Empty(captured.GetProperty("suggestions").EnumerateArray());
         Assert.Equal(CaptureSourceNames.HubText, captured.GetProperty("captureSource").GetString());
         Assert.Equal("oat milk", captured.GetProperty("resolvedTerm").GetString());
         Assert.Equal(week, captured.GetProperty("weekIso").GetString());
@@ -45,6 +47,8 @@ public sealed class TextCaptureTests : IClassFixture<ButlerApiFactory>
         Assert.Equal(1, item.GetProperty("quantity").GetInt32());
         Assert.Equal("person-1", item.GetProperty("addedByPersonId").GetString());
         Assert.Equal(SimulatedHebConnector.SourceName, item.GetProperty("sourceConnector").GetString());
+        Assert.Equal("$3.79", item.GetProperty("indicativePrice").GetString());
+        Assert.False(item.GetProperty("isCustom").GetBoolean());
 
         // ... and the line is really in the week's cart, not just in the response.
         var cart = await CaptureTestHelper.GetCartAsync(client, householdId, week);
@@ -54,6 +58,10 @@ public sealed class TextCaptureTests : IClassFixture<ButlerApiFactory>
         Assert.Equal(1, line.GetProperty("quantity").GetInt32());
         Assert.Equal("person-1", line.GetProperty("addedByPersonId").GetString());
         Assert.Equal(SimulatedHebConnector.SourceName, line.GetProperty("sourceConnector").GetString());
+        Assert.Equal("$3.79", line.GetProperty("indicativePrice").GetString());
+        Assert.False(line.GetProperty("isCustom").GetBoolean());
+        Assert.Equal(3.79m, cart.GetProperty("estimatedTotal").GetDecimal());
+        Assert.Equal(0, cart.GetProperty("customItemCount").GetInt32());
     }
 
     [Fact]

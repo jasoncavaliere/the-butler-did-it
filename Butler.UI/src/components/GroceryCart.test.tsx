@@ -1,6 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
-import { GroceryCart, readSuggestions } from './GroceryCart';
+import {
+  GroceryCart,
+  customOfferLabel,
+  estimatedTotalLabel,
+  readSuggestions,
+  unpricedNote,
+} from './GroceryCart';
 import type { ApiClient, ApiResult } from '../api/client';
 import type { CartItemView, CartResponse, StoreProductView } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
@@ -18,6 +24,7 @@ const CART_ETAG = 'W/"cart-1"';
 const CART_PATH = `/households/${HOUSEHOLD}/carts/current`;
 const CAPTURE_PATH = `/households/${HOUSEHOLD}/capture/text`;
 const CONFIRM_PATH = `/households/${HOUSEHOLD}/carts/${WEEK}/confirm`;
+const ITEMS_PATH = `/households/${HOUSEHOLD}/carts/${WEEK}/items`;
 
 const oatMilk: CartItemView = {
   itemId: 'item-1',
@@ -26,6 +33,8 @@ const oatMilk: CartItemView = {
   quantity: 1,
   addedByPersonId: 'p1',
   sourceConnector: 'simulated-heb',
+  indicativePrice: '$3.79',
+  isCustom: false,
 };
 
 const eggs: CartItemView = {
@@ -35,7 +44,37 @@ const eggs: CartItemView = {
   quantity: 2,
   addedByPersonId: 'p2',
   sourceConnector: 'simulated-heb',
+  indicativePrice: '$2.99',
+  isCustom: false,
 };
+
+/** A custom line (#113): a name the catalog could not match, so no product and no price. */
+function customLine(itemId: string, displayName: string): CartItemView {
+  return {
+    itemId,
+    productId: null,
+    displayName,
+    quantity: 1,
+    addedByPersonId: 'p1',
+    sourceConnector: 'custom',
+    indicativePrice: null,
+    isCustom: true,
+  };
+}
+
+const quinoa = customLine('item-9', 'quinoa flakes');
+
+/** What the API computes for a cart read: catalog lines totalled, custom ones counted. */
+function totals(items: CartItemView[]): Pick<CartResponse, 'estimatedTotal' | 'customItemCount'> {
+  const priced = items.filter((item) => !item.isCustom);
+  return {
+    estimatedTotal: priced.reduce(
+      (sum, item) => sum + item.quantity * Number((item.indicativePrice ?? '0').replace('$', '')),
+      0,
+    ),
+    customItemCount: items.length - priced.length,
+  };
+}
 
 /** The week's building cart, optionally already holding some lines. */
 function building(items: CartItemView[] = []): CartResponse {
@@ -46,6 +85,7 @@ function building(items: CartItemView[] = []): CartResponse {
     confirmedUtc: null,
     eTag: CART_ETAG,
     items,
+    ...totals(items),
   };
 }
 
@@ -58,6 +98,7 @@ function confirmed(items: CartItemView[] = [oatMilk]): CartResponse {
     confirmedUtc: '2026-07-20T18:00:00Z',
     eTag: 'W/"cart-2"',
     items,
+    ...totals(items),
   };
 }
 
@@ -116,29 +157,23 @@ const ambiguous: ApiResult<never> = {
   },
 };
 
-/** The G3 answer when nothing in the catalog matched. */
-const noMatch: ApiResult<never> = {
-  ok: false,
-  error: {
-    kind: 'problem',
-    status: 404,
-    title: 'No product matched.',
-    detail: "The store has no product matching 'quinoa flakes'.",
-    problem: {
-      status: 404,
-      title: 'No product matched.',
-      captureSource: 'hub-text',
-      resolvedTerm: 'quinoa flakes',
-      suggestions: [],
-    },
-  },
-};
+/** The G3 answer when nothing in the catalog matched: a 200 NoMatch (#113). */
+const noMatch = ok({
+  outcome: 'NoMatch',
+  captureSource: 'hub-text',
+  resolvedTerm: 'quinoa flakes',
+  weekIso: WEEK,
+  item: null,
+  suggestions: [],
+});
 
 const captureAdded = ok({
+  outcome: 'Added',
   captureSource: 'hub-text',
   resolvedTerm: 'oat milk',
   weekIso: WEEK,
   item: oatMilk,
+  suggestions: [],
 });
 
 type ClientOpts = {
@@ -146,6 +181,8 @@ type ClientOpts = {
   reads?: ApiResult<unknown>[];
   capture?: ApiResult<unknown>;
   confirm?: ApiResult<unknown>;
+  /** The answer to the custom-item post (#113). */
+  customItem?: ApiResult<unknown>;
   /** Replaces the cart read entirely (used to hold a read pending). */
   getImpl?: (path: string) => Promise<ApiResult<unknown>>;
   /** Replaces the capture/confirm write entirely (used to hold a write pending). */
@@ -173,6 +210,9 @@ function cartClient(opts: ClientOpts = {}): ApiClient {
       }
       if (path.endsWith('/capture/text')) {
         return opts.capture ?? captureAdded;
+      }
+      if (path.endsWith('/items')) {
+        return opts.customItem ?? ok(quinoa);
       }
       return opts.confirm ?? ok(confirmed());
     }) as unknown as ApiClient['update'],
@@ -237,8 +277,10 @@ describe('GroceryCart', () => {
     await renderCart(client);
     await whenLoaded();
 
-    // Nothing in the list yet, and the read went to the current-cart route.
+    // Nothing in the list yet, and the read went to the current-cart route. An
+    // empty cart has no total to show.
     expect(screen.getByTestId('grocery-cart-empty')).toBeOnTheScreen();
+    expect(screen.queryByTestId('grocery-cart-total')).toBeNull();
     expect(client.get).toHaveBeenCalledWith(CART_PATH);
 
     await type('oat milk');
@@ -257,8 +299,11 @@ describe('GroceryCart', () => {
     expect(screen.getByTestId('grocery-item-item-1')).toHaveTextContent(/H-E-B Oat Milk/);
     expect(screen.getByTestId('grocery-item-quantity-item-1')).toHaveTextContent('x1');
     expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent('Added H-E-B Oat Milk.');
-    // The field is cleared, ready for the next thing.
+    // The field is cleared, ready for the next thing, and an Added capture
+    // offers no custom item.
     expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', '');
+    expect(screen.queryByTestId('grocery-add-custom')).toBeNull();
+    expect(screen.queryByTestId('grocery-item-custom-item-1')).toBeNull();
   });
 
   it('confirm-hidden-without-organizer: no organizer means no Confirm action at all', async () => {
@@ -327,22 +372,176 @@ describe('GroceryCart', () => {
     expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', 'milk');
   });
 
-  it('no-match-add: nothing matched says so plainly, with no suggestions', async () => {
-    await renderCart(cartClient({ capture: noMatch }));
+  it('no-match-offer: a NoMatch capture offers to add the term as a custom item', async () => {
+    const client = cartClient({ capture: noMatch });
+    await renderCart(client);
     await whenLoaded();
 
-    await type('quinoa flakes');
+    await type('add quinoa flakes');
     // Submitting from the keyboard is the same gesture as tapping Add.
     await act(async () => {
       fireEvent(screen.getByTestId('grocery-add-input'), 'submitEditing');
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
-        "The store has no product matching 'quinoa flakes'.",
-      ),
+    // The offer names what Butler heard, in the AC3 wording.
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+    expect(screen.getByTestId('grocery-add-custom')).toHaveTextContent(
+      'Add "quinoa flakes" as a custom item',
+    );
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'The store has nothing matching "quinoa flakes".',
     );
     expect(screen.queryByTestId('grocery-suggestions')).toBeNull();
+    // Nothing was added yet: no re-read, and the term stays to be refined.
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('grocery-cart-empty')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', 'add quinoa flakes');
+  });
+
+  it('custom-add: tapping the offer posts the custom item and the re-read cart shows it', async () => {
+    const client = cartClient({
+      capture: noMatch,
+      reads: [ok(building()), ok(building([quinoa]))],
+    });
+    await renderCart(client);
+    await whenLoaded();
+
+    await type('quinoa flakes');
+    await press('grocery-add-submit');
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+
+    await press('grocery-add-custom');
+
+    // The custom line carries the resolved term, the acting participant, and a
+    // quantity of one, to the week's items route.
+    expect(client.update).toHaveBeenCalledWith(
+      ITEMS_PATH,
+      { displayName: 'quinoa flakes', personId: 'p1', quantity: 1 },
+      { method: 'POST' },
+    );
+
+    // The re-read cart shows it, tagged Custom, and the total says it is unpriced.
+    await waitFor(() => expect(screen.getByTestId('grocery-item-item-9')).toBeOnTheScreen());
+    expect(client.get).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('grocery-item-item-9')).toHaveTextContent(/quinoa flakes/);
+    expect(screen.getByTestId('grocery-item-custom-item-9')).toHaveTextContent('Custom');
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(
+      'Added quinoa flakes as a custom item.',
+    );
+    expect(screen.getByTestId('grocery-cart-total')).toHaveTextContent('Estimated total $0.00');
+    expect(screen.getByTestId('grocery-cart-unpriced-note')).toHaveTextContent(
+      'Plus 1 custom item, not priced.',
+    );
+    // The offer is spent and the field is cleared.
+    expect(screen.queryByTestId('grocery-add-custom')).toBeNull();
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', '');
+  });
+
+  it('custom-add-failed: a failed custom post says why and keeps the offer to retry', async () => {
+    await renderCart(cartClient({ capture: noMatch, customItem: unreachable }));
+    await whenLoaded();
+
+    await type('quinoa flakes');
+    await press('grocery-add-submit');
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+
+    await press('grocery-add-custom');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent(/unreachable/),
+    );
+    expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-cart-empty')).toBeOnTheScreen();
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', 'quinoa flakes');
+  });
+
+  it('in-flight custom add: the offer cannot be double-tapped', async () => {
+    const pending = deferred<ApiResult<unknown>>();
+    const client = cartClient({
+      updateImpl: (path) => (path.endsWith('/items') ? pending.promise : Promise.resolve(noMatch)),
+    });
+    await renderCart(client);
+    await whenLoaded();
+
+    await type('quinoa flakes');
+    await press('grocery-add-submit');
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+
+    // Fire without awaiting the settle: the custom post is still in flight.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('grocery-add-custom'));
+    });
+
+    expect(screen.getByTestId('grocery-add-custom')).toBeDisabled();
+    expect(screen.getByTestId('grocery-add-submit')).toBeDisabled();
+    await press('grocery-add-custom');
+    expect(client.update).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      pending.resolve(ok(quinoa));
+      await pending.promise;
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('grocery-add-custom')).toBeNull());
+    expect(screen.getByTestId('grocery-add-submit')).not.toBeDisabled();
+  });
+
+  it('a new add clears a stale custom offer', async () => {
+    await renderCart(cartClient({ capture: noMatch }));
+    await whenLoaded();
+
+    await type('quinoa flakes');
+    await press('grocery-add-submit');
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+
+    // The next submit (even one that goes nowhere) withdraws the old offer.
+    await type('   ');
+    await press('grocery-add-submit');
+
+    expect(screen.queryByTestId('grocery-add-custom')).toBeNull();
+  });
+
+  it('unpriced-note: a cart with custom items shows the estimated total and an unpriced note', async () => {
+    await renderCart(cartClient({ reads: [ok(building([oatMilk, quinoa]))] }));
+    await whenLoaded();
+
+    expect(screen.getByTestId('grocery-cart-total')).toHaveTextContent('Estimated total $3.79');
+    expect(screen.getByTestId('grocery-cart-unpriced-note')).toHaveTextContent(
+      'Plus 1 custom item, not priced.',
+    );
+    // Only the custom line is tagged.
+    expect(screen.getByTestId('grocery-item-custom-item-9')).toHaveTextContent('Custom');
+    expect(screen.queryByTestId('grocery-item-custom-item-1')).toBeNull();
+  });
+
+  it('unpriced-note-plural: several custom items are counted, on a confirmed cart too', async () => {
+    const items = [oatMilk, quinoa, customLine('item-10', 'party hats')];
+    await renderCart(
+      cartClient({ reads: [ok(building(items))], confirm: ok(confirmed(items)) }),
+      { organizer: true },
+    );
+    await whenLoaded();
+
+    expect(screen.getByTestId('grocery-cart-unpriced-note')).toHaveTextContent(
+      'Plus 2 custom items, not priced.',
+    );
+
+    await press('grocery-confirm');
+
+    await waitFor(() => expect(screen.getByTestId('grocery-cart-status')).toBeOnTheScreen());
+    expect(screen.getByTestId('grocery-cart-total')).toHaveTextContent('Estimated total $3.79');
+    expect(screen.getByTestId('grocery-cart-unpriced-note')).toHaveTextContent(
+      'Plus 2 custom items, not priced.',
+    );
+    expect(screen.getByTestId('grocery-item-custom-item-10')).toBeOnTheScreen();
+  });
+
+  it('priced-only: a cart with no custom items shows the total without the note', async () => {
+    await renderCart(cartClient({ reads: [ok(building([oatMilk, eggs]))] }));
+    await whenLoaded();
+
+    expect(screen.getByTestId('grocery-cart-total')).toHaveTextContent('Estimated total $9.77');
+    expect(screen.queryByTestId('grocery-cart-unpriced-note')).toBeNull();
   });
 
   it('failed-add: an unreachable API surfaces a readable line, never silence', async () => {
@@ -505,6 +704,22 @@ describe('GroceryCart', () => {
     });
 
     expect(screen.queryByTestId('grocery-cart')).toBeNull();
+  });
+});
+
+describe('cart copy helpers', () => {
+  it('words the custom offer as AC3 fixes it', () => {
+    expect(customOfferLabel('unicorn steaks')).toBe('Add "unicorn steaks" as a custom item');
+  });
+
+  it('formats the estimated total to the cent', () => {
+    expect(estimatedTotalLabel(9.47)).toBe('Estimated total $9.47');
+    expect(estimatedTotalLabel(0)).toBe('Estimated total $0.00');
+  });
+
+  it('counts unpriced custom items in the singular and the plural', () => {
+    expect(unpricedNote(1)).toBe('Plus 1 custom item, not priced.');
+    expect(unpricedNote(3)).toBe('Plus 3 custom items, not priced.');
   });
 });
 

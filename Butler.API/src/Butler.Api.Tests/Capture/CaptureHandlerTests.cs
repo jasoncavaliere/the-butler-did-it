@@ -62,6 +62,8 @@ public sealed class CaptureHandlerTests
         Assert.Equal(CaptureHandler.DefaultQuantity, result.Item.Quantity);
         Assert.Equal("person-1", result.Item.AddedByPersonId);
         Assert.Equal("simulated-heb", result.Item.SourceConnector);
+        Assert.Equal("$1.00", result.Item.IndicativePrice);
+        Assert.False(result.Item.IsCustom);
 
         await _items
             .Received(1)
@@ -75,7 +77,9 @@ public sealed class CaptureHandlerTests
                     && item.DisplayName == "H-E-B Grade A Large Eggs"
                     && item.Quantity == 1
                     && item.AddedByPersonId == "person-1"
-                    && item.SourceConnector == "simulated-heb"),
+                    && item.SourceConnector == "simulated-heb"
+                    && item.IndicativePrice == "$1.00"
+                    && !item.IsCustom),
                 Arg.Any<CancellationToken>());
     }
 

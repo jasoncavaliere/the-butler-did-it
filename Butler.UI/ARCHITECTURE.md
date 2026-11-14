@@ -346,7 +346,9 @@ typed client:
 
 - **Review (G2).** On mount it reads `GET /households/{householdId}/carts/current`, which hands back
   the week's single `Building` cart with its items and its `eTag`. Each line renders its `DisplayName`
-  and `Quantity`. A week whose cart is already confirmed answers `409`, which the region treats as a
+  and `Quantity`, and a custom line (`isCustom`) also carries a `Custom` tag. Under a non-empty list the
+  region shows `Estimated total $X.XX` (the API's `estimatedTotal`), and when `customItemCount` is above
+  zero a note such as `Plus 1 custom item, not priced.` - on a confirmed cart too. A week whose cart is already confirmed answers `409`, which the region treats as a
   calm confirmed state rather than an error.
 - **Add (G3).** Typing a term and submitting (the Add button and the keyboard's return are the same
   gesture) POSTs to `/capture/text` with `{ utterance, personId, weekIso, quantity: 1 }`, then re-reads
@@ -354,8 +356,12 @@ typed client:
   twice increments its quantity server-side. Adding is deliberately open to anyone on the roster: no
   password, no organizer (decision D-3). The line is attributed to the hub's active tap-to-claim
   participant, so with nobody claimed the region says "Tap your name first" instead of spending a round
-  trip on a `400`. An ambiguous term renders the problem's `suggestions` candidates with a next step;
-  a no-match renders the problem's own message. Neither is ever a silent failure.
+  trip on a `400`. An ambiguous term renders the problem's `suggestions` candidates with a next step.
+  A no-match is a `200` with outcome `NoMatch` (#113): the region keeps the term and offers
+  `Add "<term>" as a custom item` (`grocery-add-custom`). Tapping it POSTs
+  `/carts/{weekIso}/items` with `{ displayName, personId, quantity: 1 }`, then re-reads the cart; a
+  failure shows the readable error and keeps the offer to retry, and any new add withdraws a stale
+  offer. No outcome is ever a silent failure.
 - **Confirm (G4).** The `Confirm order` action renders **only** for a signed-in organizer (T4) -
   absent, not disabled, matching the `OrganizerBar` convention - and POSTs to
   `/carts/{weekIso}/confirm` with the cart's `eTag` as `If-Match` (Contract 7.3), so a line added since

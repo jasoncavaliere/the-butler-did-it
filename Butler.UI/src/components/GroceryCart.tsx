@@ -3,7 +3,13 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 
 import type { ApiError } from '../api/client';
 import { describeApiError } from '../api/errors';
-import type { CaptureResponse, CartResponse, StoreProductView } from '../api/models';
+import type {
+  AddCartItemRequest,
+  CaptureResponse,
+  CartItemView,
+  CartResponse,
+  StoreProductView,
+} from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { useOrganizer } from '../state/OrganizerContext';
 import { colors } from './Screen';
@@ -25,8 +31,13 @@ import { colors } from './Screen';
  *   product twice increments its `Quantity` server-side, and the capture response
  *   carries the new line but not the cart's fresh `eTag`). Adding is deliberately
  *   open to anyone on the roster - no password, no organizer (decision D-3).
- *   An ambiguous term comes back with `suggestions` and a no-match with a plain
- *   message; neither is ever a silent failure.
+ *   An ambiguous term comes back with `suggestions`; no outcome is ever a
+ *   silent failure.
+ * - **Custom item (#113).** A term the catalog cannot match comes back as a
+ *   `200` with outcome `NoMatch`, and the region offers `Add "<term>" as a custom
+ *   item`. Tapping it posts `/carts/{weekIso}/items` with that name and re-reads
+ *   the cart. A custom line shows a `Custom` tag; it has no price, so the
+ *   estimated total under the list says how many custom items it leaves out.
  * - **Confirm (G4).** Organizer-only, and *absent* rather than disabled without
  *   one, matching the {@link OrganizerBar} convention. It posts to
  *   `/carts/{weekIso}/confirm` with the cart's `eTag` as `If-Match`
@@ -56,6 +67,24 @@ const COPY = {
   confirmFailed: 'That did not go through. Tap Confirm order to try again.',
   weekConfirmed: "This week's list is confirmed. Nothing more to add.",
 } as const;
+
+/** The no-match offer's button copy (AC3 fixes its wording). */
+export function customOfferLabel(displayName: string): string {
+  return `Add "${displayName}" as a custom item`;
+}
+
+/** The estimated-total line, in dollars to the cent. */
+export function estimatedTotalLabel(total: number): string {
+  return `Estimated total $${total.toFixed(2)}`;
+}
+
+/** The note under the total naming how many custom items it leaves out. */
+export function unpricedNote(count: number): string {
+  return count === 1 ? 'Plus 1 custom item, not priced.' : `Plus ${count} custom items, not priced.`;
+}
+
+/** A pending no-match offer: the name to add and whom it is attributed to. */
+type CustomOffer = { displayName: string; personId: string };
 
 /**
  * What the region is showing. `confirmed` is the week-already-confirmed answer to
@@ -100,6 +129,7 @@ export function GroceryCart({
   const [term, setTerm] = useState('');
   const [notice, setNotice] = useState('');
   const [suggestions, setSuggestions] = useState<StoreProductView[]>([]);
+  const [customOffer, setCustomOffer] = useState<CustomOffer | null>(null);
   const [busy, setBusy] = useState(false);
 
   // The single read the region ever does. It is also what an add reconciles
@@ -138,6 +168,8 @@ export function GroceryCart({
     async (cart: CartResponse) => {
       const utterance = term.trim();
       setSuggestions([]);
+      // A new add replaces whatever an earlier no-match offered.
+      setCustomOffer(null);
       if (utterance === '') {
         setNotice(COPY.needsTerm);
         return;
@@ -165,12 +197,56 @@ export function GroceryCart({
         return;
       }
 
+      const captured = result.data;
+      if (captured.outcome === 'NoMatch' || captured.item === null) {
+        // Nothing in the catalog: offer the term itself as a custom item. The
+        // term stays in the field so it can be refined instead.
+        setCustomOffer({ displayName: captured.resolvedTerm, personId: activePersonId });
+        setNotice(`The store has nothing matching "${captured.resolvedTerm}".`);
+        setBusy(false);
+        return;
+      }
+
       setTerm('');
-      setNotice(`Added ${result.data.item.displayName}.`);
+      setNotice(`Added ${captured.item.displayName}.`);
       setState(await readCart());
       setBusy(false);
     },
     [activePersonId, client, householdId, readCart, term],
+  );
+
+  // Adding the no-match term as a custom line (#113): no product and no price,
+  // attributed to whoever made the capture, then the cart is re-read so the list
+  // and the confirm's `If-Match` stay the server's truth.
+  const addCustom = useCallback(
+    async (cart: CartResponse, offer: CustomOffer) => {
+      setNotice('');
+      setBusy(true);
+      const body: AddCartItemRequest = {
+        displayName: offer.displayName,
+        personId: offer.personId,
+        quantity: 1,
+      };
+      const result = await client.update<CartItemView>(
+        `/households/${householdId}/carts/${cart.weekIso}/items`,
+        body,
+        { method: 'POST' },
+      );
+
+      if (!result.ok) {
+        // Keep the offer so the shopper can simply tap it again.
+        setNotice(describeApiError(result.error));
+        setBusy(false);
+        return;
+      }
+
+      setTerm('');
+      setCustomOffer(null);
+      setNotice(`Added ${result.data.displayName} as a custom item.`);
+      setState(await readCart());
+      setBusy(false);
+    },
+    [client, householdId, readCart],
   );
 
   // Confirming: the organizer's final tap (G4), sent under the cart's own `eTag`
@@ -241,14 +317,30 @@ export function GroceryCart({
       ) : null}
 
       {cart !== null && !isConfirmed ? (
-        <AddItemRow
-          term={term}
-          busy={busy}
-          onChangeTerm={setTerm}
-          onSubmit={() => {
-            void add(cart);
-          }}
-        />
+        <>
+          <AddItemRow
+            term={term}
+            busy={busy}
+            onChangeTerm={setTerm}
+            onSubmit={() => {
+              void add(cart);
+            }}
+          />
+          {customOffer !== null ? (
+            <Pressable
+              testID="grocery-add-custom"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy }}
+              disabled={busy}
+              style={[styles.customButton, busy && styles.buttonBusy]}
+              onPress={() => {
+                void addCustom(cart, customOffer);
+              }}
+            >
+              <Text style={styles.addButtonText}>{customOfferLabel(customOffer.displayName)}</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
 
       {cart !== null ? (
@@ -260,15 +352,35 @@ export function GroceryCart({
           ) : (
             items.map((item) => (
               <View key={item.itemId} style={styles.item} testID={`grocery-item-${item.itemId}`}>
-                <Text style={styles.itemName} numberOfLines={1}>
-                  {item.displayName}
-                </Text>
+                <View style={styles.itemLabel}>
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.displayName}
+                  </Text>
+                  {/* A custom line is marked with a word, never colour alone. */}
+                  {item.isCustom ? (
+                    <Text style={styles.customTag} testID={`grocery-item-custom-${item.itemId}`}>
+                      Custom
+                    </Text>
+                  ) : null}
+                </View>
                 <Text style={styles.itemQuantity} testID={`grocery-item-quantity-${item.itemId}`}>
                   {`x${item.quantity}`}
                 </Text>
               </View>
             ))
           )}
+          {items.length > 0 ? (
+            <View style={styles.totals}>
+              <Text style={styles.total} testID="grocery-cart-total">
+                {estimatedTotalLabel(cart.estimatedTotal)}
+              </Text>
+              {cart.customItemCount > 0 ? (
+                <Text style={styles.notice} testID="grocery-cart-unpriced-note">
+                  {unpricedNote(cart.customItemCount)}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -432,7 +544,30 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
+  itemLabel: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
   itemName: { color: colors.ink, fontSize: 18, flexShrink: 1 },
+  customTag: {
+    color: colors.brass,
+    fontSize: 13,
+    fontWeight: '600',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.brass,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  totals: { gap: 4, paddingTop: 4 },
+  total: { color: colors.ink, fontSize: 18, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  customButton: {
+    minHeight: 44,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.brass,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
   itemQuantity: { color: colors.muted, fontSize: 18, fontVariant: ['tabular-nums'] },
   suggestions: { gap: 6 },
   suggestion: { color: colors.ink, fontSize: 16 },

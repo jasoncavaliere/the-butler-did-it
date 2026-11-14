@@ -260,14 +260,21 @@ export type FairnessResponse = {
  * One line item in a week's grocery cart (G2), mirroring the API's `CartItemView`
  * DTO. {@link productId} and {@link sourceConnector} come from the G1 store
  * connector, so the origin of the line survives a connector swap.
+ *
+ * A custom line ({@link isCustom}, #113) is a name the catalog could not match:
+ * it has no `productId`, no `indicativePrice`, and `sourceConnector` is
+ * `custom`. {@link indicativePrice} is the catalog price captured when the line
+ * was added (for example `$3.79`), display-only and non-transactional.
  */
 export type CartItemView = {
   itemId: string;
-  productId: string;
+  productId: string | null;
   displayName: string;
   quantity: number;
   addedByPersonId: string;
   sourceConnector: string;
+  indicativePrice: string | null;
+  isCustom: boolean;
 };
 
 /**
@@ -288,6 +295,13 @@ export type CartResponse = {
   confirmedUtc: string | null;
   eTag: string;
   items: CartItemView[];
+  /**
+   * Quantity times the indicative price, summed over the catalog items (#113).
+   * Custom items are not priced and add nothing - see {@link customItemCount}.
+   */
+  estimatedTotal: number;
+  /** How many of {@link items} are custom (unpriced) lines. */
+  customItemCount: number;
 };
 
 /**
@@ -323,15 +337,38 @@ export type CaptureTextRequest = {
 };
 
 /**
- * A successful capture (G3), mirroring the API's `CaptureResponse` DTO: the line
- * that was added, plus what the utterance actually resolved to, so the hub can
- * echo "Added Oat Milk" and show which source heard it.
+ * The outcomes a `200` capture can carry (#113). An ambiguous term is still a
+ * `400` problem with `suggestions`, so it never arrives here.
+ */
+export type CaptureOutcome = 'Added' | 'NoMatch';
+
+/**
+ * A capture that reached the catalog (G3), mirroring the API's `CaptureResponse`
+ * DTO, plus what the utterance actually resolved to, so the hub can echo "Added
+ * Oat Milk" and show which source heard it. On `Added`, {@link item} is the line
+ * that was added; on `NoMatch` it is `null` and the hub offers to add
+ * {@link resolvedTerm} as a custom item. {@link suggestions} is always empty in
+ * v1.
  */
 export type CaptureResponse = {
+  outcome: CaptureOutcome;
   captureSource: string;
   resolvedTerm: string;
   weekIso: string;
-  item: CartItemView;
+  item: CartItemView | null;
+  suggestions: StoreProductView[];
+};
+
+/**
+ * Body for the custom-item route
+ * (`POST /households/{householdId}/carts/{weekIso}/items`, #113): a name the
+ * catalog could not match. `personId` is the hub's active participant, as on
+ * capture; `quantity` defaults to one when `null`.
+ */
+export type AddCartItemRequest = {
+  displayName: string;
+  personId: string;
+  quantity: number | null;
 };
 
 /**

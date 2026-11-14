@@ -107,6 +107,85 @@ public sealed class CartService : ICartService
         return new CartReadResult(HouseholdExists: true, Cart: composed);
     }
 
+    /// <inheritdoc />
+    public async Task<CartItemView?> AddCustomItemAsync(
+        string householdId,
+        string? weekIso,
+        string? displayName,
+        int? quantity,
+        string personId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(personId);
+
+        // Validate the name before touching storage, so a blank add writes
+        // nothing at all - not even the week's cart row.
+        var name = displayName?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            throw new ValidationException("A custom item needs a display name.");
+        }
+
+        var cart = await GetOrCreateBuildingCartAsync(householdId, weekIso, cancellationToken)
+            .ConfigureAwait(false);
+        if (cart is null)
+        {
+            return null;
+        }
+
+        var count = quantity is int requested && requested > 0 ? requested : 1;
+
+        // The same two-step write as a capture: advance the cart row's version
+        // under If-Match first, so a confirm holding the older version is a 412
+        // and a lost race leaves no orphan line behind.
+        await _carts
+            .UpdateAsync(
+                householdId,
+                new CartEntity
+                {
+                    PartitionKey = householdId,
+                    RowKey = cart.WeekIso,
+                    Status = cart.Status,
+                    ConfirmedByPersonId = cart.ConfirmedByPersonId,
+                    ConfirmedUtc = cart.ConfirmedUtc,
+                },
+                cart.ETag,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var itemId = Guid.NewGuid().ToString("N");
+        await _items
+            .AddAsync(
+                householdId,
+                new CartItemEntity
+                {
+                    PartitionKey = householdId,
+                    RowKey = CartItemEntity.RowKeyFor(cart.WeekIso, itemId),
+                    CartWeekIso = cart.WeekIso,
+                    ItemId = itemId,
+                    ProductId = string.Empty,
+                    DisplayName = name,
+                    Quantity = count,
+                    AddedByPersonId = personId,
+                    SourceConnector = CartItemSources.Custom,
+                    IndicativePrice = null,
+                    IsCustom = true,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return new CartItemView(
+            itemId,
+            ProductId: null,
+            name,
+            count,
+            personId,
+            CartItemSources.Custom,
+            IndicativePrice: null,
+            IsCustom: true);
+    }
+
     // The cart and its week's items in one shape - the single read the hub renders.
     private async Task<CartResponse> ComposeAsync(
         string householdId,
@@ -126,11 +205,14 @@ public sealed class CartService : ICartService
             items
                 .Select(item => new CartItemView(
                     item.ItemId,
-                    item.ProductId,
+                    // A custom line has no catalog product and no price.
+                    item.IsCustom ? null : item.ProductId,
                     item.DisplayName,
                     item.Quantity,
                     item.AddedByPersonId,
-                    item.SourceConnector))
+                    item.SourceConnector,
+                    item.IsCustom ? null : item.IndicativePrice,
+                    item.IsCustom))
                 .ToList());
     }
 

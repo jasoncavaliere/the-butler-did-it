@@ -156,6 +156,9 @@ public sealed class CaptureHandler : ICaptureHandler
                     // The origin of the line, carried straight off the G1 result so
                     // it survives a connector swap.
                     SourceConnector = product.SourceConnector,
+                    // Persisted so the cart read can total the line without a
+                    // store call (the confirm path must stay connector-free).
+                    IndicativePrice = product.IndicativePrice,
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -166,6 +169,7 @@ public sealed class CaptureHandler : ICaptureHandler
             product.DisplayName,
             quantity,
             request.PersonId,
-            product.SourceConnector);
+            product.SourceConnector,
+            product.IndicativePrice);
     }
 }

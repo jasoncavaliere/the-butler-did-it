@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Butler.Api.Application.Auth;
 using Butler.Api.Application.Capture;
 using Butler.Api.Application.Carts;
+using Butler.Api.Application.Grocery;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -44,6 +45,12 @@ public sealed class CaptureController : ControllerBase
     /// the caller holds one; otherwise (a shared hub tablet or an organizer) to the
     /// <c>personId</c> in the body - the UI's active participant. No resolvable
     /// actor is a <c>400</c>.
+    /// <para>
+    /// A term the store cannot match is a <c>200</c> with outcome <c>NoMatch</c>,
+    /// no item, and an empty suggestions list, so the hub can offer to add it as a
+    /// custom item. Several matches are a <c>400</c> carrying the suggestions, and
+    /// a <c>404</c> now means only an unknown household.
+    /// </para>
     /// </remarks>
     [HttpPost("text")]
     [Authorize]
@@ -108,14 +115,27 @@ public sealed class CaptureController : ControllerBase
 
     // Every outcome is a value, so the mapping is exhaustive and nothing here can
     // fall through to the exception handler as a 500. Item and WeekIso are
-    // non-null on Added by construction (see CaptureResult's factories).
+    // non-null on Added by construction, and WeekIso is non-null on NoMatch (see
+    // CaptureResult's factories).
     private ActionResult<CaptureResponse> Map(string householdId, CaptureResult result) => result.Outcome switch
     {
         CaptureOutcome.Added => Ok(new CaptureResponse(
+            nameof(CaptureOutcome.Added),
             result.CaptureSource,
             result.ResolvedTerm,
             result.WeekIso!,
-            result.Item!)),
+            result.Item!,
+            [])),
+
+        // Nothing in the catalog: not an error, but an answer the hub acts on by
+        // offering to add the term as a custom item. No suggestions in v1.
+        CaptureOutcome.NoMatch => Ok(new CaptureResponse(
+            nameof(CaptureOutcome.NoMatch),
+            result.CaptureSource,
+            result.ResolvedTerm,
+            result.WeekIso!,
+            null,
+            [])),
 
         // Several plausible products: hand back the candidates so the shopper can
         // pick, rather than guessing one into the cart.
@@ -123,12 +143,6 @@ public sealed class CaptureController : ControllerBase
             StatusCodes.Status400BadRequest,
             "The utterance matched more than one product.",
             $"'{result.ResolvedTerm}' matched {result.Suggestions.Count} products. Pick one of the suggestions.",
-            result),
-
-        CaptureOutcome.NoMatch => CaptureProblem(
-            StatusCodes.Status404NotFound,
-            "No product matched.",
-            $"The store has no product matching '{result.ResolvedTerm}'.",
             result),
 
         CaptureOutcome.EmptyTerm => CaptureProblem(
@@ -212,16 +226,24 @@ public sealed record CaptureUtteranceRequest(
     int? Quantity);
 
 /// <summary>
-/// A successful capture: the line that was added, plus what the capture actually
-/// resolved to, so the hub can echo "added Oat Milk" and show which source heard
-/// it.
+/// A capture that reached the catalog: either the line that was added, or the
+/// news that the store matched nothing, plus what the capture actually resolved
+/// to, so the hub can echo "added Oat Milk" (or offer "add 'unicorn steaks' as a
+/// custom item") and show which source heard it.
 /// </summary>
+/// <param name="Outcome">
+/// <c>Added</c> or <c>NoMatch</c> (the <see cref="CaptureOutcome"/> name, as a
+/// string).
+/// </param>
 /// <param name="CaptureSource">The <see cref="ICaptureSource"/> that handled the utterance.</param>
 /// <param name="ResolvedTerm">The product term extracted from the utterance.</param>
-/// <param name="WeekIso">The ISO year-week of the cart the item landed in.</param>
-/// <param name="Item">The cart line that was created.</param>
+/// <param name="WeekIso">The ISO year-week of the cart the item landed in (or would have).</param>
+/// <param name="Item">The cart line that was created on <c>Added</c>; <c>null</c> on <c>NoMatch</c>.</param>
+/// <param name="Suggestions">Candidate products; always empty for both outcomes in v1.</param>
 public sealed record CaptureResponse(
+    string Outcome,
     string CaptureSource,
     string ResolvedTerm,
     string WeekIso,
-    CartItemView Item);
+    CartItemView? Item,
+    IReadOnlyList<StoreProduct> Suggestions);
