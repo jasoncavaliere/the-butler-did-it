@@ -19,7 +19,8 @@ command against the one compose file, `demo/docker-compose.yml`.
 ```bash
 demo/demo.sh up        # build the hub export if needed, start, wait for healthy
 demo/demo.sh status    # container health, hub URL and dataset id
-demo/demo.sh logs -f api
+demo/demo.sh logs      # follow the API and Caddy logs (Ctrl+C to stop)
+demo/demo.sh logs --api   # API only
 demo/demo.sh down      # stop; data in demo/.data/azurite is kept
 demo/demo.sh share     # HTTPS URL + QR code for a tablet on your tailnet
 demo/demo.sh unshare   # stop sharing; localhost:8080 keeps working
@@ -30,7 +31,8 @@ PowerShell 7:
 ```powershell
 pwsh demo/demo.ps1 up          # or ./demo/demo.ps1 up from a pwsh prompt
 pwsh demo/demo.ps1 status
-pwsh demo/demo.ps1 logs -f api
+pwsh demo/demo.ps1 logs
+pwsh demo/demo.ps1 logs --api
 pwsh demo/demo.ps1 down
 pwsh demo/demo.ps1 share
 pwsh demo/demo.ps1 unshare
@@ -41,7 +43,7 @@ pwsh demo/demo.ps1 unshare
 | `demo.sh up` | Builds `Butler.UI/dist` when it is missing or older than the `Butler.UI` sources (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api` for the build), starts the stack, recreates `web` after a rebuild, and returns only when every service reports healthy. |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
-| `demo.sh logs` | Shows the stack logs. Extra arguments go to `docker compose logs` (for example `logs -f api`). |
+| `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`, or `logs -f azurite`). See [Logs](#logs). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
 | `demo.sh unshare` | Removes only the `/` handler `share` added (`tailscale serve --https=443 --set-path=/ off`); other serve handlers on 443 are kept. The hub stays on `http://localhost:8080`. |
 
@@ -106,10 +108,15 @@ recreate `web` afterwards or Caddy keeps serving the old folder:
 healthy. To run it by hand, from the repo root:
 
 ```bash
+mkdir -p demo/.data/logs && chmod 777 demo/.data/logs
 docker compose -f demo/docker-compose.yml up -d --build
 ```
 
-`--build` rebuilds the API image so it always matches your checkout.
+`--build` rebuilds the API image so it always matches your checkout. The
+`mkdir`/`chmod` line (which `up` runs for you) makes the API's log folder
+writable: the API container runs as a non-root user, and on a Linux engine a
+folder Docker creates for the bind mount is owned by root. Skip it and the API
+still runs, but writes no log files.
 
 ## URLs
 
@@ -259,6 +266,35 @@ certificate at all:
 
 The mapping lasts only while adb is connected; reconnecting the cable or
 restarting adb drops it. Remove it with `adb reverse --remove tcp:8080`.
+
+## Logs
+
+`demo.sh logs` follows the API and Caddy container logs together (Caddy
+writes one JSON access-log line per request); `demo.sh logs --api` shows only
+the API. Caddy's access log exists only there, in its container log.
+
+In the stack the API also writes a structured log file (the `Demo`
+environment only; nowhere else):
+
+- Path: `demo/.data/logs/butler-api-<yyyyMMdd>.log`, mounted at `/app/logs` in
+  the `api` container. Git-ignored, and kept across `down` and `up`.
+- Format: one compact JSON object per line (Serilog CLEF): `@t` timestamp,
+  `@mt` message template, plus the event's properties. Every request writes
+  one line with `Method`, `Path`, `StatusCode`, `ElapsedMs`, `HouseholdId`
+  (when the route has one) and `CorrelationId`.
+- Limits: a new file starts each day and whenever the current one reaches
+  10 MB (`butler-api-<date>_001.log`, ...); at most 10 files are kept, the
+  oldest deleted first. Change them with `DemoLogging__FileSizeLimitBytes` and
+  `DemoLogging__RetainedFileCountLimit` on the `api` service.
+- Correlation: an RFC 7807 error body's `traceId` is the request's
+  `CorrelationId`, so find the log line for a failed call with:
+
+  ```bash
+  grep -h '"CorrelationId":"<traceId>"' demo/.data/logs/butler-api-*.log
+  ```
+
+- The files are owned by the container user (uid 1654). Delete them with
+  `sudo rm` on Linux if your user cannot.
 
 ## Stop the stack
 

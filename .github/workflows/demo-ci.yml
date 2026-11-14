@@ -16,6 +16,8 @@
 #            share/unshare (#101) against a stub tailscale through both
 #            scripts (demo/ci/check-share.sh static), run once with the npx
 #            qrcode-terminal QR fallback and once with qrencode installed.
+#            And the API's log folder (#107) is bind-mounted from
+#            demo/.data/logs to /app/logs.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080, the single origin (SPA fallback, cache
 #            headers, /api proxy, #96), a household created and read back
@@ -26,7 +28,10 @@
 #            output, down keeping the data, and up rebuilding a missing or
 #            stale hub export and waiting for every service to be healthy.
 #            Also checks that Caddy keeps serving :8080 while share is on and
-#            after unshare (#101, demo/ci/check-share.sh stack).
+#            after unshare (#101, demo/ci/check-share.sh stack). And the Demo
+#            request log (#107): a 404's traceId appears as the CorrelationId
+#            in demo/.data/logs, `demo logs` follows api and web together, and
+#            `demo logs --api` shows only the API.
 name: demo-ci
 
 on:
@@ -74,6 +79,14 @@ jobs:
         run: |
           grep -E '^\s+image: mcr\.microsoft\.com/azure-storage/azurite:[0-9]+\.[0-9]+\.[0-9]+$' "$RUNNER_TEMP/compose.yml"
           grep -E 'source: .*/demo/\.data/azurite$' "$RUNNER_TEMP/compose.yml"
+
+      # #107 AC1: the API's rolling log files land in demo/.data/logs (mounted
+      # at /app/logs, where DemoLogging:DirectoryPath "logs" resolves).
+      - name: Assert API log folder bind mount
+        run: |
+          grep -E 'source: .*/demo/\.data/logs$' "$RUNNER_TEMP/compose.yml"
+          grep -E 'target: /app/logs$' "$RUNNER_TEMP/compose.yml"
+          git check-ignore -q demo/.data/logs/probe
 
       # AC4: explicit connection string to the azurite service, never the
       # UseDevelopmentStorage shortcut (which resolves to the api container).
@@ -217,9 +230,13 @@ jobs:
           npm ci
           npm run build:web
 
-      # AC1: all three services come up and stay running.
+      # AC1: all three services come up and stay running. The API runs as a
+      # non-root user, so its log folder is created writable first (#107), as
+      # demo up does.
       - name: Start the stack
         run: |
+          mkdir -p demo/.data/logs
+          chmod 777 demo/.data/logs
           docker compose -f "$COMPOSE_FILE_PATH" up -d --build --wait --wait-timeout 240
           running="$(docker compose -f "$COMPOSE_FILE_PATH" ps --services --status running | sort | tr '\n' ' ')"
           echo "running: $running"
@@ -239,6 +256,32 @@ jobs:
           done
           echo "API did not become healthy within 60s" >&2
           exit 1
+
+      # #107 AC1 + AC5: a request writes a structured line to the rolling file
+      # in demo/.data/logs, and the RFC 7807 traceId of an error response is
+      # that line's CorrelationId. The line is written after the response, so
+      # allow a few seconds for it to land.
+      - name: "API writes request logs to demo/.data/logs (#107)"
+        run: |
+          body="$(curl -sS "$API_URL/households/ci-log-probe")"
+          echo "$body"
+          trace="$(printf '%s' "$body" | jq -er '.traceId')"
+          echo "traceId: $trace"
+          for i in $(seq 1 10); do
+            line="$(sudo sh -c 'cat demo/.data/logs/butler-api-*.log' 2>/dev/null | grep -F "\"CorrelationId\":\"$trace\"" || true)"
+            [ -n "$line" ] && break
+            sleep 0.5
+          done
+          ls -l demo/.data/logs
+          if [ -z "$line" ]; then
+            echo "no log line with CorrelationId $trace in demo/.data/logs" >&2
+            exit 1
+          fi
+          echo "$line"
+          printf '%s\n' "$line" | grep -qF '"HouseholdId":"ci-log-probe"'
+          printf '%s\n' "$line" | grep -qF '"StatusCode":404'
+          printf '%s\n' "$line" | grep -qF '"Path":"/households/ci-log-probe"'
+          printf '%s\n' "$line" | grep -qE '"ElapsedMs":[0-9.]+'
 
       # AC7: the API created the tables on first boot, with no manual step.
       - name: Tables provisioned by the API on first boot
@@ -356,7 +399,29 @@ jobs:
           printf '%s\n' "$sh_status" | grep -E '^Dataset: ' | grep -vqF 'unavailable' || { echo "status did not show a dataset id" >&2; exit 1; }
 
           # AC6: logs shows the compose services' logs.
-          demo/demo.sh logs api | grep -E 'Provisioned [0-9]+ Table Storage tables'
+          demo/demo.sh logs --api --no-color | grep -E 'Provisioned [0-9]+ Table Storage tables'
+
+          # #107 AC6: plain `demo logs` follows the api and web (Caddy) logs
+          # together: it is still running when timeout stops it (exit 124) and
+          # has shown lines from both, including a Caddy access log.
+          curl -fsS -o /dev/null "$HUB_URL/"
+          curl -fsS -o /dev/null "$HUB_URL/api/health"
+          set +e
+          follow_out="$(timeout -k 5 15 demo/demo.sh logs 2>&1)"; follow_rc=$?
+          set -e
+          echo "demo logs exit=$follow_rc"
+          printf '%s\n' "$follow_out" | tail -n 20
+          [ "$follow_rc" -eq 124 ] || { echo "demo logs did not keep following (exit $follow_rc)" >&2; exit 1; }
+          printf '%s\n' "$follow_out" | grep -qE 'api-1 +[|]' || { echo "demo logs showed no api lines" >&2; exit 1; }
+          printf '%s\n' "$follow_out" | grep -qE 'web-1 +[|].*http[.]log[.]access' || { echo "demo logs showed no Caddy access log" >&2; exit 1; }
+
+          # #107 AC7: `demo logs --api` shows only the API.
+          api_out="$(demo/demo.sh logs --api --no-color --tail 200)"
+          printf '%s\n' "$api_out" | grep -qE 'api-1 +[|]' || { echo "demo logs --api showed no api lines" >&2; exit 1; }
+          if printf '%s\n' "$api_out" | grep -qE '(web|azurite)-1 +[|]'; then
+            echo "demo logs --api showed lines from another service" >&2
+            exit 1
+          fi
 
           # AC3: down stops everything and keeps the Azurite data.
           id="$(curl -fsS -X POST "$API_URL/households" \
@@ -436,9 +501,9 @@ jobs:
           # logs. --until pins the window so new request logs cannot differ.
           until="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           sleep 2
-          sh_logs="$(demo/demo.sh logs --no-color --until "$until" api)"
-          ps_logs="$(ps1 logs --no-color --until "$until" api)"
-          same "logs --no-color --until $until api" "$sh_logs" "$ps_logs"
+          sh_logs="$(demo/demo.sh logs --api --no-color --until "$until")"
+          ps_logs="$(ps1 logs --api --no-color --until "$until")"
+          same "logs --api --no-color --until $until" "$sh_logs" "$ps_logs"
           printf '%s\n' "$ps_logs" | grep -E 'Provisioned [0-9]+ Table Storage tables'
 
           # AC8 up, export fresh: same lines, no rebuild.

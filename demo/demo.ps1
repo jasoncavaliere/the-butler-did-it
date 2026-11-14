@@ -15,7 +15,10 @@
       down    Stop the stack. The Azurite data in demo/.data/azurite is kept.
       status  Show each container's state and health, the hub URL and the
               dataset id.
-      logs    Show the stack logs. Extra arguments go to docker compose logs.
+      logs    Follow the API and Caddy (web) logs, last 100 lines each.
+              --api shows only the API. Any other argument goes to
+              docker compose logs as-is and turns off the default
+              --follow --tail 100.
       share   Share the hub on your tailnet over HTTPS (tailscale serve
               --bg 8080) and print its https://<host>.<tailnet>.ts.net URL
               and a QR code for the tablet.
@@ -28,7 +31,9 @@
 .EXAMPLE
     pwsh demo/demo.ps1 up
 .EXAMPLE
-    ./demo/demo.ps1 logs -f api
+    ./demo/demo.ps1 logs --api
+.EXAMPLE
+    ./demo/demo.ps1 logs --api --no-color --since 10m
 #>
 
 Set-StrictMode -Version Latest
@@ -36,6 +41,8 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
 $ComposeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
+# Bind-mounted at /app/logs in the api container (#107): its rolling log files.
+$LogsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'logs'
 $UiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.UI'
 
 $HubUrl = 'http://localhost:8080'
@@ -50,7 +57,7 @@ $Commands = [ordered]@{
     up      = 'Build the hub export if needed, start the stack and wait until it is healthy'
     down    = 'Stop the stack (data in demo/.data/azurite is kept)'
     status  = 'Show container health, the hub URL and the dataset id'
-    logs    = 'Show the stack logs (extra arguments go to docker compose logs)'
+    logs    = 'Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)'
     share   = 'Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code'
     unshare = 'Turn off tailscale serve (the hub stays on http://localhost:8080)'
 }
@@ -144,6 +151,27 @@ function Invoke-ExportBuild {
     }
 }
 
+# The API container runs as a non-root user, so on a Linux engine it cannot
+# write a bind-mount folder that Docker creates as root. Create it first and
+# make it world-writable. A failure only warns: the stack still works, only
+# the API's log files may be missing.
+function Initialize-LogsDir {
+    $ok = $true
+    try {
+        New-Item -ItemType Directory -Force -Path $LogsDir | Out-Null
+        if (-not $IsWindows) {
+            & chmod 0777 $LogsDir 2>$null
+            if ($LASTEXITCODE -ne 0) { $ok = $false }
+        }
+    }
+    catch {
+        $ok = $false
+    }
+    if (-not $ok) {
+        Write-Err 'Could not make demo/.data/logs writable for the API container; its log files may be missing. Fix it with: sudo chmod 777 demo/.data/logs'
+    }
+}
+
 function Invoke-DemoUp {
     $rebuilt = $false
     switch (Get-ExportState) {
@@ -164,6 +192,7 @@ function Invoke-DemoUp {
         if ($script:ExitCode -ne 0) { return }
     }
 
+    Initialize-LogsDir
     Write-Out 'Starting the demo stack ...'
     Invoke-Compose @('up', '-d', '--build', '--wait', '--wait-timeout', $WaitTimeout)
     if ($script:ExitCode -eq 0 -and $rebuilt) {
@@ -219,8 +248,25 @@ function Invoke-DemoStatus {
     Write-Out "Dataset: $dataset"
 }
 
+# Default: follow the api and web (Caddy) logs, last 100 lines each. --api
+# narrows to the API. Any other argument goes to docker compose logs as-is and
+# turns off the default --follow --tail 100 (pass -f to follow).
 function Invoke-DemoLogs([string[]]$LogArgs) {
-    Invoke-Compose (@('logs') + $LogArgs)
+    $services = @('api', 'web')
+    $pass = @()
+    foreach ($arg in @($LogArgs)) {
+        if ($null -eq $arg) { continue }
+        if ($arg -ceq '--api') {
+            $services = @('api')
+        }
+        else {
+            $pass += $arg
+        }
+    }
+    if ($pass.Count -eq 0) {
+        $pass = @('--follow', '--tail', '100')
+    }
+    Invoke-Compose (@('logs') + $pass + $services)
 }
 
 # Returns the path of the tailscale CLI, or $null when it is not installed.

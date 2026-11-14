@@ -17,6 +17,9 @@ src/Butler.Api.ContainerTests/
 **/__blobstorage__
 **/__queuestorage__
 
+# Demo-environment rolling log files (#107); the demo stack mounts /app/logs
+**/logs/
+
 # Infrastructure-as-code and local secrets
 infra/
 **/.env

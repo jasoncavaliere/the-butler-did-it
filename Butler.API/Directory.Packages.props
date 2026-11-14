@@ -18,6 +18,10 @@
     <!-- Persistence seam (F3): Azure Table Storage client + managed-identity auth. -->
     <PackageVersion Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <!-- Demo-only rolling file log sink (#107): Serilog as an extra ILoggerProvider. -->
+    <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageVersion Include="Serilog.Formatting.Compact" Version="3.0.0" />
   </ItemGroup>
 
   <!-- Test-only dependencies (referenced only by src/Butler.Api.Tests). -->

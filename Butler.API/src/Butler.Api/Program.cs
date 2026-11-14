@@ -12,6 +12,7 @@ using Butler.Api.Application.Rooms;
 using Butler.Api.Application.System;
 using Butler.Api.Infrastructure.Auth;
 using Butler.Api.Infrastructure.Hosting;
+using Butler.Api.Infrastructure.Logging;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Mediation;
 
@@ -19,6 +20,10 @@ using Butler.Api.Mediation;
 // command-line configuration provider sees it (a bare switch would swallow the
 // next argument as its value).
 var builder = WebApplication.CreateBuilder(DemoCommandLine.Normalize(args));
+
+// Demo only (#107): console logging stays, plus a rolling JSON log file under
+// DemoLogging:DirectoryPath (the demo stack mounts demo/.data/logs there).
+builder.Logging.AddDemoFileLogging(builder.Configuration, builder.Environment);
 
 // --- Composition root ----------------------------------------------------
 // Program.cs wires each feature via its Add<Feature>Feature() extension. To add
@@ -85,6 +90,10 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Demo only (#107): one structured log event per request. Keep it outermost,
+// before UseExceptionHandler, so it records the final status of failed requests.
+app.UseDemoRequestLogging();
 
 // All errors become RFC 7807 problem details via the shared handler.
 app.UseExceptionHandler();

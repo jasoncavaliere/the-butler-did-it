@@ -22,6 +22,15 @@ public sealed class ThrowingTestController : ControllerBase
         throw new InvalidOperationException("deliberate failure from test endpoint");
 
     /// <summary>
+    /// Throws a generic exception (mapped to <c>500</c>) from a route that carries
+    /// a <c>householdId</c> value, so the Demo request log (#107) can be checked on
+    /// the exception-handler path, which clears route values.
+    /// </summary>
+    [HttpGet("/test/households/{householdId}/unhandled")]
+    public IActionResult HouseholdUnhandled(string householdId) =>
+        throw new InvalidOperationException($"deliberate failure for household {householdId}");
+
+    /// <summary>
     /// Throws <see cref="DataAnnotationsValidationException"/>, matched by the
     /// concrete-type arm of the handler and mapped to <c>400</c>.
     /// </summary>
