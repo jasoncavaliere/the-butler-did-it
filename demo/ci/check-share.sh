@@ -98,7 +98,7 @@ JSON
     fi
     echo "stub serve: https://demo-desktop.example-tailnet.ts.net/ proxy http://127.0.0.1:8080"
     ;;
-  "serve --https=443 off")
+  "serve --https=443 --set-path=/ off")
     exit "${TS_STUB_OFF_RC:-0}"
     ;;
   *)
@@ -196,7 +196,7 @@ share_ok() {
 unshare_ok() {
   with_stub "unshare" unshare
   expect_rc "unshare" 0
-  expect_log "unshare" "serve --https=443 off"
+  expect_log "unshare" "serve --https=443 --set-path=/ off"
   expect_out "unshare" "$S10"
 }
 
@@ -275,7 +275,7 @@ if [ "$mode" = "static" ]; then
   TS_STUB_OFF_RC=1 with_stub "unshare (fails)" unshare
   expect_rc "unshare (fails)" 1
   expect_out "unshare (fails)" "$S11"
-  expect_log "unshare (fails)" "serve --https=443 off"
+  expect_log "unshare (fails)" "serve --https=443 --set-path=/ off"
 else
   # AC7: sharing does not change what Caddy serves on :8080.
   check_hub "before share"

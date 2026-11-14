@@ -255,7 +255,7 @@ cmd_share() {
 cmd_unshare() {
   local ts rc=0
   ts="$(find_tailscale)" || return 1
-  "$ts" serve --https=443 off || rc=$?
+  "$ts" serve --https=443 --set-path=/ off || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "Could not turn off tailscale serve (was it on?). Check with 'tailscale serve status'." >&2
     return "$rc"

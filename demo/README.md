@@ -43,7 +43,7 @@ pwsh demo/demo.ps1 unshare
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Shows the stack logs. Extra arguments go to `docker compose logs` (for example `logs -f api`). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
-| `demo.sh unshare` | Turns `tailscale serve` off (`tailscale serve --https=443 off`). The hub stays on `http://localhost:8080`. |
+| `demo.sh unshare` | Removes only the `/` handler `share` added (`tailscale serve --https=443 --set-path=/ off`); other serve handlers on 443 are kept. The hub stays on `http://localhost:8080`. |
 
 Running a script with no subcommand, or with one it does not know, prints this
 list and exits non-zero. The `demo.ps1` commands are the same. The manual

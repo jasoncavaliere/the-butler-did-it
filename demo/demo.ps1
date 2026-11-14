@@ -328,7 +328,7 @@ function Invoke-DemoUnshare {
         Write-TailscaleMissing
         return
     }
-    & $ts serve --https=443 off
+    & $ts serve --https=443 --set-path=/ off
     $script:ExitCode = $LASTEXITCODE
     if ($script:ExitCode -ne 0) {
         Write-Err 'Could not turn off tailscale serve (was it on?). Check with ''tailscale serve status''.'
