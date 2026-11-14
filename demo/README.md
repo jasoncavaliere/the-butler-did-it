@@ -291,6 +291,6 @@ no table-creation steps.
 ## Known limits
 
 - Port 5108: the API is published on `127.0.0.1:5108`, which is also the
-  port the local dev workspace (`.workspace/`) binds `dotnet run` to. Stop a
-  locally running API before `up`, or `up` fails with "port is already
-  allocated".
+  port the in-memory quick loop documented in `.workspace/` binds `dotnet run`
+  to. Stop a locally running API before `up`, or `up` fails with "port is
+  already allocated".
