@@ -256,6 +256,60 @@ export type FairnessResponse = {
   shares: PersonShare[];
 };
 
+/** A person the per-person insights series cover (#123). */
+export type InsightsMember = {
+  personId: string;
+  /** Falls back to the id when the person has left the roster. */
+  displayName: string;
+  /** The person's claim colour (#RRGGBB), or `null` when none is chosen. */
+  claimColor: string | null;
+};
+
+/** One member's net completion count for a week (an undone completion does not count). */
+export type MemberCompletions = {
+  personId: string;
+  completions: number;
+};
+
+/** One ISO week of the insights window. */
+export type WeeklyInsight = {
+  weekIso: string;
+  totalEffort: number;
+  /** The member with the most effort that week, or `null` when the total is not positive. */
+  topContributorPersonId: string | null;
+  /** The top contributor's share of the week's effort, in [0, 1]. */
+  topContributorShare: number;
+  /** Every member's completions, in `members` order. */
+  completions: MemberCompletions[];
+};
+
+/** A count for one UTC day (`yyyy-MM-dd`). */
+export type DailyCount = {
+  date: string;
+  count: number;
+};
+
+/** A count for one UTC month (`yyyy-MM`). */
+export type MonthlyCount = {
+  month: string;
+  count: number;
+};
+
+/**
+ * The organizer's insights over a trailing ISO-week window, returned by
+ * `GET /households/{householdId}/insights?weeks=N` (#123, organizer only). Every
+ * series is oldest first and zero-filled; every bucket is UTC.
+ */
+export type InsightsResponse = {
+  windowStartWeekIso: string;
+  windowEndWeekIso: string;
+  windowWeeks: number;
+  members: InsightsMember[];
+  weeks: WeeklyInsight[];
+  glancesPerDay: DailyCount[];
+  cartsConfirmedPerMonth: MonthlyCount[];
+};
+
 /**
  * One line item in a week's grocery cart (G2), mirroring the API's `CartItemView`
  * DTO. {@link productId} and {@link sourceConnector} come from the G1 store

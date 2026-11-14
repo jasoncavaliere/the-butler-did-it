@@ -54,7 +54,7 @@ Request path: `Controllers/<Feature>Controller.cs` (thin) -> MediatR command/que
 | `Butler.Api.Tests/<Feature>/` | xUnit + NSubstitute. Service unit tests plus endpoint tests through `TestSupport/ButlerApiFactory` (real `Program`, Development env, dev organizer injected). |
 
 Features: Households, Rooms, People, Chores, HubDevices, Assignments (+ ChoreCompletions), Fairness,
-Grocery (store connector), Carts, Capture, Events (usage events), System. **To add a feature, copy the Rooms slice**
+Insights (organizer read model, #123), Grocery (store connector), Carts, Capture, Events (usage events), System. **To add a feature, copy the Rooms slice**
 (`Application/Rooms/`, `Infrastructure/Rooms/`, `Controllers/RoomsController.cs`, `Butler.Api.Tests/Rooms/`).
 Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section you need).
 
@@ -66,11 +66,12 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/api/` | Typed API client (`client.ts`), models, errors, `config.ts` (dev API base URL, :5108). |
 | `src/state/` | React contexts: app config, household, organizer, hub device. |
 | `src/auth/` | Organizer auth providers (dev / Entra), `OrganizerGate`, hub pairing. |
-| `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding), `Household` (organizer room/chore editor). |
+| `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding), `Household` (organizer room/chore editor), `Insights` (organizer insights charts, #123). |
 | `src/setup/` | Starter-chore template catalog (versioned JSON fixture) and matching helpers used by `HouseholdSetup`. |
-| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `Screen`. |
+| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `InsightsCharts` (View-based bar charts for the Insights screen, #123), `Screen`. |
 | `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect, and the hub-glance reporter (`hubGlance`, `useHubGlance`, #122). |
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
+| `src/insights/` | Pure helpers for the Insights screen: member colours, bar fractions, week/day/month labels (#123). |
 | `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
 | `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration and the PWA post-export step. |
 | `src/theme/` | Typed theme module over `design-tokens.json` (claim colours, light/dark palettes, spacing, touch targets) and the WCAG contrast helper (#120). |

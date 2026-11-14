@@ -44,6 +44,33 @@ public sealed class CartRepositoryTests
     }
 
     [Fact]
+    public async Task List_returns_every_cart_in_the_household_and_no_other()
+    {
+        var repository = NewRepository();
+        await repository.AddAsync("house-1", BuildingCart("2026-W28"), CancellationToken.None);
+        await repository.AddAsync("house-1", BuildingCart(), CancellationToken.None);
+        await repository.AddAsync("house-2", BuildingCart(), CancellationToken.None);
+
+        var carts = await repository.ListAsync("house-1", CancellationToken.None);
+
+        Assert.Equal(
+            new[] { "2026-W28", Week },
+            carts.Select(cart => cart.RowKey).OrderBy(key => key, StringComparer.Ordinal));
+        Assert.All(carts, cart => Assert.Equal("house-1", cart.PartitionKey));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task ListAsync_rejects_a_blank_household(string? householdId)
+    {
+        var repository = NewRepository();
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => repository.ListAsync(householdId!, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task A_week_with_no_cart_reads_back_as_null()
     {
         var repository = NewRepository();

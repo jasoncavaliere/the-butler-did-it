@@ -22,6 +22,30 @@ function pathAwareClient(): ApiClient {
       if (path.endsWith('/people') || path.endsWith('/rooms') || path.endsWith('/chores')) {
         return { ok: true, status: 200, data: [], etag: null };
       }
+      if (path.includes('/insights')) {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            windowStartWeekIso: '2026-W29',
+            windowEndWeekIso: '2026-W29',
+            windowWeeks: 1,
+            members: [],
+            weeks: [
+              {
+                weekIso: '2026-W29',
+                totalEffort: 0,
+                topContributorPersonId: null,
+                topContributorShare: 0,
+                completions: [],
+              },
+            ],
+            glancesPerDay: [{ date: '2026-07-13', count: 0 }],
+            cartsConfirmedPerMonth: [{ month: '2026-07', count: 0 }],
+          },
+          etag: null,
+        };
+      }
       if (path === '/me') {
         return { ok: true, status: 200, data: { subject: 'org', name: 'Org' }, etag: null };
       }
@@ -89,5 +113,34 @@ describe('RootNavigator', () => {
     });
 
     expect(await screen.findByTestId('household-editor')).toBeOnTheScreen();
+  });
+
+  it('opens the Insights screen from the organizer bar', async () => {
+    useApiClientMock.mockReturnValue(pathAwareClient());
+    const authProvider: IAuthProvider = {
+      kind: 'fake',
+      signIn: () =>
+        Promise.resolve({ organizer: { subject: 'oid-1', name: 'Robin Organizer' }, token: 'bearer' }),
+      signOut: () => Promise.resolve(),
+    };
+
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-77">
+        <OrganizerProvider authProvider={authProvider}>
+          <RootNavigator />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+
+    expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('organizer-sign-in'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('affordance-insights'));
+    });
+
+    expect(await screen.findByTestId('insights-screen')).toBeOnTheScreen();
+    expect(await screen.findByTestId('insights-chart-top-share')).toBeOnTheScreen();
   });
 });

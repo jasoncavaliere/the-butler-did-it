@@ -691,6 +691,41 @@ describe('HubShell', () => {
       expect(screen.queryByTestId('affordance-edit-household')).toBeNull();
     });
 
+    it('passes onShowInsights to the organizer bar', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+      const onShowInsights = jest.fn();
+
+      await renderHubWithOrganizer(fakeProvider(), { onShowInsights });
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      // Hidden until an organizer signs in.
+      expect(screen.queryByTestId('affordance-insights')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-insights'));
+      });
+
+      expect(onShowInsights).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no Insights button when the hub is not given onShowInsights', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+
+      expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+      expect(screen.queryByTestId('affordance-insights')).toBeNull();
+    });
+
     it('leaves the active participant claim intact when an organizer signs in', async () => {
       const client = interactiveClient();
       useApiClientMock.mockReturnValue(client);

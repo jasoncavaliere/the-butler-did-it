@@ -377,6 +377,38 @@ with the server time of the replay; and `Events` is not purged by the demo re-se
 teardown (#124). The feature registers via `AddEventsFeature()` in `Program.cs`, last, so `Events` is the
 last table provisioned.
 
+### Insights (organizer read model, #123)
+
+`Insights` (`Application/Insights/`, `Controllers/InsightsController`) is the organizer's view of how
+the household is doing. Like Fairness it is a pure read model with no table of its own:
+`IInsightsService.GetAsync(...)` reads only the household's partitions (7.3) of `ChoreCompletions`,
+`People`, `Events` (#122) and `Carts` (through `ICartRepository.ListAsync`, added for this read). The
+window is the current ISO week from the injected `TimeProvider` (7.5) and the `weeks - 1` weeks before
+it; the window starts on the Monday of the oldest week. Every bucket is UTC, like `WeekIso`, and every
+series is oldest first and zero-filled.
+
+- **Members** are the non-organizer roster plus any ledger person no longer on it (name falls back to the
+  id), ordered by display name then id (ordinal). Organizers are excluded, as in Fairness.
+- **Top contributor's share per week**: completions are bucketed by their stored `WeekIso` (not
+  `CompletedUtc`); effort is summed per member, an undo reversal row (`_void` row key) already carrying
+  negative effort. When the week's total is not positive there is no top contributor and the share is
+  `0`; otherwise the top is the greatest effort (ties by `personId`) and the share is top / total.
+- **Completions per member per week**: `+1` per row and `-1` per `_void` reversal row (detected by the
+  row-key suffix, since a zero-effort chore makes the sign unreliable), clamped at `0`.
+- **Glances per day**: `hub-glanced` events per UTC date from the window start through today; events
+  before the window or after now are ignored.
+- **Carts confirmed per month**: carts with `Status = Confirmed` and a `ConfirmedUtc` in
+  `[windowStart, now]`, per UTC month from the window-start month through the current month. Carts are
+  counted from the `Carts` table, not from `cart-confirmed` events, because events are not purged on the
+  demo re-seed.
+
+`weeks` is required and capped at 52: without a cap the date math can overflow and the payload is
+unbounded. The feature registers via `AddInsightsFeature()` in `Program.cs`, after Fairness.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /households/{householdId}/insights?weeks=N` | Organizer only (`Organizer` policy): a participant session or a paired hub device is `403`. Returns `200` with an `InsightsResponse` (`windowStartWeekIso`, `windowEndWeekIso`, `windowWeeks`, `members` (`personId`, `displayName`, `claimColor`), `weeks` (`weekIso`, `totalEffort`, `topContributorPersonId`, `topContributorShare` `0`..`1`, `completions` per member), `glancesPerDay` (`date` `yyyy-MM-dd`, `count`), `cartsConfirmedPerMonth` (`month` `yyyy-MM`, `count`)). A missing, non-numeric, or out-of-range `weeks` (below `1` or above `52`) is a `400` RFC 7807 document; an unknown `householdId` is `404`. |
+
 ### System (health + dataset id)
 
 `System` (`Application/System/`, `Infrastructure/System/`, `Controllers/SystemController`) is the

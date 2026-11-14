@@ -29,4 +29,10 @@ public interface ICartRepository
     /// match the stored version (<c>412</c> when stale).
     /// </summary>
     Task UpdateAsync(string householdId, CartEntity cart, string? ifMatch, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns every cart in the household's partition (every week, building or
+    /// confirmed) - the read the insights view (#123) counts confirmed carts from.
+    /// </summary>
+    Task<IReadOnlyList<CartEntity>> ListAsync(string householdId, CancellationToken cancellationToken = default);
 }
