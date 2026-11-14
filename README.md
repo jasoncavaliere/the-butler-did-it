@@ -27,9 +27,9 @@ coverage-gated test suite; the UI lints, typechecks, runs a coverage-gated test 
 Both enforce the 98% coverage gate (Engineering Contract 7.7), except UI presentation code (`src/components/`, `src/screens/`), which is gated at 90% during the demo push. See [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for the local commands that mirror CI.
 
-Changes under `demo/` run the `demo-ci` workflow, which validates the Docker Compose file and boots the
-full demo stack (Azurite + API + Caddy) to check the hub, its service worker, and that data survives a
-restart.
+Changes under `demo/`, `Butler.API/` or `Butler.UI/` run the `demo-ci` workflow (the stack builds both
+the API image and the hub export), which validates the Docker Compose file and boots the full demo stack
+(Azurite + API + Caddy) to check the hub, its service worker, and that data survives a restart.
 
 Changes under `Butler.Site/` run the `site-pages` workflow, which checks the landing page and, on `main`,
 deploys it to GitHub Pages.
