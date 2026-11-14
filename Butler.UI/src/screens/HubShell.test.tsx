@@ -221,6 +221,70 @@ describe('HubShell', () => {
     expect(screen.getByText('Sam')).toBeOnTheScreen();
   });
 
+  it('re-reads the household roster when refreshSignal changes, without showing the loading state (#167)', async () => {
+    const responses: Responses = {
+      household: okHousehold('Home'),
+      people: {
+        ok: true,
+        status: 200,
+        data: [
+          { personId: 'p1', displayName: 'Alex', claimColor: '#B0206F', isChild: false },
+          { personId: 'p2', displayName: 'Sam', claimColor: null, isChild: true },
+        ],
+        etag: null,
+      },
+    };
+    const client = clientWith(responses);
+    useApiClientMock.mockReturnValue(client);
+    const peopleReads = () =>
+      (client.get as jest.Mock).mock.calls.filter(([path]) => path === '/households/hh-1/people').length;
+
+    const view = await render(
+      <HouseholdProvider initialHouseholdId="hh-1">
+        <HubShell refreshSignal={0} />
+      </HouseholdProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('name-tile-p2')).toBeOnTheScreen());
+    expect(peopleReads()).toBe(1);
+
+    // The organizer renamed Alex and removed Sam on the Roster screen. Hold the
+    // re-read in flight to see what the hub shows meanwhile.
+    let release: (value: ApiResult<unknown>) => void = () => {};
+    responses.people = {
+      ok: true,
+      status: 200,
+      data: [{ personId: 'p1', displayName: 'Alexis', claimColor: '#B0206F', isChild: false }],
+      etag: null,
+    };
+    const held = new Promise<ApiResult<unknown>>((r) => {
+      release = r;
+    });
+    const realGet = (client.get as jest.Mock).getMockImplementation()!;
+    (client.get as jest.Mock).mockImplementation((path: string) =>
+      path === '/households/hh-1/people' ? held : realGet(path),
+    );
+
+    await act(async () => {
+      view.rerender(
+        <HouseholdProvider initialHouseholdId="hh-1">
+          <HubShell refreshSignal={1} />
+        </HouseholdProvider>,
+      );
+    });
+
+    expect(peopleReads()).toBe(2);
+    // No loading state while the re-read is in flight: the old tiles stay up.
+    expect(screen.queryByTestId('hub-loading')).toBeNull();
+    expect(screen.getByTestId('name-tile-p2')).toBeOnTheScreen();
+
+    await act(async () => {
+      release(responses.people);
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('name-tile-p2')).toBeNull());
+    expect(screen.getByText('Alexis')).toBeOnTheScreen();
+  });
+
   it('renders a stored non-token claim colour unchanged (#120 AC7)', async () => {
     // A household saved before #120 may store any hex. The hub neither snaps it
     // to a token colour nor rewrites it: the tile shows exactly what is stored.
@@ -681,6 +745,37 @@ describe('HubShell', () => {
       expect(onEditHousehold).toHaveBeenCalledTimes(1);
     });
 
+    it('passes onEditRoster to the organizer bar (#167)', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+      const onEditRoster = jest.fn();
+
+      await renderHubWithOrganizer(fakeProvider(), { onEditRoster });
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+
+      expect(screen.getByTestId('affordance-edit-roster')).toHaveTextContent('Edit roster');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-edit-roster'));
+      });
+
+      expect(onEditRoster).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no Edit roster while no organizer is signed in, even with onEditRoster supplied (#167)', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider(), { onEditRoster: jest.fn() });
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+      expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
+      expect(screen.queryByText('Edit roster')).toBeNull();
+    });
+
     it('shows no Household button when the hub is not given onEditHousehold', async () => {
       const client = interactiveClient();
       useApiClientMock.mockReturnValue(client);
@@ -996,10 +1091,11 @@ describe('HubShell', () => {
     });
 
     /**
-     * #57: the hub wires only the Confirm order affordance, and it never confirms
+     * #57: the hub wires the Confirm order affordance, and it never confirms
      * anything itself - it moves the organizer to the cart's own Confirm button,
-     * which keeps the final tap (G4). Edit roster (#167) and Household teardown
-     * (#168) have no screen yet, so they are not rendered at all.
+     * which keeps the final tap (G4). Edit roster (#167) renders only when the
+     * navigator supplies onEditRoster (tested above). Household teardown (#168)
+     * has no screen yet, so it is not rendered at all.
      */
     describe('organizer actions (#57)', () => {
       const SENSITIVE = [
@@ -1034,7 +1130,7 @@ describe('HubShell', () => {
         });
       }
 
-      it('a signed-in organizer sees Confirm order but no Edit roster or Household teardown', async () => {
+      it('a signed-in organizer sees Confirm order but no Household teardown', async () => {
         useApiClientMock.mockReturnValue(interactiveClient());
 
         await renderHubWithOrganizer(fakeProvider());
@@ -1043,9 +1139,7 @@ describe('HubShell', () => {
 
         expect(screen.getByTestId('organizer-actions')).toBeOnTheScreen();
         expect(screen.getByTestId('affordance-confirm-order')).toBeOnTheScreen();
-        expect(screen.queryByTestId('affordance-edit-roster')).toBeNull();
         expect(screen.queryByTestId('affordance-household-teardown')).toBeNull();
-        expect(screen.queryByText('Edit roster')).toBeNull();
         expect(screen.queryByText('Delete household')).toBeNull();
       });
 

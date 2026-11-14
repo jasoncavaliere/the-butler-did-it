@@ -56,7 +56,12 @@ export type PersonResponse = {
   role: string;
   isChild: boolean;
   claimColor: string | null;
-  etag: string;
+  /**
+   * Optimistic-concurrency stamp for `If-Match`. The API's `ETag` member
+   * serializes as `eTag` (camelCase), and the People endpoints send it only in
+   * the body (no `ETag` header), so `ApiResult.etag` is `null` on a person read.
+   */
+  eTag: string;
 };
 
 /**
@@ -128,6 +133,13 @@ export type CreatePersonRequest = {
   isChild: boolean;
   claimColor: string | null;
 };
+
+/**
+ * Body for `PUT /households/{householdId}/people/{personId}` (sent with
+ * `If-Match`). Same shape as {@link CreatePersonRequest}; the roster editor
+ * (#167) sends the role unchanged from the person read.
+ */
+export type UpdatePersonRequest = CreatePersonRequest;
 
 /** A chore as returned by the Chores endpoints (H2). */
 export type ChoreResponse = {
