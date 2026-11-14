@@ -15,6 +15,7 @@ Start with the **[Product Vision](Butler.KnowledgeBase/docs/10-product-vision.md
 | [`Butler.API/`](Butler.API/) | The backend service | .NET 10 Web API -> Azure App Service, Bicep |
 | [`Butler.KnowledgeBase/`](Butler.KnowledgeBase/) | Agent-managed wiki (canonical Markdown) | see its [index](Butler.KnowledgeBase/index.md) |
 | [`demo/`](demo/) | Local demo stack (Azurite + API + hub PWA) | Docker Compose, Caddy - see its [README](demo/README.md) |
+| [`Butler.Site/`](Butler.Site/) | One-page pilot landing page | Static HTML/CSS -> GitHub Pages - see its [README](Butler.Site/README.md) |
 
 Each sub-service is independent (its own build, deploy, and `infra/`). See [`CLAUDE.md`](CLAUDE.md) for
 how to work in this repo.
@@ -29,3 +30,6 @@ for the local commands that mirror CI.
 Changes under `demo/` run the `demo-ci` workflow, which validates the Docker Compose file and boots the
 full demo stack (Azurite + API + Caddy) to check the hub, its service worker, and that data survives a
 restart.
+
+Changes under `Butler.Site/` run the `site-pages` workflow, which checks the landing page and, on `main`,
+deploys it to GitHub Pages.

@@ -1,0 +1,85 @@
+# Pilot landing page (Butler.Site/, issue #134): check it, and deploy it to
+# GitHub Pages from main.
+#
+# Path-filtered: this runs only when a change touches Butler.Site/** (or this
+# workflow file itself). A design-token change does not re-run it; see
+# Butler.Site/README.md.
+#
+# Two jobs:
+#   check  - static checks (Butler.Site/ci/check-site.sh): plain HTML/CSS with
+#            no script or external loads, the story, capabilities, demo-clip
+#            and pilot sections, design-token colours only, one mailto: link
+#            with the pilot subject, README coverage, plain ASCII. Then the
+#            layout check (Butler.Site/ci/check-layout.mjs): headless Chrome
+#            at 375px (one column, no horizontal scroll, AC5) and 1280px
+#            (three-column desktop grid, no horizontal scroll, AC6).
+#   deploy - on a push to main or a manual run only (never on a PR): publishes
+#            index.html and styles.css to GitHub Pages. Needs Pages enabled
+#            with Source set to "GitHub Actions" (one-time owner step).
+name: site-pages
+
+on:
+  pull_request:
+    paths:
+      - "Butler.Site/**"
+      - ".github/workflows/site-pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Butler.Site/**"
+      - ".github/workflows/site-pages.yml"
+  workflow_dispatch:
+
+# Least privilege: the check only reads the source. The deploy job asks for
+# the Pages permissions it needs.
+permissions:
+  contents: read
+
+# Supersede in-flight PR runs for the same ref; never cancel a deploy midway.
+concurrency:
+  group: site-pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the landing page
+        run: bash Butler.Site/ci/check-site.sh
+
+      # Uses the runner's preinstalled google-chrome; no npm install.
+      - name: Check the layout at 375px and 1280px
+        run: node Butler.Site/ci/check-layout.mjs
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # Publish only the public page files, not the README or CI script.
+      - name: Stage the site
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          cp Butler.Site/index.html Butler.Site/styles.css "$RUNNER_TEMP/site/"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

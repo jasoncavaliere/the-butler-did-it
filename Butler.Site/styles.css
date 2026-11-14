@@ -1,0 +1,297 @@
+/*
+ * Butler pilot landing page (#134).
+ *
+ * Every colour below is copied by hand from Butler.UI/design-tokens.json:
+ * the light block from "colors", the dark block from "colors_dark". There is
+ * no build step, so nothing imports the tokens; Butler.Site/ci/check-site.sh
+ * fails CI if any colour here is not a token value. Hex literals appear only
+ * in the two :root blocks; everything else uses var(--...).
+ */
+
+:root {
+  --bg: #FAF7F2;
+  --surface: #FFFFFF;
+  --text: #22201C;
+  --text-muted: #6B6259;
+  --primary: #0F5A54;
+  --on-primary: #FFFFFF;
+  --border: #E7E0D6;
+  --border-strong: #918979;
+  --focus-ring: #0F5A54;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16130F;
+    --surface: #211D18;
+    --text: #F2EDE4;
+    --text-muted: #A99F92;
+    --primary: #4FB3A8;
+    --on-primary: #08201E;
+    --border: #3A342C;
+    --border-strong: #786F60;
+    --focus-ring: #4FB3A8;
+  }
+}
+
+/* Base */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+
+h1 {
+  font-size: 28px;
+}
+
+h2 {
+  font-size: 28px;
+}
+
+h3 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+p {
+  margin: 0 0 16px;
+}
+
+img,
+video,
+iframe {
+  max-width: 100%;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+/* Layout */
+
+.wrap {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+
+.prose p {
+  max-width: 48rem;
+}
+
+.section {
+  padding-block: 32px;
+}
+
+/* Skip link: visually hidden until focused */
+
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  z-index: 10;
+  padding: 8px 16px;
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: 8px;
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* Header */
+
+.site-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 64px;
+  padding-block: 8px;
+}
+
+.wordmark {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.header-cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+}
+
+/* Hero */
+
+.hero {
+  padding-block: 48px 32px;
+}
+
+.lead {
+  font-size: 22px;
+  max-width: 44rem;
+  margin-bottom: 24px;
+}
+
+/* Buttons */
+
+.button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding-inline: 16px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+}
+
+.button-primary:hover {
+  text-decoration: underline;
+}
+
+/* Capabilities */
+
+.capabilities {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 1fr;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.capability {
+  min-width: 0;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.capability p {
+  margin: 0;
+}
+
+/* Demo clip slot */
+
+.clip {
+  max-width: 48rem;
+  margin: 0;
+}
+
+.clip-slot {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+  padding: 16px;
+  background: var(--surface);
+  border: 2px dashed var(--border-strong);
+  border-radius: 16px;
+  color: var(--text-muted);
+  font-size: 22px;
+  text-align: center;
+}
+
+.clip-slot p {
+  margin: 0;
+}
+
+.clip figcaption {
+  margin-top: 12px;
+  color: var(--text-muted);
+}
+
+/* Pilot sign-up */
+
+.pilot-card {
+  max-width: 48rem;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.pilot-card .muted {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Footer */
+
+.site-footer {
+  border-top: 1px solid var(--border);
+  padding-block: 24px;
+}
+
+.site-footer p {
+  margin: 0;
+}
+
+/* Desktop layout */
+
+@media (min-width: 720px) {
+  h1 {
+    font-size: 44px;
+  }
+
+  .hero {
+    padding-block: 64px 48px;
+  }
+
+  .section {
+    padding-block: 48px;
+  }
+
+  .capabilities {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pilot-card {
+    padding: 32px;
+  }
+}

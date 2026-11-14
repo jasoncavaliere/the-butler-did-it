@@ -1,0 +1,2 @@
+# The site check is a bash script; CRLF line endings would break it.
+*.sh text eol=lf
