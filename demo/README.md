@@ -21,6 +21,8 @@ demo/demo.sh up        # build the hub export if needed, start, wait for healthy
 demo/demo.sh status    # container health, hub URL and dataset id
 demo/demo.sh logs -f api
 demo/demo.sh down      # stop; data in demo/.data/azurite is kept
+demo/demo.sh share     # HTTPS URL + QR code for a tablet on your tailnet
+demo/demo.sh unshare   # stop sharing; localhost:8080 keeps working
 ```
 
 PowerShell 7:
@@ -30,6 +32,8 @@ pwsh demo/demo.ps1 up          # or ./demo/demo.ps1 up from a pwsh prompt
 pwsh demo/demo.ps1 status
 pwsh demo/demo.ps1 logs -f api
 pwsh demo/demo.ps1 down
+pwsh demo/demo.ps1 share
+pwsh demo/demo.ps1 unshare
 ```
 
 | Command | What it does |
@@ -38,6 +42,8 @@ pwsh demo/demo.ps1 down
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Shows the stack logs. Extra arguments go to `docker compose logs` (for example `logs -f api`). |
+| `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
+| `demo.sh unshare` | Removes only the `/` handler `share` added (`tailscale serve --https=443 --set-path=/ off`); other serve handlers on 443 are kept. The hub stays on `http://localhost:8080`. |
 
 Running a script with no subcommand, or with one it does not know, prints this
 list and exits non-zero. The `demo.ps1` commands are the same. The manual
@@ -48,6 +54,10 @@ sections below are the fallback when you want to run the steps yourself.
 - Docker Desktop (or Docker Engine with the Compose v2 plugin on Linux).
 - Node 22 (the active LTS) to build the hub export.
 - PowerShell 7 to use `demo/demo.ps1` (bash is enough for `demo/demo.sh`).
+- Optional, for `share`: Tailscale 1.52 or later (older versions use a
+  different `tailscale serve` syntax).
+- Optional, for `share`: `qrencode` to print the QR code offline. Without it,
+  `share` uses `npx` to download `qrcode-terminal` from the npm registry.
 
 ## Build the hub export
 
@@ -112,7 +122,8 @@ docker compose -f demo/docker-compose.yml up -d --build
 | API health (direct, for debugging) | http://localhost:5108/health |
 
 Use `http://localhost:8080` (not a LAN IP) so the browser treats the page as a
-secure context and registers the service worker.
+secure context and registers the service worker. To open the hub on a tablet,
+see [Connecting a tablet](#connecting-a-tablet).
 
 ### Single origin
 
@@ -139,6 +150,115 @@ npm install --no-save --prefix /tmp/pw playwright@1.64.1
 /tmp/pw/node_modules/.bin/playwright install chromium
 NODE_PATH=/tmp/pw/node_modules node demo/ci/check-household-flow.cjs http://localhost:8080/
 ```
+
+## Connecting a tablet
+
+The hub is an offline-first PWA, and its service worker only registers in a
+secure context: HTTPS, or `http://localhost`. On a tablet,
+`http://<lan-ip>:8080` loads, but the service worker never registers, so the
+hub silently stops working the moment the tablet goes offline. Use one of the
+three options below. Checking them on real devices is tracked in #132.
+
+### Tailscale (default)
+
+`share` puts the hub on your tailnet at `https://<host>.<tailnet>.ts.net` with
+a publicly trusted certificate.
+
+One-time setup:
+
+1. Create a free Tailscale account and install Tailscale 1.52 or later on the
+   desktop that runs the stack and on the tablet.
+2. In the Tailscale admin console, on the DNS page, enable MagicDNS and HTTPS
+   Certificates.
+3. Sign in to the same tailnet on both devices.
+4. Linux only: allow your user to configure serving, once:
+   `sudo tailscale set --operator=$USER`.
+
+Each demo:
+
+```bash
+demo/demo.sh up
+demo/demo.sh share      # runs tailscale serve --bg 8080, prints the URL and a QR code
+# scan the QR code on the tablet, or type the URL
+demo/demo.sh unshare    # when you are done
+```
+
+- The certificate is publicly trusted, so the tablet needs no extra setup, and
+  kiosk apps and WebViews that ignore user-installed certificates still work.
+- It works across networks: the tablet can be on a phone hotspot while the
+  desktop is on office Wi-Fi.
+- It uses `tailscale serve`, not `tailscale funnel`, so the URL is reachable
+  only from devices signed in to your tailnet, never from the public internet.
+- The first request after `share` can take a few seconds while Tailscale
+  issues the certificate.
+- `http://localhost:8080` keeps working on the desktop while sharing is on:
+  `tailscale serve` only forwards the HTTPS traffic to it.
+- `share` stops with a message, without changing anything, if Tailscale is not
+  installed, not logged in, or reports no HTTPS name (MagicDNS or HTTPS
+  Certificates are off).
+- `unshare` turns off only the HTTPS handler that `share` added. It does not
+  run `tailscale serve reset`, so any other serve config you have is kept.
+
+### Local CA (manual fallback)
+
+Without Tailscale, serve the hub over HTTPS on the LAN with a certificate from
+a local certificate authority, and trust that authority on the tablet. This is
+not automated.
+
+With mkcert, on the desktop:
+
+```bash
+mkcert -install                 # creates the local CA (rootCA.pem in `mkcert -CAROOT`)
+mkcert 192.168.1.20             # your desktop's LAN IP; writes 192.168.1.20.pem and 192.168.1.20-key.pem
+```
+
+Then put an HTTPS proxy in front of the hub, for example with Caddy installed
+on the desktop and a `Caddyfile` outside the repo:
+
+```
+https://192.168.1.20:8443 {
+	tls 192.168.1.20.pem 192.168.1.20-key.pem
+	reverse_proxy localhost:8080
+}
+```
+
+Run it with `caddy run --config Caddyfile`. Or skip mkcert and let Caddy's own
+internal CA issue the certificate:
+
+```bash
+caddy reverse-proxy --from https://192.168.1.20:8443 --to localhost:8080 --internal-certs --disable-redirects
+```
+
+Caddy's root certificate is then `pki/authorities/local/root.crt` under
+Caddy's data directory (`caddy environ` prints it as `caddy.AppDataDir`).
+Allow port 8443 through the desktop firewall, then install the root
+certificate (mkcert's `rootCA.pem` or Caddy's `root.crt`) on the tablet:
+
+- Android: copy the file to the tablet, then open Settings > Security >
+  Encryption & credentials > Install a certificate > CA certificate (the menu
+  path varies by vendor).
+- iPad: send the file by AirDrop or email and open it, install the profile in
+  Settings > General > VPN & Device Management, then turn on full trust for it
+  in Settings > General > About > Certificate Trust Settings.
+
+Open `https://192.168.1.20:8443` on the tablet. Caveat: since Android 7, apps
+do not trust user-installed CAs unless they opt in, so a kiosk app or WebView
+may reject the certificate even though Chrome accepts it. Prefer Tailscale in
+that case.
+
+### adb reverse (Android, USB)
+
+For an Android tablet on a USB cable, `adb reverse` maps the tablet's own
+`localhost:8080` to the desktop's, so the hub is a secure context with no
+certificate at all:
+
+1. Enable Developer options and USB debugging on the tablet, connect it, and
+   accept the debugging prompt.
+2. On the desktop: `adb reverse tcp:8080 tcp:8080`.
+3. On the tablet, open `http://localhost:8080`.
+
+The mapping lasts only while adb is connected; reconnecting the cable or
+restarting adb drops it. Remove it with `adb reverse --remove tcp:8080`.
 
 ## Stop the stack
 

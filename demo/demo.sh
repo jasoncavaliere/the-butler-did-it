@@ -26,7 +26,9 @@ WAIT_TIMEOUT=300
 COMMANDS="up|Build the hub export if needed, start the stack and wait until it is healthy
 down|Stop the stack (data in demo/.data/azurite is kept)
 status|Show container health, the hub URL and the dataset id
-logs|Show the stack logs (extra arguments go to docker compose logs)"
+logs|Show the stack logs (extra arguments go to docker compose logs)
+share|Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code
+unshare|Turn off tailscale serve (the hub stays on http://localhost:8080)"
 
 # Files and folders under Butler.UI/ that the hub export is built from.
 UI_SOURCES="App.tsx index.ts app.json package.json package-lock.json tsconfig.json design-tokens.json src public assets scripts/pwa-export.js"
@@ -179,6 +181,86 @@ EOF
 
 cmd_logs() {
   compose logs "$@"
+}
+
+# Prints the path of the tailscale CLI, or S1 to stderr and returns 1.
+find_tailscale() {
+  if command -v tailscale >/dev/null 2>&1; then
+    command -v tailscale
+    return 0
+  fi
+  local mac="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  if [ -x "$mac" ]; then
+    echo "$mac"
+    return 0
+  fi
+  echo "Tailscale is not installed (no tailscale command found). Install it from https://tailscale.com/download and sign in." >&2
+  return 1
+}
+
+# Prints a terminal QR code of $1. A missing tool or a failed QR command only
+# prints a hint: the URL is already on screen.
+print_qr() {
+  local url="$1" rc=1
+  if command -v qrencode >/dev/null 2>&1; then
+    rc=0
+    qrencode -t ansiutf8 "$url" || rc=$?
+  elif command -v npx >/dev/null 2>&1; then
+    rc=0
+    # qrcode-terminal's bin reads stdin (not argv) when stdin is not a TTY.
+    printf '%s\n' "$url" | npx --yes --loglevel=error --no-update-notifier qrcode-terminal@0.12.0 || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not print a QR code (install qrencode, or let npx reach the npm registry). Type the URL above on the tablet instead." >&2
+  fi
+  return 0
+}
+
+# Service workers need a secure context, so a tablet must reach the hub over
+# HTTPS. tailscale serve proxies https://<host>.<tailnet>.ts.net to
+# http://127.0.0.1:8080, which Caddy keeps serving for the desktop browser.
+cmd_share() {
+  local ts json flat state name rc=0
+  ts="$(find_tailscale)" || return 1
+  json="$("$ts" status --json 2>/dev/null)" || json=""
+  # No jq: flatten the JSON and pick the two top-level fields out of it.
+  flat="$(printf '%s' "$json" | tr -d ' \t\r\n')" || flat=""
+  state="$(printf '%s' "$flat" | grep -o '"BackendState":"[^"]*"' | head -n 1 | sed 's/^"BackendState":"//; s/"$//')" || state=""
+  [ -z "$state" ] && state="unavailable"
+  if [ "$state" != "Running" ]; then
+    echo "Tailscale is installed but not logged in (backend state: $state). Run 'tailscale up' or sign in from the Tailscale app, then run share again." >&2
+    return 1
+  fi
+  # CertDomains, not Self.DNSName: DNSName also appears under every peer.
+  name="$(printf '%s' "$flat" | grep -o '"CertDomains":\["[^"]*"' | head -n 1 | sed 's/^"CertDomains":\["//; s/"$//')" || name=""
+  if [ -z "$name" ]; then
+    echo "Tailscale reports no HTTPS name for this machine. Enable MagicDNS and HTTPS Certificates on the DNS page of the Tailscale admin console, then run share again." >&2
+    return 1
+  fi
+  echo "Sharing http://localhost:8080 on your tailnet (tailscale serve --bg 8080) ..."
+  "$ts" serve --bg 8080 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "tailscale serve failed. On Linux, allow your user once with 'sudo tailscale set --operator=\$USER', then run share again." >&2
+    return "$rc"
+  fi
+  local url="https://$name"
+  echo "Hub on your tailnet: $url"
+  echo "Scan this on the tablet (it must be signed in to the same tailnet):"
+  print_qr "$url"
+  echo "The tablet needs the stack running (up). Run unshare to stop sharing."
+}
+
+# Turns off only the HTTPS 443 handler that share set up; `serve reset` would
+# also wipe any other serve config the user has.
+cmd_unshare() {
+  local ts rc=0
+  ts="$(find_tailscale)" || return 1
+  "$ts" serve --https=443 --set-path=/ off || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not turn off tailscale serve (was it on?). Check with 'tailscale serve status'." >&2
+    return "$rc"
+  fi
+  echo "Tailscale sharing is off. The hub is still at http://localhost:8080."
 }
 
 main() {

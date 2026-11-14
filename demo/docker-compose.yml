@@ -2,8 +2,8 @@
 #
 # The normal entry point is the demo CLI (#102), which builds the hub export
 # when needed and drives this file:
-#   demo/demo.sh up | down | status | logs        (bash, Linux/macOS)
-#   pwsh demo/demo.ps1 up | down | status | logs  (PowerShell 7)
+#   demo/demo.sh up | down | status | logs | share | unshare        (bash, Linux/macOS)
+#   pwsh demo/demo.ps1 up | down | status | logs | share | unshare  (PowerShell 7)
 #
 # Raw compose, from the repo root (build the hub export first - see
 # demo/README.md):

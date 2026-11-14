@@ -12,7 +12,10 @@
 #            git-ignored, and demo/README.md documents the commands. Also the
 #            demo CLI (#102): demo.sh and demo.ps1 parse, print the same usage
 #            and exit non-zero for no/unknown subcommands, every subcommand is
-#            in demo/README.md, and they drive the single compose file.
+#            in demo/README.md, and they drive the single compose file. And
+#            share/unshare (#101) against a stub tailscale through both
+#            scripts (demo/ci/check-share.sh static), run once with the npx
+#            qrcode-terminal QR fallback and once with qrencode installed.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080, the single origin (SPA fallback, cache
 #            headers, /api proxy, #96), a household created and read back
@@ -22,6 +25,8 @@
 #            up and down through both demo.sh and demo.ps1 with the same
 #            output, down keeping the data, and up rebuilding a missing or
 #            stale hub export and waiting for every service to be healthy.
+#            Also checks that Caddy keeps serving :8080 while share is on and
+#            after unshare (#101, demo/ci/check-share.sh stack).
 name: demo-ci
 
 on:
@@ -101,6 +106,11 @@ jobs:
           # #96: the /api build and the doubled system prefix are documented.
           grep -F 'EXPO_PUBLIC_API_BASE_URL=/api' demo/README.md
           grep -F '/api/api/system/ping' demo/README.md
+          # #101 AC8: the tablet section covers Tailscale, a local CA and adb reverse.
+          grep -F '## Connecting a tablet' demo/README.md
+          grep -F 'tailscale serve --bg 8080' demo/README.md
+          grep -F 'mkcert' demo/README.md
+          grep -F 'adb reverse tcp:8080 tcp:8080' demo/README.md
 
       # #102 AC7-AC11: the demo CLI scripts. pwsh is preinstalled on
       # ubuntu-latest. No stack is needed: usage is printed before docker is
@@ -133,7 +143,7 @@ jobs:
               diff <(printf '%s\n' "$sh_out") <(printf '%s\n' "$ps_out") || true
               exit 1
             fi
-            for cmd in up down status logs; do
+            for cmd in up down status logs share unshare; do
               printf '%s\n' "$sh_out" | grep -qE "^  $cmd " || { echo "usage does not list '$cmd'" >&2; exit 1; }
             done
           done
@@ -142,8 +152,8 @@ jobs:
           names="$(bash demo/demo.sh 2>&1 | awk '/^  [a-z]/{print $1}')"
           set -e
           count="$(printf '%s\n' "$names" | grep -c . || true)"
-          if [ "$count" -lt 4 ]; then
-            echo "expected at least 4 subcommands in the usage, parsed $count" >&2
+          if [ "$count" -lt 6 ]; then
+            echo "expected at least 6 subcommands in the usage, parsed $count" >&2
             exit 1
           fi
           for name in $names; do
@@ -158,6 +168,25 @@ jobs:
           # AC11: the API README separates the API-only loop from the demo.
           grep -F 'API-only dev loop' Butler.API/README.md
           grep -F 'demo/demo.sh' Butler.API/README.md
+
+      # #101: share/unshare against a stub tailscale, through both scripts.
+      # Node provides npx for the qrcode-terminal QR fallback.
+      - name: Set up Node (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # #101 AC1-AC6: no qrencode yet, so the QR code comes from npx
+      # qrcode-terminal.
+      - name: "demo CLI: share/unshare (npx QR fallback)"
+        run: bash demo/ci/check-share.sh static
+
+      - name: Install qrencode
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qrencode
+
+      # #101 AC5: with qrencode on PATH, the QR code is its ansiutf8 output.
+      - name: "demo CLI: share/unshare (qrencode)"
+        run: bash demo/ci/check-share.sh static
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -299,6 +328,11 @@ jobs:
             sleep 1
           done
           curl -fsS "$API_URL/households/$id" | jq -e '.name == "Demo CI Household"'
+
+      # #101 AC7: with share on (stub tailscale), and again after unshare,
+      # Caddy still serves the hub, its service worker and the API on :8080.
+      - name: "demo CLI: share keeps Caddy on :8080 (#101)"
+        run: bash demo/ci/check-share.sh stack
 
       # #102 AC1-AC6, AC8: the demo CLI against the running stack. The export
       # is fresh here; EXPO_PUBLIC_API_BASE_URL is deliberately not set, so the
