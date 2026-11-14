@@ -238,7 +238,7 @@ src/
               TodayPanel.tsx # bounded "today" container; glows in the active participant's claim colour (T3)
               ChoreBoard.tsx # today/this-week chore board with tap-to-complete/undo, fills TodayPanel (Epic 40 C5/C7)
               FairnessView.tsx # contribution-balance view, rendered below TodayPanel in HubShell (Epic 40 C6)
-              GroceryCart.tsx # hub grocery region: add by typing, review the cart, organizer-only confirm (Epic 50 G5)
+              GroceryCart.tsx # hub grocery region: add by typing or voice, review the cart, organizer-only confirm (Epic 50 G5, #116)
               OrderReceipt.tsx # order receipt shown in place of the hub body after a successful confirm (#115)
               LastKnownBanner.tsx # "showing last-known" indication when a region is served from cache (O2)
               SyncIndicator.tsx # hub-header sync state: online/offline, pending count, synced, failed writes (O4)
@@ -258,6 +258,8 @@ src/
               useWriteQueue.ts # React seam over the write queue: hydrate, drain on mount/reconnect/backoff, enqueue (O3)
               WriteQueueContext.tsx # WriteQueueProvider: the one queue per household, shared by board and indicator (O4)
               useBrowserOnline.ts # navigator.onLine + online/offline events; inert off web (O4)
+  voice/      speechRecognition.ts # feature-detected browser SpeechRecognition / webkitSpeechRecognition + local Web Speech types (#116)
+              useSpeechCapture.ts # one-utterance recognition hook behind the grocery mic: supported, listening, start(handlers) (#116)
   pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
               useServiceWorkerRegistration.ts # the hook App.tsx calls on mount (O1)
   state/      AppConfigContext.tsx # app-wide config/context providers
@@ -363,6 +365,20 @@ typed client:
   `/carts/{weekIso}/items` with `{ displayName, personId, quantity: 1 }`, then re-reads the cart; a
   failure shows the readable error and keeps the offer to retry, and any new add withdraws a stale
   offer. No outcome is ever a silent failure.
+- **Voice (#116).** Where the browser exposes speech recognition (`SpeechRecognition`, else
+  `webkitSpeechRecognition`, feature-detected through `src/voice/` rather than switched on
+  `Platform.OS`), a `Speak` button (`grocery-voice`) sits beside Add; with no recognizer (native,
+  Firefox, Jest) it is absent, not disabled. A tap listens for one utterance (`continuous` and
+  `interimResults` off, one alternative, `en-US`); the button reads `Listening...` and is disabled until
+  recognition ends, and recognition stops after the first result. The transcript is shown
+  (`Heard "<transcript>"`) and sent straight away, with no confirm tap, to `/capture/voice` with the same
+  body as a typed add. The API's normalizer strips fillers such as "please add" and "to the list", so
+  the UI only trims it. The answer is handled exactly as a typed add's is (added and re-read,
+  suggestions, or the custom-item offer), except that a spoken add leaves the text field alone. A
+  recognition error, no match, an empty transcript, or a session that ends with nothing heard posts
+  nothing and says `I did not catch that. Tap Speak to try again, or type it.`, and the cart stays usable.
+  Chrome grants the mic only in a secure context, so over plain `http://` on the LAN the tap lands in that
+  miss path.
 - **Confirm (G4).** The `Confirm order` action renders **only** for a signed-in organizer (T4) -
   absent, not disabled, matching the `OrganizerBar` convention - and POSTs to
   `/carts/{weekIso}/confirm` with the cart's `eTag` as `If-Match` (Contract 7.3), so a line added since
