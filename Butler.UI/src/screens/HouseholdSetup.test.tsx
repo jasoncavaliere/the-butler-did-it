@@ -176,7 +176,7 @@ describe('HouseholdSetup', () => {
           role: 'Participant',
           isChild: true,
           claimColor: '#77A8FF',
-          etag: '"p1"',
+          eTag: '"p1"',
         });
       }
       if (path.endsWith('/chores')) {
@@ -267,7 +267,7 @@ describe('HouseholdSetup', () => {
           return ok({ roomId: 'room-c', name: 'Kitchen', sortOrder: 0, eTag: '"r"' });
         }
         if (path.endsWith('/people')) {
-          return ok({ personId: 'p-c', ...(body as Record<string, unknown>), etag: '"p"' });
+          return ok({ personId: 'p-c', ...(body as Record<string, unknown>), eTag: '"p"' });
         }
         throw new Error(`unexpected path ${path}`);
       });

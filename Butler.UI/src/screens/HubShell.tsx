@@ -107,8 +107,8 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * or an unreachable service) so the wall never shows a crash or a blank screen.
  * There is no password or sign-in prompt here: participants glance and tap, and
  * organizer sign-in is a separate affordance (T4). Of the organizer's sensitive
- * actions, Household, Insights and Your data are wired through handlers the
- * navigator supplies, and Confirm order is wired here. Confirm order never
+ * actions, Household, Edit roster (#167), Insights and Your data are wired
+ * through handlers the navigator supplies, and Confirm order is wired here. Confirm order never
  * confirms anything: it scrolls to the {@link GroceryCart} and focuses the
  * cart's own Confirm button, which keeps the final tap (G4).
  *
@@ -232,8 +232,10 @@ function todayLabel(): string {
 export function HubShell({
   idleTimeoutMs = IDLE_TIMEOUT_MS,
   onEditHousehold,
+  onEditRoster,
   onShowInsights,
   onShowYourData,
+  refreshSignal = 0,
 }: {
   idleTimeoutMs?: number;
   /**
@@ -242,6 +244,12 @@ export function HubShell({
    * shows no Household button.
    */
   onEditHousehold?: () => void;
+  /**
+   * Opens the organizer's Roster editor (#167). Supplied by the navigator, like
+   * {@link onEditHousehold}; when omitted, the organizer bar shows no Edit
+   * roster button.
+   */
+  onEditRoster?: () => void;
   /**
    * Opens the organizer's Insights screen (#123). Supplied by the navigator, like
    * {@link onEditHousehold}; when omitted, the organizer bar shows no Insights
@@ -254,6 +262,12 @@ export function HubShell({
    * button.
    */
   onShowYourData?: () => void;
+  /**
+   * Bumped by the navigator when the hub comes back into focus after another
+   * route (#167). A change re-reads the household and roster in place, without
+   * the loading state, so roster edits show on the hub without an app reload.
+   */
+  refreshSignal?: number;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -282,8 +296,10 @@ export function HubShell({
       idleTimeoutMs={idleTimeoutMs}
       verifyDataset={householdId === null ? undefined : guard.verify}
       onEditHousehold={onEditHousehold}
+      onEditRoster={onEditRoster}
       onShowInsights={onShowInsights}
       onShowYourData={onShowYourData}
+      refreshSignal={refreshSignal}
     />
   );
 
@@ -297,14 +313,18 @@ function HubShellBody({
   idleTimeoutMs,
   verifyDataset,
   onEditHousehold,
+  onEditRoster,
   onShowInsights,
   onShowYourData,
+  refreshSignal,
 }: {
   idleTimeoutMs: number;
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
   onEditHousehold: (() => void) | undefined;
+  onEditRoster: (() => void) | undefined;
   onShowInsights: (() => void) | undefined;
   onShowYourData: (() => void) | undefined;
+  refreshSignal: number;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -383,8 +403,9 @@ function HubShellBody({
     // `reconnectSignal` bumps when the network returns while degraded, and
     // `queueSignal` when a queued write is confirmed while degraded - either is
     // what makes the hub reload itself rather than sitting on last-known data;
-    // `retrySignal` bumps when the today panel's "Try again" is tapped.
-  }, [client, householdId, reconnectSignal, queueSignal, retrySignal]);
+    // `retrySignal` bumps when the today panel's "Try again" is tapped, and
+    // `refreshSignal` when the hub regains focus after another route (#167).
+  }, [client, householdId, reconnectSignal, queueSignal, retrySignal, refreshSignal]);
 
   // Tapping a name claims that person through T1 and makes them active. There is
   // no password/PIN step: a successful claim sets the session, a switch (tapping
@@ -534,12 +555,14 @@ function HubShellBody({
           <HubGlanceReporter householdId={householdId} client={client} />
         </>
       ) : null}
-      {/* Household (#112), Insights (#123) and Your data (#125), when the
-          navigator supplies them, and Confirm order and Version (#126) are wired. Edit roster (#167) and Household teardown
-          (#168) are deliberately not passed, so OrganizerBar does not render them. */}
+      {/* Household (#112), Edit roster (#167), Insights (#123) and Your data
+          (#125), when the navigator supplies them, and Confirm order and Version
+          (#126) are wired. Household teardown (#168) is deliberately not passed,
+          so OrganizerBar does not render it. */}
       <View style={styles.chrome} testID="hub-chrome">
         <OrganizerBar
           onEditHousehold={onEditHousehold}
+          onEditRoster={onEditRoster}
           onShowInsights={onShowInsights}
           onShowYourData={onShowYourData}
           onShowVersion={handleShowVersion}

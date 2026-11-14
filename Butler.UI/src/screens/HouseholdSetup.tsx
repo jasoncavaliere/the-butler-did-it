@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiError } from '../api/client';
 import { friendlyApiError } from '../api/errors';
@@ -15,6 +15,7 @@ import type {
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { ActionButton, Chip, Field } from '../components/FormControls';
+import { PersonFields, type PersonDraft } from '../components/PersonFields';
 import { Screen, colors } from '../components/Screen';
 import { WidgetError } from '../components/WidgetState';
 import {
@@ -23,7 +24,6 @@ import {
   type StarterTemplate,
 } from '../setup/starterTemplates';
 import { useHousehold } from '../state/HouseholdContext';
-import { claimColors } from '../theme/theme';
 
 /**
  * The onboarding flow as a discriminated state machine. Modelling the created
@@ -63,6 +63,9 @@ const LOADING_LINES: Record<Exclude<FlowState['step'], 'done'>, string> = {
   chores: 'Adding the chores...',
 };
 
+/** The people step's empty form. */
+const EMPTY_PERSON: PersonDraft = { displayName: '', isChild: false, claimColor: null };
+
 /** The chore recurrence options the API accepts. */
 const CADENCES = ['Daily', 'Weekly'] as const;
 
@@ -81,11 +84,11 @@ function templateLabel(template: StarterTemplate): string {
  * Organizer onboarding: a multi-step wizard that stands up a household on top of
  * the H1-H4 endpoints, driven entirely through the F7 typed API client (no
  * ad-hoc fetch). The steps run in order - create the household, add rooms, add
- * people (each with a child flag and claim colour), then map starter chores to
- * rooms. The claim colour is one of the six design-token claim colours
- * ({@link claimColors}), stored as its dark-variant hex because the hub is
- * dark-only (#120). The chores step offers starter chores from the bundled catalog
- * (`src/setup/`) under each created room whose name or alias matches a catalog
+ * people (each with a child flag and claim colour, through the shared
+ * {@link PersonFields}), then map starter chores to rooms. The claim colour is
+ * one of the six design-token claim colours, stored as its dark-variant hex
+ * because the hub is dark-only (#120). The chores step offers starter chores
+ * from the bundled catalog (`src/setup/`) under each created room whose name or alias matches a catalog
  * room; the organizer toggles the ones they want and adds them in one tap, next
  * to the custom-chore form. Each step POSTs to its endpoint. While a request is
  * in flight the flow shows a step-specific loading line (P8, ADR-0007); a failed
@@ -109,9 +112,7 @@ export function HouseholdSetup() {
   // Step-local form fields.
   const [householdName, setHouseholdName] = useState('');
   const [roomName, setRoomName] = useState('');
-  const [personName, setPersonName] = useState('');
-  const [personIsChild, setPersonIsChild] = useState(false);
-  const [personClaimColor, setPersonClaimColor] = useState<string | null>(null);
+  const [person, setPerson] = useState<PersonDraft>(EMPTY_PERSON);
   const [choreTitle, setChoreTitle] = useState('');
   const [choreRoomId, setChoreRoomId] = useState<string | null>(null);
   const [choreCadence, setChoreCadence] = useState<(typeof CADENCES)[number]>('Weekly');
@@ -189,7 +190,7 @@ export function HouseholdSetup() {
   }
 
   async function addPerson(current: PeopleState) {
-    const displayName = personName.trim();
+    const displayName = person.displayName.trim();
     if (!displayName) {
       invalid('Enter a name.');
       return;
@@ -199,8 +200,8 @@ export function HouseholdSetup() {
     const body: CreatePersonRequest = {
       displayName,
       role: 'Participant',
-      isChild: personIsChild,
-      claimColor: personClaimColor,
+      isChild: person.isChild,
+      claimColor: person.claimColor,
     };
     const result = await client.update<PersonResponse>(
       `/households/${current.householdId}/people`,
@@ -213,9 +214,7 @@ export function HouseholdSetup() {
       return;
     }
     setFlow({ ...current, people: [...current.people, result.data] });
-    setPersonName('');
-    setPersonIsChild(false);
-    setPersonClaimColor(null);
+    setPerson(EMPTY_PERSON);
   }
 
   function goToChores(current: PeopleState) {
@@ -415,39 +414,7 @@ export function HouseholdSetup() {
 
       {flow.step === 'people' && (
         <View>
-          <Field
-            label="Person name"
-            testID="input-person-name"
-            value={personName}
-            onChangeText={setPersonName}
-            placeholder="Alex"
-          />
-          <View style={styles.row}>
-            <Text style={styles.label}>Child</Text>
-            <Switch
-              testID="input-person-child"
-              value={personIsChild}
-              onValueChange={setPersonIsChild}
-            />
-          </View>
-          <Text style={styles.label}>Claim colour</Text>
-          <View style={styles.swatches}>
-            {claimColors.map((color) => (
-              <Pressable
-                key={color.name}
-                testID={`claim-color-${color.name}`}
-                accessibilityRole="button"
-                accessibilityLabel={color.name}
-                accessibilityState={{ selected: personClaimColor === color.dark }}
-                onPress={() => setPersonClaimColor(color.dark)}
-                style={[
-                  styles.swatch,
-                  { backgroundColor: color.dark },
-                  personClaimColor === color.dark && styles.swatchSelected,
-                ]}
-              />
-            ))}
-          </View>
+          <PersonFields value={person} onChange={setPerson} />
           <ActionButton testID="add-person" onPress={() => addPerson(flow)} disabled={submitting}>
             Add person
           </ActionButton>
@@ -662,15 +629,7 @@ const styles = StyleSheet.create({
   loading: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   loadingText: { color: colors.muted, fontSize: 15 },
   label: { color: colors.muted, fontSize: 13, marginBottom: 6 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
-  swatchSelected: { borderColor: colors.ink },
   added: { marginBottom: 16 },
   starter: { marginBottom: 24 },
   starterRoom: {

@@ -55,6 +55,65 @@ function pathAwareClient(): ApiClient {
   };
 }
 
+/**
+ * A client over a mutable people list for the Roster tests (#167): the roster
+ * read and the single-person read answer from it, and a PUT or DELETE on a
+ * person changes it, so the hub's next roster read sees the change.
+ */
+function rosterServerClient() {
+  let people = [
+    { personId: 'p1', displayName: 'Alex', claimColor: null, isChild: false },
+    { personId: 'p2', displayName: 'Sam', claimColor: null, isChild: true },
+  ];
+  const base = pathAwareClient();
+  const get = jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+    if (path === '/households/hh-77/people') {
+      return { ok: true, status: 200, data: people, etag: null };
+    }
+    const id = /^\/households\/hh-77\/people\/(\w+)$/.exec(path)?.[1];
+    if (id) {
+      const person = people.find((p) => p.personId === id)!;
+      return { ok: true, status: 200, data: { ...person, role: 'Participant', eTag: `W/"${id}"` }, etag: null };
+    }
+    return base.get(path);
+  });
+  const update = jest.fn(
+    async (path: string, body: unknown, options?: { method?: string }): Promise<ApiResult<unknown>> => {
+      const id = /^\/households\/hh-77\/people\/(\w+)$/.exec(path)?.[1];
+      if (id && options?.method === 'DELETE') {
+        people = people.filter((p) => p.personId !== id);
+        return { ok: true, status: 204, data: undefined, etag: null };
+      }
+      if (id && options?.method === 'PUT') {
+        const next = { personId: id, ...(body as { displayName: string; claimColor: null; isChild: boolean }) };
+        people = people.map((p) => (p.personId === id ? next : p));
+        return { ok: true, status: 200, data: { ...next, role: 'Participant', eTag: `W/"${id}-2"` }, etag: null };
+      }
+      // The board's generate: nothing to show.
+      return { ok: false, error: { kind: 'network', status: 0, title: 'offline' } };
+    },
+  );
+  const client: ApiClient = {
+    baseUrl: base.baseUrl,
+    get: get as unknown as ApiClient['get'],
+    update: update as unknown as ApiClient['update'],
+  };
+  return { client, get, update };
+}
+
+const organizerAuth: IAuthProvider = {
+  kind: 'fake',
+  signIn: () =>
+    Promise.resolve({ organizer: { subject: 'oid-1', name: 'Robin Organizer' }, token: 'bearer' }),
+  signOut: () => Promise.resolve(),
+};
+
+async function press(testID: string) {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId(testID));
+  });
+}
+
 afterEach(() => {
   useApiClientMock.mockReset();
 });
@@ -171,5 +230,64 @@ describe('RootNavigator', () => {
 
     expect(await screen.findByTestId('your-data-screen')).toBeOnTheScreen();
     expect(await screen.findByTestId('your-data-stored')).toBeOnTheScreen();
+  });
+
+  it('opens the Roster screen from the organizer bar', async () => {
+    const { client } = rosterServerClient();
+    useApiClientMock.mockReturnValue(client);
+
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-77">
+        <OrganizerProvider authProvider={organizerAuth}>
+          <RootNavigator />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+
+    expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+    await press('organizer-sign-in');
+    await press('affordance-edit-roster');
+
+    expect(await screen.findByTestId('roster-editor')).toBeOnTheScreen();
+    expect(await screen.findByTestId('roster-person-p1')).toBeOnTheScreen();
+  });
+
+  it('shows roster changes on the hub after leaving the Roster screen', async () => {
+    const { client, get } = rosterServerClient();
+    useApiClientMock.mockReturnValue(client);
+    const rosterReads = () =>
+      get.mock.calls.filter(([path]) => path === '/households/hh-77/people').length;
+
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-77">
+        <OrganizerProvider authProvider={organizerAuth}>
+          <RootNavigator />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+
+    expect(await screen.findByTestId('name-tile-p2')).toBeOnTheScreen();
+    // The first focus on mount does not double the hub's initial load.
+    expect(rosterReads()).toBe(1);
+    await press('organizer-sign-in');
+    await press('affordance-edit-roster');
+    expect(await screen.findByTestId('roster-person-p2')).toBeOnTheScreen();
+
+    // Rename Alex and remove Sam.
+    await press('roster-edit-p1');
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('input-person-name'), 'Alexis');
+    });
+    await press('roster-form-save');
+    await press('roster-remove-p2');
+    await press('roster-remove-confirm-p2');
+    expect(screen.queryByTestId('roster-person-p2')).toBeNull();
+
+    await press('roster-done');
+
+    await waitFor(() => expect(screen.queryByTestId('roster-editor')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('name-tile-p2')).toBeNull());
+    expect(screen.getByTestId('name-tile-p1')).toHaveTextContent('Alexis');
+    expect(screen.queryByTestId('hub-loading')).toBeNull();
   });
 });

@@ -37,7 +37,8 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * - each assignment's title + cadence from the open Chores read (H2), joined by
  *   `choreId` (the C3 projection carries no title);
  * - the person display name + claim colour from the roster the shell already
- *   loaded, passed in as {@link people}.
+ *   loaded, passed in as {@link people}. An assignee missing from that roster
+ *   (removed by the organizer's roster editor, #167) shows as "Unassigned".
  *
  * The items are grouped into the panel's two day buckets - daily-cadence chores
  * under "Today", weekly-cadence under "This week" - and within each bucket by
@@ -159,6 +160,7 @@ const COPY = {
   emptyDetailGlance: 'Nothing on the board this week. Enjoy the quiet.',
   emptyDetailMine: 'Nothing on your list this week.',
   loadFailed: 'The board did not load just now. Tap Try again.',
+  unassigned: 'Unassigned',
 } as const;
 
 /**
@@ -837,7 +839,7 @@ export function ChoreBoard({
             <View style={styles.groups} testID={`chore-board-groups-${bucket.key}`}>
               {personIds.map((personId) => {
                 const person = people.find((entry) => entry.personId === personId);
-                const name = person?.displayName ?? personId;
+                const name = person?.displayName ?? COPY.unassigned;
                 const accent = person?.claimColor ?? colors.brass;
                 const isActive = personId === activePersonId;
                 const personItems = dayItems.filter((item) => item.assignedPersonId === personId);

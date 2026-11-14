@@ -101,8 +101,9 @@ touching anything under `public/` or `scripts/`.
   editor (#112). Your data is wired: it opens the plain-language data page (#125). Confirm order is
   wired: it scrolls the hub to `GroceryCart` and focuses the cart's own Confirm order button, and the final tap stays in the cart (G4). After
   Confirm order succeeds the hub shows the order receipt (`OrderReceipt`, #115) until it is
-  dismissed back to the hub. Edit roster
-  is #167 and Household teardown is #168; until they land, those buttons are not rendered.
+  dismissed back to the hub. Edit roster is wired (#167): it opens the organizer's Roster screen,
+  and the hub re-reads its roster when the organizer comes back. Household teardown is #168; until it
+  lands, that button is not rendered.
 - `EXPO_PUBLIC_AUTH_PROVIDER` picks the organizer sign-in at bundle time: `dev` (the dev organizer, the
   default through `EXPO_PUBLIC_DISABLE_AUTH`), `entra`, or `pin` (#105, the demo stack). With `pin`,
   `OrganizerGate` and `OrganizerBar` show a PIN pad and the API returns a short-lived organizer token

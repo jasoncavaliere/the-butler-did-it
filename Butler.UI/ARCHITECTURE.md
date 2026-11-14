@@ -538,7 +538,7 @@ hub drops to participant-only mode without an error. With the PIN provider, `Org
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
-does nothing. Today that is Household (#112), Insights (#123) and Your data (#125), which open their
+does nothing. Today that is Household (#112), Edit roster (#167), Insights (#123) and Your data (#125), which open their
 routes through the handlers `RootNavigator` passes to `HubShell`, Version (#126), and Confirm order, which scrolls the hub to `GroceryCart` and focuses the
 cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Version is
 hub-internal state, not a route: it toggles a panel (`hub-version-panel`) rendered after the fixed-height
@@ -549,8 +549,8 @@ open. `VersionInfo` shows the hub's build SHA (`EXPO_PUBLIC_BUILD_SHA`, inlined 
 fails the API version is `unavailable` and no mismatch is claimed. Expo inlines `EXPO_PUBLIC_*` values
 while it transforms a module, and Metro's transform cache is not keyed on env values, so
 `metro.config.js` folds every `EXPO_PUBLIC_*` value into Metro's `cacheVersion`
-(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache. Edit roster
-is #167 and Household teardown is #168; until they land, `HubShell` does not pass those handlers. This is defense-in-depth only: the API enforces the
+(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache. Household
+teardown is #168; until it lands, `HubShell` does not pass that handler. This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.
@@ -587,6 +587,25 @@ both lists and closes the editor without re-sending the edit (`isPreconditionFai
 shows the problem-details message and leaves the list as it was. Deactivate and room DELETE carry no
 `If-Match`. Removing a room is refused on the client while it has active chores (the server DELETE does not
 check). This list/edit/If-Match/412 shape is the pattern for the roster editor (#167).
+
+**Roster editor** (`src/screens/RosterEditor.tsx`, #167) is the organizer's after-setup editor for the
+household's people, on the `Roster` route behind `OrganizerGate` (`RosterScreen.tsx`), opened from Edit
+roster on `OrganizerBar`; its Done button goes back to the hub. It follows the Household editor pattern.
+The list comes from `GET /households/{id}/people` (name, Child/Adult, claim-colour dot), which carries no
+role and no ETag (and omits organizers), so opening a person reads `GET /households/{id}/people/{personId}`
+and the form takes the role and `eTag` from that read. The People endpoints send the ETag only in the body
+(`PersonResponse.eTag`), never as a header, so `ApiResult.etag` is `null` there. Save is a PUT under
+`If-Match` with the role unchanged from the read (there is no role control) and is disabled while the
+trimmed name is empty. A `412` shows a reload prompt that re-reads that person and its ETag without
+re-sending the edit; any other failure, such as a `400`, shows the problem-details message
+(`describeApiError`) and leaves the list as it was. Add person reuses the onboarding people-step fields
+(`src/components/PersonFields.tsx`, shared with `HouseholdSetup`) and POSTs role `Participant`. Remove asks
+for a confirmation that names the person, then sends a DELETE with no `If-Match`. Nothing regenerates the
+current week: a removed person's assignments stay on the board, where `ChoreBoard` shows an assignee
+missing from the roster as "Unassigned" instead of the raw id. The native stack keeps Home mounted under
+the pushed route, so `RootNavigator`'s Home bumps a `refreshSignal` when it regains focus after a blur, and
+`HubShell` re-reads the household and roster in place (no loading state), so the tiles and board show the
+roster changes without an app reload.
 
 **Hub device pairing** (`src/auth/HubPairing.tsx`, `src/state/HubDeviceContext.tsx`, T5) makes the
 shared tablet itself a long-lived, household-scoped actor rather than an anonymous caller. `HubPairing`

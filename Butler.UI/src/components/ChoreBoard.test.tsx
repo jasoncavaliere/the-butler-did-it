@@ -634,7 +634,7 @@ describe('ChoreBoard', () => {
     ).toBeOnTheScreen();
   });
 
-  it('renders an unknown assignee by id, after the known roster', async () => {
+  it('renders an assignee missing from the roster as Unassigned, after the known roster', async () => {
     await renderBoard(
       boardClient({
         assignments: [
@@ -645,7 +645,10 @@ describe('ChoreBoard', () => {
     );
 
     await waitFor(() => expect(screen.getByTestId('chore-board-person-today-stranger')).toBeOnTheScreen());
-    expect(screen.getByText('stranger')).toBeOnTheScreen();
+    expect(
+      within(screen.getByTestId('chore-board-person-today-stranger')).getByText('Unassigned'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText('stranger')).toBeNull();
   });
 });
 
