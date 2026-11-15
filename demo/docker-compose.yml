@@ -115,7 +115,9 @@ services:
         bind:
           create_host_path: false
     healthcheck:
-      # The alpine image ships busybox wget.
+      # The alpine image ships busybox wget. The Caddyfile @healthcheck
+      # matcher keeps this probe out of the access log (#192) by keying on
+      # this URL (path /) and its loopback source: change them together.
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/"]
       interval: 2s
       timeout: 2s

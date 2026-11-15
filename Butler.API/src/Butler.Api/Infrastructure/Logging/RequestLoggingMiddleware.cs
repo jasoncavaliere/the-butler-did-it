@@ -9,10 +9,15 @@ namespace Butler.Api.Infrastructure.Logging;
 /// when the route has one, and the correlation id. The correlation id is the
 /// same value RFC 7807 problem details carry as <c>traceId</c>
 /// (<c>Activity.Current?.Id ?? HttpContext.TraceIdentifier</c>), so a client's
-/// error body can be matched to its log line.
+/// error body can be matched to its log line. Requests to the <c>/health</c>
+/// liveness probe (exact path, any case) are not logged (#192): the compose
+/// healthcheck hits it every few seconds and would bury real traffic.
 /// </summary>
 internal sealed partial class RequestLoggingMiddleware
 {
+    // The liveness endpoint mapped in Program.cs (MapGet("/health")).
+    private static readonly PathString HealthPath = new("/health");
+
     private readonly RequestDelegate _next;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RequestLoggingMiddleware> _logger;
@@ -29,6 +34,13 @@ internal sealed partial class RequestLoggingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        // Exact match only: /health/x and /healthz are still logged.
+        if (context.Request.Path.Equals(HealthPath, StringComparison.OrdinalIgnoreCase))
+        {
+            await _next(context);
+            return;
+        }
+
         var start = _timeProvider.GetTimestamp();
 
         // Routing has already run (WebApplication puts UseRouting in front of

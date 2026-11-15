@@ -358,9 +358,10 @@ restarting adb drops it. Remove it with `adb reverse --remove tcp:8080`.
 ## Logs
 
 `demo.sh logs` follows the API and Caddy container logs together (Caddy
-writes one JSON access-log line per request); `demo.sh logs --api` shows only
-the API, and naming a service (`demo.sh logs -f azurite`) shows only that
-service. Caddy's access log exists only there, in its container log.
+writes one JSON access-log line per request, except its own healthcheck probe,
+#192); `demo.sh logs --api` shows only the API, and naming a service
+(`demo.sh logs -f azurite`) shows only that service. Caddy's access log
+exists only there, in its container log.
 
 In the stack the API also writes a structured log file (the `Demo`
 environment only; nowhere else):
@@ -368,9 +369,10 @@ environment only; nowhere else):
 - Path: `demo/.data/logs/butler-api-<yyyyMMdd>.log`, mounted at `/app/logs` in
   the `api` container. Git-ignored, and kept across `down` and `up`.
 - Format: one compact JSON object per line (Serilog CLEF): `@t` timestamp,
-  `@mt` message template, plus the event's properties. Every request writes
-  one line with `Method`, `Path`, `StatusCode`, `ElapsedMs`, `HouseholdId`
-  (when the route has one) and `CorrelationId`.
+  `@mt` message template, plus the event's properties. Every request except
+  `GET /health`, the healthcheck probe (#192), writes one line with `Method`,
+  `Path`, `StatusCode`, `ElapsedMs`, `HouseholdId` (when the route has one)
+  and `CorrelationId`.
 - Limits: a new file starts each day and whenever the current one reaches
   10 MB (`butler-api-<date>_001.log`, ...); at most 10 files are kept, the
   oldest deleted first. Change them with `DemoLogging__FileSizeLimitBytes` and

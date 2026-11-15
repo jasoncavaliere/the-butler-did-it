@@ -56,7 +56,10 @@
 #            request log (#107): a 404's traceId appears as the CorrelationId
 #            in demo/.data/logs, `demo logs` follows api and web together, and
 #            `demo logs --api` shows only the API, and `demo logs ... azurite`
-#            shows only Azurite through both scripts (#190). The API runs
+#            shows only Azurite through both scripts (#190). The health
+#            probes stay out of the request logs (#192): no Caddy access line
+#            for its loopback healthcheck while a host request to / is still
+#            logged, and no GET /health line in the API file. The API runs
 #            with the PIN organizer (#105): the job writes a random CI-only
 #            PIN to the git-ignored demo/.env, builds the hub with
 #            EXPO_PUBLIC_AUTH_PROVIDER=pin, and signs in through
@@ -389,6 +392,30 @@ jobs:
           printf '%s\n' "$line" | grep -qF '"StatusCode":404'
           printf '%s\n' "$line" | grep -qF '"Path":"/households/ci-log-probe"'
           printf '%s\n' "$line" | grep -qE '"ElapsedMs":[0-9.]+'
+
+      # #192 AC1-AC3: the compose healthchecks (Caddy's loopback wget of / every
+      # 2s, the API's GET /health every 5s) write no request-log lines, while a
+      # host request to the hub is still in Caddy's access log. Both probes have
+      # run many times by now (the stack has been healthy for a while).
+      - name: "Health probes stay out of the request logs (#192)"
+        run: |
+          curl -fsS -o /dev/null "$HUB_URL/"
+          sleep 1
+          web_log="$(docker compose -f "$COMPOSE_FILE_PATH" logs --no-color web | grep -F 'http.log.access' || true)"
+          if printf '%s\n' "$web_log" | grep -qF '"remote_ip":"127.0.0.1"'; then
+            printf '%s\n' "$web_log" | grep -F '"remote_ip":"127.0.0.1"' | tail -n 3
+            echo "Caddy logged its own loopback healthcheck probe" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$web_log" | grep -F '"host":"localhost:8080"' | grep -qF '"uri":"/"'; then
+            echo "Caddy did not log the host request to $HUB_URL/" >&2
+            exit 1
+          fi
+          if sudo sh -c 'cat demo/.data/logs/butler-api-*.log' | grep -qF '"Path":"/health"'; then
+            echo "the API logged a GET /health request line" >&2
+            exit 1
+          fi
+          echo "health probes are not logged; other requests are"
 
       # AC7: the API created the tables on first boot, with no manual step.
       - name: Tables provisioned by the API on first boot
