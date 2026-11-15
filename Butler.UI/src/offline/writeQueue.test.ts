@@ -400,6 +400,132 @@ describe('a malformed entry is dropped without taking the queue with it', () => 
   });
 });
 
+/**
+ * Before #217 a queued hub-glance the API refused was retried like any write and
+ * flagged `failed` at the cap. Current code drops it instead, but an entry an
+ * earlier build already flagged would sit in storage forever: the drain skips
+ * failed entries, and a glance's key is unique to its tap, so no later enqueue
+ * revives it. It is purged when the queue is read (#287).
+ */
+describe('a hub-glance stored as failed is purged (#287)', () => {
+  const failedGlance: QueuedWrite = {
+    ...hubGlanceWrite('hh-1', 1_000),
+    enqueuedAtMs: 1,
+    attempts: MAX_WRITE_ATTEMPTS,
+    status: 'failed',
+    lastError: 'Unauthorized',
+  };
+  const pendingCompletion: QueuedWrite = {
+    ...completion('c1'),
+    enqueuedAtMs: 2,
+    attempts: 0,
+    status: 'pending',
+  };
+  const failedCompletion: QueuedWrite = {
+    ...completion('c2'),
+    enqueuedAtMs: 3,
+    attempts: MAX_WRITE_ATTEMPTS,
+    status: 'failed',
+    lastError: 'Conflict',
+  };
+
+  function seed(...entries: unknown[]) {
+    return fakeStorage({ [writeQueueKey('hh-1')]: JSON.stringify(entries) });
+  }
+
+  /** The raw stored queue, parsed - what a reload would find. */
+  function stored(storage: ReturnType<typeof fakeStorage>): unknown {
+    return JSON.parse(storage.entries.get(writeQueueKey('hh-1')) ?? 'null');
+  }
+
+  it('drops a hub-glance stored as failed when the queue is read, and writes the cleaned queue back', () => {
+    const storage = seed(failedGlance, pendingCompletion);
+
+    expect(readWriteQueue('hh-1', storage)).toEqual([pendingCompletion]);
+    expect(stored(storage)).toEqual([pendingCompletion]);
+  });
+
+  it('the drain purges a stored failed hub-glance without sending it', async () => {
+    const storage = seed(failedGlance);
+    const { send } = recordingSend();
+
+    const outcome = await drainWriteQueue('hh-1', send, storage);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ queue: [], confirmed: 0, retryDelayMs: null, offline: false });
+    expect(stored(storage)).toEqual([]);
+  });
+
+  it('a purged hub-glance no longer counts as failed', () => {
+    const storage = seed(failedGlance, failedCompletion);
+
+    expect(countFailed(readWriteQueue('hh-1', storage))).toBe(1);
+  });
+
+  it('a read with nothing to purge leaves storage untouched', () => {
+    const storage = seed(failedCompletion);
+    const setItem = jest.spyOn(storage, 'setItem');
+
+    expect(readWriteQueue('hh-1', storage)).toEqual([failedCompletion]);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['chore-complete', failedCompletion],
+    ['chore-undo', { ...reversal('c3'), enqueuedAtMs: 4, attempts: 1, status: 'failed', lastError: STALE_WEEK_ERROR }],
+    [
+      'cart-add',
+      {
+        kind: 'cart-add',
+        dedupeKey: 'cart|2019-W01|oat-milk',
+        method: 'POST',
+        path: '/households/hh-1/carts/items',
+        body: { sku: 'oat-milk' },
+        enqueuedAtMs: 5,
+        attempts: MAX_WRITE_ATTEMPTS,
+        status: 'failed',
+        lastError: 'Unauthorized',
+      },
+    ],
+    [
+      'an unknown kind',
+      {
+        ...completion('c4'),
+        kind: 'mystery' as unknown as QueuedWrite['kind'],
+        enqueuedAtMs: 6,
+        attempts: MAX_WRITE_ATTEMPTS,
+        status: 'failed',
+        lastError: 'Conflict',
+      },
+    ],
+  ] as [string, QueuedWrite][])('keeps a failed %s entry stored beside a failed hub-glance', (_label, kept) => {
+    const storage = seed(failedGlance, kept);
+
+    expect(readWriteQueue('hh-1', storage)).toEqual([kept]);
+    expect(stored(storage)).toEqual([kept]);
+  });
+
+  it('a pending hub-glance is kept, and storage is not rewritten', () => {
+    const pendingGlance: QueuedWrite = { ...failedGlance, attempts: 0, status: 'pending' };
+    delete pendingGlance.lastError;
+    const storage = seed(pendingGlance);
+    const setItem = jest.spyOn(storage, 'setItem');
+
+    expect(readWriteQueue('hh-1', storage)).toEqual([pendingGlance]);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it('a purged hub-glance does not shadow a later entry with the same key', () => {
+    // Only reachable through hand-edited storage, but the purged entry must not
+    // claim its key, or the duplicate guard would drop the real write behind it.
+    const pendingGlance: QueuedWrite = { ...failedGlance, enqueuedAtMs: 7, attempts: 0, status: 'pending' };
+    delete pendingGlance.lastError;
+    const storage = seed(failedGlance, pendingGlance);
+
+    expect(readWriteQueue('hh-1', storage)).toEqual([pendingGlance]);
+  });
+});
+
 describe('backoffDelayMs', () => {
   it('doubles per attempt and then holds at the ceiling, never a tight loop', () => {
     expect(backoffDelayMs(1)).toBe(1_000);

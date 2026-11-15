@@ -308,6 +308,30 @@ describe('useWriteQueue', () => {
     expect(readWriteQueue('hh-1')).toEqual([]);
   });
 
+  it('a hub-glance stored as failed by an earlier build is not shown as failed (#287)', async () => {
+    saveWriteQueue('hh-1', [
+      {
+        ...hubGlanceWrite('hh-1', 1_000),
+        enqueuedAtMs: 1,
+        attempts: MAX_WRITE_ATTEMPTS,
+        status: 'failed',
+        lastError: 'Unauthorized',
+      },
+      stored('c1', { attempts: MAX_WRITE_ATTEMPTS, status: 'failed', lastError: 'Conflict' }),
+    ]);
+    const client = queueClient(() => confirmed);
+
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    // From the first render: only the real failed write is counted or listed.
+    expect(result.current.failed).toBe(1);
+    expect(result.current.entries.map((entry) => entry.kind)).toEqual(['chore-complete']);
+    const raw = globalThis.localStorage.getItem(writeQueueKey('hh-1')) ?? '';
+    expect(raw).not.toContain('hub-glance');
+    // The glance is purged, never replayed.
+    expect(client.update).not.toHaveBeenCalled();
+  });
+
   it('re-probes on a slow heartbeat while the API is unreachable', async () => {
     // A browser can report `online` while the API is still down (and a wall tablet
     // is never reloaded by hand), so the queue does not rely on the event alone.
