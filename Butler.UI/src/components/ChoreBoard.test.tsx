@@ -2571,10 +2571,11 @@ describe('ChoreBoard offline write queue', () => {
     expect(readWriteQueue('hh-1')).toEqual([]);
   });
 
-  it('live-tap-overlap: an earlier tap that finds the network gone is still queued but leaves a later tap\'s record', async () => {
-    // #153: the undo (the middle tap) finds the network gone. It is still queued,
-    // as any unreachable tap is, but the last complete's record stays, so the
-    // queued undo's overlay cannot draw c2 Open over it.
+  it('live-tap-overlap: an overtaken tap that finds the network gone is held, not queued, and leaves a later tap\'s record (#242)', async () => {
+    // #153/#242: the undo (the middle tap) finds the network gone while the last
+    // complete is still in flight. It is held on the chain rather than queued,
+    // so it can never replay over the last complete, and the last complete's
+    // record still draws c2 Done over the stale refetch.
     const fake = await liveBoardWithParkedTaps();
 
     await tapC2();
@@ -2582,25 +2583,21 @@ describe('ChoreBoard offline write queue', () => {
     await tapC2();
 
     await settle(() => fake.releaseLive(1, unreachable));
-    expect(readWriteQueue('hh-1').map((write) => write.dedupeKey)).toEqual([
-      assignmentDedupeKey(thisWeek, 'c2'),
-    ]);
+    expect(readWriteQueue('hh-1')).toEqual([]);
     expectC2('Done');
 
     await settle(() => fake.releaseGenerate());
     expectC2('Done');
 
-    // Let the rest land so the board ends settled: the queued undo's replay (the
-    // fourth parked POST), then the last complete, then the first.
-    await waitFor(() => expect(fake.parkedLiveCount()).toBe(4));
-    await settle(() => fake.releaseLive(3));
-    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    expectC2('Done');
+    // The last complete succeeds, which discards the held undo; the first
+    // complete answers after it, overtaken.
     await settle(() => fake.releaseLive(2));
     await settle(() => fake.releaseLive(0));
     await flush();
-    expectC2('Done');
+    expect(fake.parkedLiveCount()).toBe(3);
+    expect(readWriteQueue('hh-1')).toEqual([]);
     expect(fake.server.status.c2).toBe('Done');
+    expectC2('Done');
   });
 
   it('live-tap-overlap: a refused newest tap hands the record back to the earlier in-flight tap, so a racing load and that tap\'s success leave the row settled (#241)', async () => {
@@ -2671,6 +2668,117 @@ describe('ChoreBoard offline write queue', () => {
     expectC2('Done');
     expect(fake.server.status.c2).toBe('Done');
     expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
+  /**
+   * Answer every parked c2 POST past the first `from` as the server would, so a
+   * replay of a wrongly queued write lands before the server is checked (#242).
+   */
+  const releaseParkedFrom = async (fake: ReturnType<typeof serverClient>, from: number) => {
+    for (let index = from; index < fake.parkedLiveCount(); index += 1) {
+      await settle(() => fake.releaseLive(index));
+    }
+  };
+
+  it('live-tap-overlap: an overtaken tap that finds the network gone is not replayed over the newest tap\'s success (#242)', async () => {
+    // #242: complete then undo on c2. The complete finds the network gone while
+    // the undo is still in flight; the undo then succeeds. Queuing the complete
+    // would replay it after the undo and leave the server Done.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(0, unreachable));
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expectC2('Open');
+
+    await settle(() => fake.releaseLive(1));
+    await flush();
+    await flush();
+    await releaseParkedFrom(fake, 2);
+    await settle(() => fake.releaseGenerate());
+
+    expect(fake.server.status.c2).toBe('Open');
+    expect(fake.parkedLiveCount()).toBe(2);
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expectC2('Open');
+  });
+
+  it('live-tap-overlap: an overtaken tap that finds the network gone after the newest tap succeeded is not queued (#242)', async () => {
+    // #242: the undo succeeds first, so its record is settled with no chain;
+    // the complete's network answer that follows has nothing to hand on to.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(1));
+    await settle(() => fake.releaseLive(0, unreachable));
+    await flush();
+    await flush();
+    await releaseParkedFrom(fake, 2);
+
+    expect(fake.server.status.c2).toBe('Open');
+    expect(fake.parkedLiveCount()).toBe(2);
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expectC2('Open');
+  });
+
+  it('live-tap-overlap: a held overtaken tap is queued when the newest tap is refused, so its write still reaches the server (#242)', async () => {
+    // #242: the complete finds the network gone and is held under the undo.
+    // The undo is then refused, so the complete is what the family last meant
+    // that the server has not refused: it is queued and replays.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(0, unreachable));
+    expect(readWriteQueue('hh-1')).toEqual([]);
+
+    await settle(() => fake.releaseLive(1, refused));
+    expectC2('Done');
+    expect(readWriteQueue('hh-1').map((write) => [write.kind, write.dedupeKey])).toEqual([
+      ['chore-complete', assignmentDedupeKey(thisWeek, 'c2')],
+    ]);
+
+    await waitFor(() => expect(fake.parkedLiveCount()).toBe(3));
+    await settle(() => fake.releaseLive(2));
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await settle(() => fake.releaseGenerate());
+    expect(fake.server.status.c2).toBe('Done');
+    expectC2('Done');
+  });
+
+  it('live-tap-overlap: an older overtaken tap\'s network failure is dropped under a newer held tap, and the newer one is queued when the newest is refused (#242)', async () => {
+    // #242: complete, undo, complete. The undo finds the network gone and is
+    // held, cutting the chain below it; the first complete's network answer
+    // then finds no link and is dropped. When the last complete is refused, the
+    // held undo is queued, and it is the only write for c2.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(1, unreachable));
+    await settle(() => fake.releaseLive(0, unreachable));
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(2, refused));
+    expectC2('Open');
+    expect(readWriteQueue('hh-1').map((write) => [write.kind, write.dedupeKey])).toEqual([
+      ['chore-undo', assignmentDedupeKey(thisWeek, 'c2')],
+    ]);
+
+    await waitFor(() => expect(fake.parkedLiveCount()).toBe(4));
+    await settle(() => fake.releaseLive(3));
+    await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
+    await settle(() => fake.releaseGenerate());
+    expect(fake.server.status.c2).toBe('Open');
+    expectC2('Open');
   });
 
   it('live-tap-cache-fallback: a live tap still in flight when a load falls back to the cached week keeps its tapped state', async () => {
