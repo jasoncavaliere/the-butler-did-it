@@ -56,6 +56,19 @@ function draftFor(person: PersonResponse): PersonDraft {
 }
 
 /**
+ * True when `editor` is the `kind` editor for `personId` (an add editor has no
+ * person). It matches by kind and person, not object identity, because every
+ * keystroke replaces the editor object.
+ */
+function isEditorFor<K extends Editor['kind']>(
+  editor: Editor | null,
+  kind: K,
+  personId?: string,
+): editor is Extract<Editor, { kind: K }> {
+  return editor?.kind === kind && (editor.kind === 'add' || editor.personId === personId);
+}
+
+/**
  * The organizer's Roster editor (#167): the household's people, and the edits an
  * organizer makes after setup. It follows the {@link HouseholdEditor} pattern.
  * The list comes from the roster read (`GET .../people`), which carries no role
@@ -69,6 +82,10 @@ function draftFor(person: PersonResponse): PersonDraft {
  * always adds a Participant. Remove asks for a confirmation that names the
  * person, then sends a `DELETE`; their chores this week stay on the board as
  * Unassigned.
+ *
+ * Edit, Remove and Add person are held while a write is in flight, and a
+ * finishing write changes only the editor it was started for (a form cancelled
+ * meanwhile stays closed) while the list takes the server's result.
  */
 export function RosterEditor({ onDone }: { onDone?: () => void }) {
   const client = useApiClient();
@@ -155,6 +172,11 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
     );
   }
 
+  /** Apply `change` to the latest list, not the one captured when a write began. */
+  function updatePeople(change: (people: RosterEntryResponse[]) => RosterEntryResponse[]) {
+    setLoad((prev) => (prev.phase === 'ready' ? { phase: 'ready', people: change(prev.people) } : prev));
+  }
+
   /** Begin a write: clear the last message and hold every write button. */
   function begin() {
     setNotice(null);
@@ -193,15 +215,12 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
       return;
     }
     const fresh = result.data;
-    setLoad({
-      phase: 'ready',
-      people: people.map((p) => (p.personId === personId ? toEntry(fresh) : p)),
-    });
+    updatePeople((list) => list.map((p) => (p.personId === personId ? toEntry(fresh) : p)));
     setEditor({ kind: 'edit', personId, person: fresh, draft: draftFor(fresh), stale: false });
   }
 
   async function saveEdit(current: Extract<Editor, { kind: 'edit' }>) {
-    const { person, draft } = current;
+    const { person, draft, personId } = current;
     begin();
     const body: UpdatePersonRequest = {
       displayName: draft.displayName.trim(),
@@ -216,18 +235,16 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
     setBusy(false);
     if (!result.ok) {
       if (isPreconditionFailed(result.error)) {
-        setEditor({ ...current, stale: true });
+        // Mark the latest form stale, keeping what was typed during the request.
+        setEditor((cur) => (isEditorFor(cur, 'edit', personId) ? { ...cur, stale: true } : cur));
         return;
       }
       setNotice(describeApiError(result.error));
       return;
     }
     const saved = result.data;
-    setLoad({
-      phase: 'ready',
-      people: people.map((p) => (p.personId === saved.personId ? toEntry(saved) : p)),
-    });
-    setEditor(null);
+    updatePeople((list) => list.map((p) => (p.personId === saved.personId ? toEntry(saved) : p)));
+    setEditor((cur) => (isEditorFor(cur, 'edit', personId) ? null : cur));
   }
 
   async function saveAdd(draft: PersonDraft) {
@@ -244,8 +261,9 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
       setNotice(describeApiError(result.error));
       return;
     }
-    setLoad({ phase: 'ready', people: [...people, toEntry(result.data)] });
-    setEditor(null);
+    const added = result.data;
+    updatePeople((list) => [...list, toEntry(added)]);
+    setEditor((cur) => (isEditorFor(cur, 'add') ? null : cur));
   }
 
   async function remove(person: RosterEntryResponse) {
@@ -254,12 +272,12 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
       method: 'DELETE',
     });
     setBusy(false);
-    setEditor(null);
+    setEditor((cur) => (isEditorFor(cur, 'remove', person.personId) ? null : cur));
     if (!result.ok) {
       setNotice(describeApiError(result.error));
       return;
     }
-    setLoad({ phase: 'ready', people: people.filter((p) => p.personId !== person.personId) });
+    updatePeople((list) => list.filter((p) => p.personId !== person.personId));
   }
 
   function updateDraft(draft: PersonDraft) {
@@ -350,11 +368,12 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
         ) : null}
 
         <View style={styles.links}>
-          <LinkButton testID={`roster-edit-${id}`} onPress={() => openEdit(id)}>
+          <LinkButton testID={`roster-edit-${id}`} onPress={() => openEdit(id)} disabled={busy}>
             Edit
           </LinkButton>
           <LinkButton
             testID={`roster-remove-${id}`}
+            disabled={busy}
             onPress={() => {
               setNotice(null);
               setEditor({ kind: 'remove', personId: id });
@@ -408,6 +427,7 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
         ) : (
           <ActionButton
             testID="roster-add-person"
+            disabled={busy}
             onPress={() => {
               setNotice(null);
               setEditor({ kind: 'add', draft: EMPTY_DRAFT });
@@ -435,14 +455,22 @@ function DoneButton({ onDone }: { onDone: () => void }) {
 function LinkButton({
   testID,
   onPress,
+  disabled,
   children,
 }: {
   testID: string;
   onPress: () => void;
+  disabled?: boolean;
   children: string;
 }) {
   return (
-    <Pressable testID={testID} accessibilityRole="button" onPress={onPress}>
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={disabled ? styles.linkDisabled : undefined}
+    >
       <Text style={styles.link}>{children}</Text>
     </Pressable>
   );
@@ -475,6 +503,7 @@ const styles = StyleSheet.create({
   dotEmpty: { borderWidth: 2, borderColor: colors.border },
   links: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 6 },
   link: { color: colors.brass, fontSize: 14, fontWeight: '600', paddingVertical: 4 },
+  linkDisabled: { opacity: 0.5 },
   form: {
     backgroundColor: colors.page,
     borderRadius: 8,
