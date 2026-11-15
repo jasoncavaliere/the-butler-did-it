@@ -112,6 +112,11 @@ function bootServiceWorker({ seedCaches = {} } = {}) {
     await Promise.all(pending);
   }
 
+  /** Deliver a `postMessage` from the page: every 'message' listener gets `{ data }`. */
+  function dispatchMessage(data) {
+    for (const handler of listeners.get('message') ?? []) handler({ data });
+  }
+
   async function dispatchFetch(request) {
     const event = { request, responded: false, respondWith: null };
     let responsePromise;
@@ -128,6 +133,7 @@ function bootServiceWorker({ seedCaches = {} } = {}) {
     store,
     install: () => dispatchLifecycle('install'),
     activate: () => dispatchLifecycle('activate'),
+    message: dispatchMessage,
     fetch: dispatchFetch,
     fetchRejects: async (request) => {
       const event = { request, respondWith: (promise) => (event.promise = promise) };
@@ -147,7 +153,7 @@ function bootServiceWorker({ seedCaches = {} } = {}) {
 }
 
 describe('the app-shell service worker', () => {
-  it('precaches the app shell on install and takes over immediately', async () => {
+  it('precaches the app shell on install and waits for the page (skipWaiting not called)', async () => {
     const worker = bootServiceWorker();
 
     await worker.install();
@@ -156,7 +162,30 @@ describe('the app-shell service worker', () => {
     expect(cached).toContain(absolute('/'));
     expect(cached).toContain(absolute('/index.html'));
     expect(cached).toContain(absolute('/manifest.json'));
-    expect(worker.self.skipWaiting).toHaveBeenCalled();
+    // #108: a new build waits until the hub says it is idle, rather than taking over mid-tap.
+    expect(worker.self.skipWaiting).not.toHaveBeenCalled();
+  });
+
+  it('skips waiting when the page posts SKIP_WAITING', async () => {
+    const worker = bootServiceWorker();
+    await worker.install();
+    expect(worker.self.skipWaiting).not.toHaveBeenCalled();
+
+    worker.message({ type: 'SKIP_WAITING' });
+
+    expect(worker.self.skipWaiting).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores any other message', async () => {
+    const worker = bootServiceWorker();
+    await worker.install();
+
+    worker.message(null);
+    worker.message(undefined);
+    worker.message({ type: 'SOMETHING_ELSE' });
+    worker.message('SKIP_WAITING');
+
+    expect(worker.self.skipWaiting).not.toHaveBeenCalled();
   });
 
   it('serves a second load from cache with the network disabled', async () => {

@@ -10,6 +10,7 @@ import {
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { ApiClient, ApiError } from '../api/client';
+import { resolveUiBuildSha } from '../api/config';
 import { describeApiError } from '../api/errors';
 import type {
   CartResponse,
@@ -27,6 +28,7 @@ import { LastKnownBanner } from '../components/LastKnownBanner';
 import { OrderReceipt } from '../components/OrderReceipt';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { TodayPanel } from '../components/TodayPanel';
+import { UPDATE_NOTICE_MS, UpdateNotice } from '../components/UpdateNotice';
 import { VersionInfo } from '../components/VersionInfo';
 import { colors } from '../components/Screen';
 import { TILE_BORDER, useHubLayout, type HubLayout } from '../layout/hubLayout';
@@ -38,6 +40,8 @@ import { useHubGlance } from '../offline/useHubGlance';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { KioskSurface } from '../pwa/KioskSurface';
+import { clearUpdateNotice, readUpdateNotice } from '../pwa/serviceWorkerUpdate';
+import { useServiceWorkerUpdate } from '../pwa/useServiceWorkerUpdate';
 import { useHousehold } from '../state/HouseholdContext';
 import { useHubDevice } from '../state/HubDeviceContext';
 import { useOrganizer } from '../state/OrganizerContext';
@@ -174,6 +178,15 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * {@link KioskSurface} (#130): no text selection, no iOS touch callout, and no
  * context menu on a long-press, except inside text fields. Only the hub is
  * wrapped; the organizer screens keep the browser defaults.
+ *
+ * The hub also picks up new builds on its own (#108): nobody reloads the
+ * kitchen tablet, so the shell watches the service worker for a deployed build
+ * that has finished installing ({@link useServiceWorkerUpdate}) and hands over
+ * to it only while the hub is idle - no participant active and no write waiting
+ * to sync - so a reload never lands mid-tap or drops a queued write. The page
+ * then reloads once onto the new build, and the reloaded hub shows an
+ * {@link UpdateNotice} with the build it is now running for
+ * {@link UPDATE_NOTICE_MS}, then hides it.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -286,6 +299,20 @@ export function HubShell({
   const layout = useHubLayout();
   const styles = useMemo(() => makeHubStyles(layout), [layout]);
 
+  // The "Updated to build ..." line (#108), shown once after the reload onto a
+  // new build. The marker is read purely here (an initializer may run twice)
+  // and cleared on mount, so a later manual reload shows nothing. It lives
+  // above the guard so a dataset remount of the body does not lose it.
+  const [showUpdateNotice, setShowUpdateNotice] = useState(() => readUpdateNotice());
+  useEffect(() => {
+    clearUpdateNotice();
+    if (!showUpdateNotice) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setShowUpdateNotice(false), UPDATE_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [showUpdateNotice]);
+
   // Hold everything - the board, the cached glance, the queue's mount drain -
   // until the startup dataset check has settled, so nothing from a replaced
   // dataset is shown or replayed first.
@@ -311,6 +338,7 @@ export function HubShell({
       onShowInsights={onShowInsights}
       onShowYourData={onShowYourData}
       refreshSignal={refreshSignal}
+      updatedToBuild={showUpdateNotice ? resolveUiBuildSha() : null}
     />
   );
 
@@ -329,6 +357,7 @@ function HubShellBody({
   onShowInsights,
   onShowYourData,
   refreshSignal,
+  updatedToBuild,
 }: {
   idleTimeoutMs: number;
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
@@ -338,6 +367,8 @@ function HubShellBody({
   onShowInsights: (() => void) | undefined;
   onShowYourData: (() => void) | undefined;
   refreshSignal: number;
+  /** The build the hub just reloaded onto (#108), while its notice shows; else `null`. */
+  updatedToBuild: string | null;
 }) {
   const client = useApiClient();
   const { householdId } = useHousehold();
@@ -352,6 +383,15 @@ function HubShellBody({
   const [activeParticipant, setActiveParticipant] = useState<ParticipantSessionResponse | null>(
     null,
   );
+
+  // New builds (#108) are picked up only while the hub is idle: no participant
+  // is active and no write is waiting to sync. The queue's pending count is
+  // reported up by QueuePendingReporter; it starts unknown (`null`), which
+  // counts as busy, so an update cannot slip in before the queue has reported.
+  // Failed writes do not count: they are permanent flags that survive a reload.
+  const [queuePending, setQueuePending] = useState<number | null>(null);
+  const idle = activeParticipant === null && (householdId === null || queuePending === 0);
+  useServiceWorkerUpdate(idle);
 
   // Degraded = the shell is showing the cached glance, or has nothing to show at
   // all. Only then does it listen for a reconnect, and the returned counter is a
@@ -613,6 +653,8 @@ function HubShellBody({
         </View>
       </View>
 
+      {updatedToBuild !== null ? <UpdateNotice build={updatedToBuild} /> : null}
+
       {lastKnownAtIso !== null ? <LastKnownBanner cachedAtIso={lastKnownAtIso} /> : null}
 
       <View style={styles.tiles} testID="hub-name-tiles">
@@ -706,6 +748,8 @@ function HubShellBody({
     page(content)
   ) : (
     <WriteQueueProvider householdId={householdId} client={client} verifyDataset={verifyDataset}>
+      {/* First, and outside `body`: the content unmounts while a receipt shows. */}
+      <QueuePendingReporter onPending={setQueuePending} />
       {body}
     </WriteQueueProvider>
   );
@@ -731,6 +775,20 @@ function QueueRevival({ enabled, onConfirmed }: { enabled: boolean; onConfirmed:
       onConfirmed();
     }
   }, [confirmedRevision, enabled, onConfirmed]);
+  return null;
+}
+
+/**
+ * Reports the queue's pending count up to the shell (#108), which decides
+ * whether the hub is idle enough to pick up a new build. It renders nothing; it
+ * exists because the shell mounts the {@link WriteQueueProvider} and so cannot
+ * read the queue itself.
+ */
+function QueuePendingReporter({ onPending }: { onPending: (pending: number) => void }) {
+  const { pending } = useWriteQueueContext();
+  useEffect(() => {
+    onPending(pending);
+  }, [pending, onPending]);
   return null;
 }
 
