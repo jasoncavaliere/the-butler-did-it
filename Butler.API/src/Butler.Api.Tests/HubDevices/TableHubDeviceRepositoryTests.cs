@@ -1,3 +1,4 @@
+using Butler.Api.Application.Concurrency;
 using Butler.Api.Infrastructure.HubDevices;
 using Butler.Api.Infrastructure.Storage;
 
@@ -38,17 +39,28 @@ public sealed class TableHubDeviceRepositoryTests
     }
 
     [Fact]
-    public async Task Upsert_replaces_the_stored_row()
+    public async Task Update_replaces_an_existing_row()
     {
         var repository = NewRepository();
         await repository.AddAsync("house-1", Device("device-1"), CancellationToken.None);
 
         var updated = Device("device-1");
         updated.LastSeenUtc = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        await repository.UpsertAsync("house-1", updated, CancellationToken.None);
+        await repository.UpdateAsync("house-1", updated, OptimisticConcurrency.Wildcard, CancellationToken.None);
 
         var stored = await repository.GetAsync("house-1", "device-1", CancellationToken.None);
         Assert.Equal(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero), stored!.LastSeenUtc);
+    }
+
+    [Fact]
+    public async Task Update_of_a_missing_row_throws_precondition_failed_and_inserts_nothing()
+    {
+        var repository = NewRepository();
+
+        await Assert.ThrowsAsync<PreconditionFailedException>(
+            () => repository.UpdateAsync("house-1", Device("device-1"), OptimisticConcurrency.Wildcard, CancellationToken.None));
+
+        Assert.Null(await repository.GetAsync("house-1", "device-1", CancellationToken.None));
     }
 
     [Fact]
@@ -69,14 +81,14 @@ public sealed class TableHubDeviceRepositoryTests
     }
 
     [Fact]
-    public async Task UpsertAsync_rejects_a_null_device_or_blank_key()
+    public async Task UpdateAsync_rejects_a_null_device_or_blank_key()
     {
         var repository = NewRepository();
 
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => repository.UpsertAsync("house-1", null!, CancellationToken.None));
+            () => repository.UpdateAsync("house-1", null!, OptimisticConcurrency.Wildcard, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(
-            () => repository.UpsertAsync("house-1", Device(string.Empty), CancellationToken.None));
+            () => repository.UpdateAsync("house-1", Device(string.Empty), OptimisticConcurrency.Wildcard, CancellationToken.None));
     }
 
     [Theory]

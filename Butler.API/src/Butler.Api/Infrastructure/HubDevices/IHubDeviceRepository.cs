@@ -22,9 +22,12 @@ public interface IHubDeviceRepository
     Task<HubDeviceEntity?> GetAsync(string householdId, string deviceId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Inserts or replaces the device row in the household's partition with no
-    /// concurrency check. Used to refresh <c>LastSeenUtc</c> when the device token
-    /// is presented, a last-writer-wins touch that must not fail on a race.
+    /// Replaces an existing device row in the household's partition under
+    /// optimistic concurrency and never inserts. Throws
+    /// <see cref="Butler.Api.Application.Concurrency.PreconditionFailedException"/>
+    /// when the row no longer exists or <paramref name="ifMatch"/> is stale;
+    /// <see cref="Butler.Api.Application.Concurrency.OptimisticConcurrency.Wildcard"/>
+    /// matches any existing version.
     /// </summary>
-    Task UpsertAsync(string householdId, HubDeviceEntity device, CancellationToken cancellationToken = default);
+    Task UpdateAsync(string householdId, HubDeviceEntity device, string ifMatch, CancellationToken cancellationToken = default);
 }

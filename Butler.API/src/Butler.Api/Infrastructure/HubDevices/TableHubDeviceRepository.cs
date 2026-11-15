@@ -36,10 +36,10 @@ public sealed class TableHubDeviceRepository : IHubDeviceRepository
     }
 
     /// <inheritdoc />
-    public Task UpsertAsync(string householdId, HubDeviceEntity device, CancellationToken cancellationToken = default)
+    public Task UpdateAsync(string householdId, HubDeviceEntity device, string ifMatch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentException.ThrowIfNullOrWhiteSpace(device.RowKey);
-        return _devices.UpsertAsync(householdId, device, cancellationToken);
+        return _devices.UpdateAsync(householdId, device, ifMatch, cancellationToken);
     }
 }

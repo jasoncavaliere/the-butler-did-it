@@ -1,4 +1,5 @@
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Concurrency;
 using Butler.Api.Infrastructure.HubDevices;
 
 namespace Butler.Api.Application.HubDevices;
@@ -8,8 +9,10 @@ namespace Butler.Api.Application.HubDevices;
 /// pairing stamps a server-generated <c>deviceId</c> and the paired/last-seen
 /// timestamps from the injected clock, then mints an opaque device token scoped
 /// to exactly <c>(householdId, deviceId)</c>. Touching re-reads the row and
-/// upserts a fresh <c>LastSeenUtc</c> (last-writer-wins, no concurrency gate) so
-/// presenting the token can never fail on a race.
+/// replaces it with a fresh <c>LastSeenUtc</c> only if it still exists (wildcard
+/// <c>If-Match</c>). Concurrent touches stay last-writer-wins and never fail each
+/// other. A touch racing a delete (household teardown) reports not found instead
+/// of re-creating the row (#222).
 /// </summary>
 public sealed class HubDeviceService : IHubDeviceService
 {
@@ -66,7 +69,22 @@ public sealed class HubDeviceService : IHubDeviceService
         }
 
         device.LastSeenUtc = _timeProvider.GetUtcNow();
-        await _devices.UpsertAsync(householdId, device, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // The wildcard matches any existing version, so concurrent touches from
+            // the same hub never fail each other; the replace still never inserts.
+            await _devices
+                .UpdateAsync(householdId, device, OptimisticConcurrency.Wildcard, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (PreconditionFailedException)
+        {
+            // The row was deleted between the read and the write (for example by
+            // household teardown). It must not be re-created, so the device is
+            // reported as not found and its token authenticates nobody (#222).
+            return false;
+        }
+
         return true;
     }
 

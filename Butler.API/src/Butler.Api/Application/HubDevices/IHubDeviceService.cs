@@ -21,7 +21,9 @@ public interface IHubDeviceService
     /// Refreshes the <c>LastSeenUtc</c> of an already-paired device from the clock
     /// seam. Returns <c>true</c> when the device exists (and was touched) and
     /// <c>false</c> when no such device is paired in the household, so a token for a
-    /// removed device authenticates nobody.
+    /// removed device authenticates nobody. A row deleted between the read and the
+    /// write (for example by household teardown) is reported as not found and is
+    /// never re-created.
     /// </summary>
     Task<bool> TouchAsync(
         string householdId,
