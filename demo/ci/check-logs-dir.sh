@@ -80,35 +80,62 @@ reset_data() {
   [ ! -e "$DATA_DIR" ] || fail "could not remove $DATA_DIR"
 }
 
+# Like reset_data, but never exits: cleanup runs inside the EXIT trap and must
+# always go on to restore the developer's saved demo/.data and dist.
+reset_data_quiet() {
+  [ -e "$DATA_DIR" ] || return 0
+  chmod -R u+rwx "$DATA_DIR" 2>/dev/null || true
+  rm -rf "$DATA_DIR" 2>/dev/null || sudo -n rm -rf "$DATA_DIR" 2>/dev/null || true
+  [ ! -e "$DATA_DIR" ] || echo "WARNING: could not remove $DATA_DIR; your original is still at $DATA_SAVED" >&2
+}
+
+# Never delete a developer's demo/.data (it may hold Azurite data). The guard
+# runs before the EXIT trap is installed, so a tripped guard touches nothing.
+if [ -e "$DATA_SAVED" ]; then
+  fail "$DATA_SAVED exists (left by an interrupted run?); restore or remove it first."
+fi
+
 WORK="$(mktemp -d)"
 DIST_SAVED="$WORK/dist-saved"
 DATA_MOVED=0
+DIST_MOVED=0
+STARTED=0
+# cleanup only touches what this script created: it does nothing until both
+# originals have been moved aside (STARTED=1), and restores each one only if
+# it was actually moved.
 cleanup() {
   set +e
-  reset_data
-  if [ "$DATA_MOVED" -eq 1 ]; then
-    mv "$DATA_SAVED" "$DATA_DIR"
-  fi
-  rm -rf "$DIST"
-  if [ -d "$DIST_SAVED" ]; then
-    mv "$DIST_SAVED" "$DIST"
+  if [ "$STARTED" -eq 1 ]; then
+    reset_data_quiet
+    if [ "$DATA_MOVED" -eq 1 ] && [ ! -e "$DATA_DIR" ]; then
+      mv "$DATA_SAVED" "$DATA_DIR"
+    fi
+    rm -rf "$DIST"
+    if [ "$DIST_MOVED" -eq 1 ]; then
+      mv "$DIST_SAVED" "$DIST"
+    fi
+  else
+    if [ "$DATA_MOVED" -eq 1 ] && [ ! -e "$DATA_DIR" ]; then
+      mv "$DATA_SAVED" "$DATA_DIR"
+    fi
+    if [ "$DIST_MOVED" -eq 1 ] && [ ! -e "$DIST" ]; then
+      mv "$DIST_SAVED" "$DIST"
+    fi
   fi
   rm -rf "$WORK"
 }
 trap cleanup EXIT
 
-# Never delete a developer's demo/.data (it may hold Azurite data): rename it
-# aside, inside demo/, and put it back on exit.
-if [ -e "$DATA_SAVED" ]; then
-  fail "$DATA_SAVED exists (left by an interrupted run?); restore or remove it first."
-fi
+# Rename the originals aside, inside demo/ and $WORK, and put them back on exit.
 if [ -e "$DATA_DIR" ]; then
   mv "$DATA_DIR" "$DATA_SAVED"
   DATA_MOVED=1
 fi
 if [ -e "$DIST" ]; then
   mv "$DIST" "$DIST_SAVED"
+  DIST_MOVED=1
 fi
+STARTED=1
 
 # A fresh export with a valid stamp (#184), newer than index.html, so up
 # reports it up to date and never calls npm.
