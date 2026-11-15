@@ -15,9 +15,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T16:46:17Z }
 
 # Feedback Log Template
 
-> **In one line:** Log every post-demo conversation as one entry with the same fields, so answers from different households can be read side by side, and keep the filled entries out of this public repo.
+> - **Who it's for:** Whoever writes up a post-demo conversation
+> - **Use this when:** You finished an interview and need to record the answers
+> - **You'll end with:** One log entry in the shared fields, kept out of this public repo
 
-This template was written on **2026-11-14** for [issue #139](https://github.com/jasoncavaliere/the-butler-did-it/issues/139), and it is the record side of the [Customer Interview Guide](13-customer-interview-guide.md): the guide says what to ask, and this page says how to write down what you heard. It is also where Stage A of the pricing experiment is recorded, as the [Pricing Hypothesis](12-pricing-hypothesis.md#experiment-design) asks.
+Log every post-demo conversation as one entry with the same fields, so answers from different households can be read side by side, and keep the filled entries out of this public repo. This template was written on **2026-11-14** for [issue #139](https://github.com/jasoncavaliere/the-butler-did-it/issues/139), and it is the record side of the [Customer Interview Guide](13-customer-interview-guide.md): the guide says what to ask, and this page says how to write down what you heard. It is also where Stage A of the pricing experiment is recorded, as the [Pricing Hypothesis](12-pricing-hypothesis.md#experiment-design) asks.
 
 ## Keep filled entries out of this repo
 

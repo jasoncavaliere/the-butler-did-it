@@ -20,9 +20,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T09:44:48Z }
 
 # BYO-Tablet Setup Guidance
 
-> **In one line:** Pick an LCD tablet with a side USB-C port, cap its charging, mount it where the family walks past, and lock it to Butler.
+> - **Who it's for:** A family turning its own tablet into the hub
+> - **Use this when:** You have a tablet and want it on the wall running Butler
+> - **You'll end with:** A tablet chosen, mounted, charging safely, and locked to Butler
 
-Butler runs on a tablet your family already owns (the [BYO-tablet](90-glossary.md#byo-tablet) decision). This guide says how to set that tablet up as the [hub](90-glossary.md#the-hub). It was written for [issue #247](https://github.com/jasoncavaliere/the-butler-did-it/issues/247), from the decision in [issue #166](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) and the research in the [Hub Hardware Findings](11-hub-hardware-findings.md). The step-by-step kiosk runbook is the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md).
+Pick an LCD tablet with a side USB-C port, cap its charging, mount it where the family walks past, and lock it to Butler. Butler runs on a tablet your family already owns (the [BYO-tablet](90-glossary.md#byo-tablet) decision). This guide says how to set that tablet up as the [hub](90-glossary.md#the-hub). It was written for [issue #247](https://github.com/jasoncavaliere/the-butler-did-it/issues/247), from the decision in [issue #166](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) and the research in the [Hub Hardware Findings](11-hub-hardware-findings.md). The step-by-step kiosk runbook is the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md).
 
 ## Choosing a tablet
 

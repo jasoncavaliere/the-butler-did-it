@@ -18,9 +18,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T08:23:42Z }
 
 # Pilot One-Pager
 
-> **In one line:** Use Butler free for six weeks, give us 10 minutes a week, then decide.
+> - **Who it's for:** A family thinking about joining the Butler pilot
+> - **Use this when:** You want the whole offer on one page before you say yes
+> - **You'll end with:** What the pilot asks of you and what you get
 
-Written for [issue #136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136) as a **proposal** the owner ratifies in review.
+Use Butler free for six weeks, give us 10 minutes a week, then decide. Written for [issue #136](https://github.com/jasoncavaliere/the-butler-did-it/issues/136) as a **proposal** the owner ratifies in review.
 
 ## What your family gets
 

@@ -12,9 +12,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T18:59:42Z }
 
 # Overview - What Butler Is and How This Knowledge Base Works
 
-> **In one line:** Butler is a shared family operating system for the home, and this knowledge base is the map to everything we know about it.
+> - **Who it's for:** Anyone new to Butler, person or agent
+> - **Use this when:** You are joining the project or about to add to these docs
+> - **You'll end with:** Knowing what Butler is and which article to read next
 
-This is the first thing to read, whether you are a person joining the project or an agent about to add to it. It answers two questions: what is Butler, and how do you find your way around (and grow) these docs.
+Butler is a shared family operating system for the home, and this knowledge base is the map to everything we know about it. This is the first thing to read, whether you are a person joining the project or an agent about to add to it. It answers two questions: what is Butler, and how do you find your way around (and grow) these docs.
 
 ## What Butler is
 

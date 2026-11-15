@@ -14,9 +14,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T18:59:42Z }
 
 # Architecture Overview (v1)
 
-> **In one line:** How Butler v1 is built - the shape of the system that serves the vision's loop, with every locked decision summarized and linked back to the binding detail in the BRD.
+> - **Who it's for:** Engineers and agents about to build Butler
+> - **Use this when:** You need the shape of v1 before opening a contract clause
+> - **You'll end with:** A map of the v1 system with a link to each binding decision
 
-This article is a map, not the territory. It summarizes the v1 architecture and points at where each decision is specified in full. The binding detail lives in the BRD [Engineering Contract](90-glossary.md#engineering-contract), Section 7 of the master BRD, and this article does not restate it. When you are about to write code, read the authoritative source: [`brd/07-engineering-contract.md`](../brd/07-engineering-contract.md). If this summary and the BRD ever disagree, the BRD wins and this page is stale - fix it here.
+This article shows how Butler v1 is built: the shape of the system that serves the vision's loop, with every locked decision summarized and linked back to the binding detail in the BRD. This article is a map, not the territory. It summarizes the v1 architecture and points at where each decision is specified in full. The binding detail lives in the BRD [Engineering Contract](90-glossary.md#engineering-contract), Section 7 of the master BRD, and this article does not restate it. When you are about to write code, read the authoritative source: [`brd/07-engineering-contract.md`](../brd/07-engineering-contract.md). If this summary and the BRD ever disagree, the BRD wins and this page is stale - fix it here.
 
 The architecture exists to serve two kinds of input. The functional inputs are the journeys the system must run: the v1 loop from the vision. The non-functional inputs are the locked decisions about how it is built: storage, API shape, identity, and the gates that keep it honest. Both are below.
 

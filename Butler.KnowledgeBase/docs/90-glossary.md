@@ -12,9 +12,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-07-21T00:00:00Z }
 
 # Glossary
 
-> **In one line:** The shared vocabulary of Butler, defined once here so no other article has to re-explain it.
+> - **Who it's for:** Anyone reading these docs
+> - **Use this when:** You meet a Butler term you do not know
+> - **You'll end with:** A short definition and a link to where it is argued
 
-These are the terms Butler docs use. Each is a sentence or two. Where a term is a strategic concept, the definition links to where it is argued in the [Product Vision](10-product-vision.md). If you add a term anywhere in the wiki, define it here rather than in place.
+The shared vocabulary of Butler, defined once here so no other article has to re-explain it. These are the terms Butler docs use. Each is a sentence or two. Where a term is a strategic concept, the definition links to where it is argued in the [Product Vision](10-product-vision.md). If you add a term anywhere in the wiki, define it here rather than in place.
 
 ## Butler
 
