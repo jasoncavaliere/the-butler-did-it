@@ -1,7 +1,7 @@
 ---
 type: Strategy
 title: Pilot Success Criteria and Week-4 Go/No-Go
-description: "Four pilot metrics read from the organizer Insights screen at week 4 (weekly active households, top contributor's share, carts confirmed, distinct participants), each with a hypothesis threshold for build more, change course, or stop, derived from the Product Vision's month-3 target."
+description: "Four pilot metrics read at week 4 from the organizer Insights screen, with carts from its API (weekly active households, top contributor's share, carts confirmed, distinct participants), each with a hypothesis threshold for build more, change course, or stop, derived from the Product Vision's month-3 target."
 tags: [pilot, success criteria, go no-go, north star, weekly active households, fairness, insights, retention]
 category: Product & Strategy
 lifecycle: Living
@@ -11,12 +11,12 @@ sources:
   - { id: issue-140, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/140, title: S7 - Pilot success criteria and go/no-go signals }
   - { id: vision-winning, resource: 10-product-vision.md#what-winning-looks-like, title: Product Vision - What winning looks like }
   - { id: issue-123, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/123, title: V2 - Organizer insights screen }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T17:41:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T08:23:55Z }
 ---
 
 # Pilot Success Criteria and Week-4 Go/No-Go
 
-> **In one line:** At the end of pilot week 4, read four numbers from the organizer Insights screen, compare each with a threshold written down in advance, and decide whether to build more, change course, or stop.
+> **In one line:** At the end of pilot week 4, read four numbers from the organizer Insights screen (carts from its API), compare each with a threshold written down in advance, and decide whether to build more, change course, or stop.
 
 This article was written on **2026-11-14** for [issue #140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140), and its thresholds are a **hypothesis, not a ratified decision**, which the owner ratifies or changes in review. Each threshold is derived from the [North Star](90-glossary.md#north-star) target and guardrails in the vision's [What winning looks like](10-product-vision.md#what-winning-looks-like) section, and this article adds no new market data.
 
@@ -28,7 +28,7 @@ The pilot is six weeks with a weekly 10-minute check-in, as the [Pilot One-Pager
 - **When to read:** as soon as pilot week 4 ends, ideally on the Monday that starts pilot week 5 (UTC).
 - **When to decide:** at the week-5 check-in, from that reading, before the pilot-to-paid offer is introduced in the same check-in (see [The pilot-to-paid offer](12-pricing-hypothesis.md#the-pilot-to-paid-offer)). This needs the week-5 check-in to fall in pilot week 5, after pilot week 4 ends, and the [Pilot One-Pager](16-pilot-one-pager.md) schedules check-ins by pilot week.
 - **On the screen:** the Insights screen always shows 8 weeks, and its last bar is the current, partial week. Read during week 5, pilot week 4 is the bar just before it.
-- **Through the API:** call `GET /households/{householdId}/insights?weeks=5` during pilot week 5 and drop the last entry. The four entries left are pilot weeks 1 to 4, oldest first.
+- **Through the API:** call `GET /households/{householdId}/insights?weeks=5` during pilot week 5 and drop the last entry. The four entries left are pilot weeks 1 to 4, oldest first. In the pilot, the organizer makes this call at the week-5 check-in while we talk them through it, because Butler runs on the organizer's computer and its data stays there.
 - **Who can read it:** only the [Household Organizer](90-glossary.md#household-organizer) can call it, and it accepts from 1 to 52 weeks.
 - **One household at a time:** Insights reports one household, so add up the cohort by hand. A cohort-level roll-up would be a code change and is out of scope here.
 
@@ -54,12 +54,12 @@ N is the number of onboarded households, and A is the number that are active in 
 | --- | --- | --- | --- | --- |
 | **Weekly active households** (the north star) | Chart "Completions per person"; API `weeks[].completions`. A household is active when its week-4 completions sum to at least 1. Value: A / N. | At least 75 percent | 50 to 74 percent | Below 50 percent |
 | **Fairness trend** (top contributor's share) | Chart "Top contributor's share"; API `weeks[].topContributorShare` (0 to 1, read as a percent). It is a share of effort, not of chores. Per active household: the mean of weeks 3-4 minus the mean of weeks 1-2, skipping weeks at 0. | The share fell at least 5 points, or is within 5 points of an even split, in at least half of active households | Anything in between | The share rose at least 10 points in more than half of active households |
-| **Carts confirmed per month** | Chart "Carts confirmed per month"; API `cartsConfirmedPerMonth[].count`. Sum the months covering weeks 1-4 across active households, then divide by A. | At least 1.0 per active household | 0.5 to 0.99 per active household | Below 0.5 per active household |
+| **Carts confirmed per month** | API `cartsConfirmedPerMonth[].count` (not the chart "Carts confirmed per month", which can include setup carts; see below). Sum the months covering weeks 1-4 across active households, then divide by A. | At least 1.0 per active household | 0.5 to 0.99 per active household | Below 0.5 per active household |
 | **Distinct participants per week** | Chart "Completions per person"; API `weeks[].completions[]`. Members here are participants only. A household is multiplayer when at least 1 member, and at least half of its members, have 1 or more net completions in week 4. Value: multiplayer / A. | At least 75 percent | 50 to 74 percent | Below 50 percent |
 
 An even split is 1 divided by the number of members, so 33 percent in a three-member household. A household with no week at a non-zero share in weeks 1-2 has no trend yet and counts toward change course.
 
-Carts are bucketed by UTC calendar month, and pilot weeks 1 to 4 usually span two months, so sum both. The `weeks=5` window starts on the Monday of pilot week 1, but it runs up to the moment of the read. `cartsConfirmedPerMonth[]` has no per-week split, so dropping the last `weeks[]` entry does not drop week-5 carts. Read on the Monday of pilot week 5 (UTC), and subtract any cart the household confirmed since that Monday began. The count then covers 28 days, which is close to one month. The 8-week screen can also include carts from before pilot week 1, so use the API. Carts come from the simulated store connector, so they measure the confirm habit, not real orders.
+Carts are bucketed by UTC calendar month, and pilot weeks 1 to 4 usually span two months, so sum both. The `weeks=5` window starts on the Monday of pilot week 1, but it runs up to the moment of the read. `cartsConfirmedPerMonth[]` has no per-week split, so dropping the last `weeks[]` entry does not drop week-5 carts. Read on the Monday of pilot week 5 (UTC), and subtract any cart the household confirmed since that Monday began. The count then covers 28 days, which is close to one month. The 8-week screen also counts carts confirmed during setup, before pilot week 1, and one such cart per household adds 1.0, the whole build-more line, so use the API. Carts come from the simulated store connector, so they measure the confirm habit, not real orders.
 
 ### How each threshold is derived
 
