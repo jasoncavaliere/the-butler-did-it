@@ -15,6 +15,7 @@ import type { IAuthProvider } from '../auth/authProvider';
 import {
   LANDSCAPE_COMPACT,
   LANDSCAPE_ROOMY,
+  NATIVE_STACK_HEADER_HEIGHT,
   PORTRAIT,
   measureHubBoard,
   type HubLayout,
@@ -247,8 +248,9 @@ describe('HubShell layout (#118)', () => {
     const rows = todayRowsByPerson();
     expect(rows).toEqual([2, 2, 2, 2]);
     expect(screen.queryByTestId('chore-board-day-this-week')).toBeNull();
-    const measure = measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: rows });
-    expect(measure.total).toBeLessThanOrEqual(800);
+    const measure = measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: rows }, 800);
+    expect(measure.fits).toBe(true);
+    expect(measure.total + NATIVE_STACK_HEADER_HEIGHT).toBeLessThanOrEqual(800);
   });
 
   it('renders the landscape three-zone layout at roomy density when useWindowDimensions reports 1920x1200 (AC2)', async () => {
@@ -263,8 +265,9 @@ describe('HubShell layout (#118)', () => {
 
     const rows = todayRowsByPerson();
     expect(rows).toEqual([2, 2, 2, 2]);
-    const measure = measureHubBoard(LANDSCAPE_ROOMY, { people: 4, todayRowsByPerson: rows });
-    expect(measure.total).toBeLessThanOrEqual(1200);
+    const measure = measureHubBoard(LANDSCAPE_ROOMY, { people: 4, todayRowsByPerson: rows }, 1200);
+    expect(measure.fits).toBe(true);
+    expect(measure.total + NATIVE_STACK_HEADER_HEIGHT).toBeLessThanOrEqual(1200);
   });
 
   it('renders the portrait fallback when useWindowDimensions reports 800x1280 (AC3)', async () => {
