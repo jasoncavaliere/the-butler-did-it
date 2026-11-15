@@ -139,10 +139,13 @@ async function renderTeardown({
   onCancel = jest.fn(),
   onDeleted = jest.fn(),
   connectivityTarget = fakeTarget(),
+  waitForName = true,
 }: {
   onCancel?: jest.Mock;
   onDeleted?: jest.Mock;
   connectivityTarget?: ReturnType<typeof fakeTarget>;
+  /** Wait for the household name to show (false when the first read is meant to fail). */
+  waitForName?: boolean;
 } = {}) {
   await render(
     <HouseholdProvider initialHouseholdId="hh-1">
@@ -159,7 +162,9 @@ async function renderTeardown({
       </HubDeviceProvider>
     </HouseholdProvider>,
   );
-  await screen.findByTestId('teardown-household-name');
+  if (waitForName) {
+    await screen.findByTestId('teardown-household-name');
+  }
   return { onCancel, onDeleted, connectivityTarget };
 }
 
@@ -188,6 +193,17 @@ function expectNothingLocalChanged() {
   expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
 }
 
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+/** Stub `navigator.onLine`, so the screen's first render sees the browser offline. */
+function setNavigatorOnLine(onLine: boolean): void {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { onLine },
+    configurable: true,
+    writable: true,
+  });
+}
+
 beforeEach(() => {
   installStorage();
   resetSessionFallbackStorage();
@@ -204,6 +220,11 @@ afterEach(() => {
     writable: true,
   });
   resetSessionFallbackStorage();
+  if (originalNavigator) {
+    Object.defineProperty(globalThis, 'navigator', originalNavigator);
+  } else {
+    Reflect.deleteProperty(globalThis, 'navigator');
+  }
 });
 
 describe('HouseholdTeardownScreen (#168)', () => {
@@ -545,5 +566,93 @@ describe('HouseholdTeardownScreen (#168)', () => {
     });
     expect(screen.queryByTestId('teardown-offline')).toBeNull();
     expect(deleteButton()).toBeEnabled();
+  });
+});
+
+describe('HouseholdTeardownScreen reconnect (#252)', () => {
+  const unreachable: ApiResult<never> = {
+    ok: false,
+    error: { kind: 'network', status: 0, title: 'The API is unreachable.' },
+  };
+  const household: ApiResult<unknown> = {
+    ok: true,
+    status: 200,
+    data: { householdId: 'hh-1', name: NAME },
+    etag: null,
+  };
+
+  it('opened offline, re-reads the household on reconnect and enables Delete once the name matches (#252)', async () => {
+    setNavigatorOnLine(false);
+    const { client, get } = teardownClient();
+    get.mockResolvedValueOnce(unreachable).mockResolvedValueOnce(household);
+    useApiClientMock.mockReturnValue(client);
+
+    const { connectivityTarget } = await renderTeardown({ waitForName: false });
+
+    expect(await screen.findByTestId('teardown-load-error')).toHaveTextContent(
+      /household service is unreachable/,
+    );
+    expect(screen.getByTestId('teardown-offline')).toBeOnTheScreen();
+    expect(get).toHaveBeenCalledTimes(1);
+    await press('organizer-sign-in');
+    expect(deleteButton()).toBeDisabled();
+
+    setNavigatorOnLine(true);
+    await act(async () => {
+      connectivityTarget.emit('online');
+    });
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenNthCalledWith(1, '/households/hh-1');
+    expect(get).toHaveBeenNthCalledWith(2, '/households/hh-1');
+    expect(await screen.findByTestId('teardown-household-name')).toHaveTextContent(NAME);
+    expect(screen.queryByTestId('teardown-load-error')).toBeNull();
+    expect(screen.queryByTestId('teardown-offline')).toBeNull();
+    expect(deleteButton()).toBeDisabled();
+
+    await type(NAME);
+    expect(deleteButton()).toBeEnabled();
+  });
+
+  it('retries again on the next reconnect when the re-read also fails (#252)', async () => {
+    const { client, get } = teardownClient();
+    get
+      .mockResolvedValueOnce(unreachable)
+      .mockResolvedValueOnce(unreachable)
+      .mockResolvedValueOnce(household);
+    useApiClientMock.mockReturnValue(client);
+
+    const { connectivityTarget } = await renderTeardown({ waitForName: false });
+    expect(await screen.findByTestId('teardown-load-error')).toBeOnTheScreen();
+
+    await act(async () => {
+      connectivityTarget.emit('online');
+    });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('teardown-load-error')).toBeOnTheScreen();
+
+    await act(async () => {
+      connectivityTarget.emit('online');
+    });
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(await screen.findByTestId('teardown-household-name')).toHaveTextContent(NAME);
+  });
+
+  it('makes no extra household read on reconnect once the name has loaded (#252)', async () => {
+    const { client, get } = teardownClient();
+    useApiClientMock.mockReturnValue(client);
+
+    const { connectivityTarget } = await renderTeardown();
+    expect(get).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      connectivityTarget.emit('offline');
+    });
+    await act(async () => {
+      connectivityTarget.emit('online');
+    });
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('teardown-household-name')).toHaveTextContent(NAME);
   });
 });
