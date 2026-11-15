@@ -98,7 +98,9 @@ Health: http `http://localhost:5108/health` and tcp `127.0.0.1:8081`.
   azurite is healthy and creates its tables at startup. `web` is Caddy on :8080; API routes are at
   `http://localhost:8080/api/...` (SystemController lands at `/api/api/system/*`).
 - **First run is slow.** The first `demo/demo.sh up` builds the api image and the hub export, so allow
-  several minutes. Use `demo/demo.sh status` and `demo/demo.sh logs` to inspect the stack.
+  several minutes. Use `demo/demo.sh status` and `demo/demo.sh logs --api --no-color --tail 200` to
+  inspect the stack. With no arguments, `logs` follows forever (since #107) and hangs a
+  non-interactive call; name `web` or `azurite` instead of `--api` to see that service.
 - **Data is kept on down.** `demo/demo.sh down` runs `docker compose down` without `-v`, so
   `demo/.data/azurite` and the dataset survive.
 - **Wiping data is a separate step**, never part of teardown: run `demo/demo.sh down`, then delete
