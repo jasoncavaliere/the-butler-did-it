@@ -24,9 +24,9 @@ import { colors } from './Screen';
  *   gets through (a confirming drain also makes the hub reload its cached
  *   regions, which clears `apiUnreachable`). The hub also sets `apiUnreachable`
  *   when its shell load failed with a network-kind error and nothing was
- *   cached, so a first load with the API down reads Offline too (#151). An
- *   error from an API that answered (`http`, `problem`, `parse`) leaves it
- *   Online.
+ *   cached, so a first load with the API down reads Offline too (#151), and
+ *   when the board's load did the same under a live shell (#239). An error
+ *   from an API that answered (`http`, `problem`, `parse`) leaves it Online.
  * - *Pending*, while writes are queued: `2 waiting to sync`. Hidden at zero.
  * - *Synced*, briefly: `All synced.` once a drain confirms the queue empty, for
  *   {@link SYNC_CONFIRMATION_MS}. Nothing to dismiss; it simply goes. While any
@@ -75,7 +75,8 @@ export function SyncIndicator({
 }: {
   /**
    * Whether the hub could not reach the API: a region is served from the
-   * last-known cache (O2), or a shell load got no response (#151).
+   * last-known cache (O2), or the shell's load (#151) or the board's load
+   * (#239) got no response with nothing cached.
    */
   apiUnreachable?: boolean;
   /** Override the browser event target (tests inject one; default is ambient). */

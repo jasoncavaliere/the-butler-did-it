@@ -204,11 +204,12 @@ alone (ADR-0010), and a polite live region for screen readers.
   so (`useBrowserOnline`: `navigator.onLine`, then the `online`/`offline` events, inert off web), when
   the queue's last drain could not reach the API (`unreachable`), or when the hub is serving any
   region from the O2 cache (that cache only ever stands in on a network failure), or when the shell
-  load failed with a `network`-kind error and nothing was cached (#151). So "wifi up, API down" reads
-  `Offline` once a drain fails, a region is served from cache, or a first load gets no response, and
-  stays there until a drain or a reload actually gets through. A shell failure from an API that did
-  answer (`http`, `problem`, `parse`) stays `Online`: the API is reachable, and the Today panel shows
-  its friendly error (#208).
+  load, or the board's load, failed with a `network`-kind error and nothing was cached (#151, #239;
+  the board reports it through `ChoreBoard`'s `onUnreachable`, counted only while the shell is
+  ready). So "wifi up, API down" reads `Offline` once a drain fails, a region is served from cache, or
+  a load gets no response, and stays there until a drain or a reload actually gets through. A shell
+  or board failure from an API that did answer (`http`, `problem`, `parse`) stays `Online`: the API
+  is reachable, and the Today panel or the board shows its friendly error (#208).
   That outage never fires the
   browser's `online` event, so a drain that confirms a queued write is what revives the hub: the board
   refetches on `confirmedRevision`, and while the shell is degraded it reloads on it too (HubShell's

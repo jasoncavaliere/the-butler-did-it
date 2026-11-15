@@ -2246,6 +2246,68 @@ describe('HubShell sync indicator', () => {
     expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
   });
 
+  /**
+   * A live shell whose board's C3 generate answers with `board` (#239). The
+   * shell's own reads succeed, so only the board can fail; its live load writes
+   * just the household half of the glance cache, so the board has nothing cached
+   * to fall back on.
+   */
+  function boardFailureClient(holder: { board: ApiResult<unknown> }): ApiClient {
+    return {
+      ...clientWith({
+        household: okHousehold('Home'),
+        people: { ok: true, status: 200, data: roster, etag: null },
+      }),
+      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> =>
+        path.endsWith('/generate') ? holder.board : okAssignments,
+      ) as unknown as ApiClient['update'],
+    };
+  }
+
+  it('reads Offline when the board load cannot reach the API and nothing is cached (#239)', async () => {
+    useApiClientMock.mockReturnValue(boardFailureClient({ board: unreachable }));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+    expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Home');
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
+  });
+
+  it.each<[string, ApiResult<unknown>]>([
+    ['http 500', { ok: false, error: { kind: 'http', status: 500, title: 'Internal Server Error' } }],
+    [
+      'problem 403',
+      { ok: false, error: { kind: 'problem', status: 403, title: 'Forbidden', detail: 'Not your household.' } },
+    ],
+    ['parse', { ok: false, error: { kind: 'parse', status: 200, title: 'The API response was not valid JSON.' } }],
+  ])('reads Online when a reachable API answers the board load with a %s error (#239)', async (_label, failure) => {
+    useApiClientMock.mockReturnValue(boardFailureClient({ board: failure }));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+    expect(screen.queryByTestId('last-known-banner')).toBeNull();
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
+  });
+
+  it('returns to Online once the board loads live after a network failure (#239)', async () => {
+    const holder: { board: ApiResult<unknown> } = { board: unreachable };
+    useApiClientMock.mockReturnValue(boardFailureClient(holder));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
+
+    holder.board = okAssignments;
+    await act(async () => fireEvent.press(screen.getByTestId('chore-board-retry')));
+
+    await waitFor(() => expect(screen.queryByTestId('chore-board-error')).toBeNull());
+    expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
+  });
+
   it('hub header shows a queued write from storage and clears it after sync', async () => {
     const week = currentWeekIso();
     saveWriteQueue('hh-1', [
