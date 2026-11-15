@@ -206,22 +206,34 @@ function Invoke-ExportBuild {
 
 # The API container runs as a non-root user, so on a Linux engine it cannot
 # write a bind-mount folder that Docker creates as root. Create it first and
-# make it world-writable. A failure only warns: the stack still works, only
-# the API's log files may be missing.
+# make it world-writable. A folder that is already world-writable is fine even
+# when this user cannot chmod it (it is root-owned). Otherwise up warns on
+# stdout (#193) that the API file log is off and prints the command that
+# fixes it: the user takes back ownership of demo/.data. The stack still
+# starts, the exit code is unchanged, and the script never runs sudo. Keep
+# the warning byte-identical to ensure_logs_dir in demo.sh.
 function Initialize-LogsDir {
     $ok = $true
     try {
         New-Item -ItemType Directory -Force -Path $LogsDir | Out-Null
         if (-not $IsWindows) {
             & chmod 0777 $LogsDir 2>$null
-            if ($LASTEXITCODE -ne 0) { $ok = $false }
+            if ($LASTEXITCODE -ne 0) {
+                # Already open to everyone (write and search) is good enough.
+                $open = $null
+                $open = & find $LogsDir -maxdepth 0 -perm -0003 2>$null
+                if (-not $open) { $ok = $false }
+            }
         }
     }
     catch {
         $ok = $false
     }
     if (-not $ok) {
-        Write-Err 'Could not make demo/.data/logs writable for the API container; its log files may be missing. Fix it with: sudo chmod 777 demo/.data/logs'
+        Write-Out 'WARNING: The API file log is off. up could not make demo/.data/logs writable for the API container.'
+        Write-Out 'demo/.data is probably owned by root from an earlier run. The stack still starts, without the API log files.'
+        Write-Out 'To fix it, run down, then this from the repo root, then up again:'
+        Write-Out '  sudo chown -R "$(id -u):$(id -g)" demo/.data'
     }
 }
 
