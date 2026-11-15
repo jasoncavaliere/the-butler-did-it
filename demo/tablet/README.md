@@ -13,9 +13,76 @@ you fill in on your own machine, never in the repo:
 - `__START_URL__` is the value of `startURL`: the hub URL the tablet opens.
 - `__KIOSK_PIN__` is the value of `kioskPin`: the PIN that unlocks kiosk mode.
 
-The provisioning script (#128) will push this file for you once it lands.
-Device-owner setup is in #127 and #128, and checking the result on a real
-device is tracked in #132.
+On a factory-reset Android tablet, the provisioning script (#128) installs
+Fully, makes it the device owner and pushes this file with the start URL
+filled in: see [Provisioning script](#provisioning-script). The runbook for
+the whole tablet setup is #127, and checking the result on a real device is
+tracked in #132.
+
+## Provisioning script
+
+`provision-tablet.sh` (bash) and `provision-tablet.ps1` (PowerShell 7) are
+twins: they take the same flags, run the same adb commands in the same order
+and print the same text.
+
+1. **Get the Fully EMM APK.** Download the EMM edition of Fully Kiosk Browser
+   (package `com.fullykiosk.emm`, not the Play Store build) from
+   https://www.fully-kiosk.com/docs/en/getting-started/downloads and save it
+   as `demo/tablet/fully-emm.apk`, or pass its path with `--apk`. Git ignores
+   every `*.apk`, so the APK is never committed.
+2. **Connect the tablet** over USB with USB debugging on, and accept the
+   debugging prompt on the tablet. It must be factory reset with no account
+   added: Android only lets an app become device owner when the tablet has no
+   account.
+3. **Run the script** from the repo root:
+
+   ```bash
+   bash demo/tablet/provision-tablet.sh --url https://<host>.<tailnet>.ts.net
+   ```
+
+   PowerShell:
+
+   ```powershell
+   pwsh demo/tablet/provision-tablet.ps1 --url https://<host>.<tailnet>.ts.net
+   ```
+
+   Without `--url`, the start URL is the one `demo/demo.sh share` prints
+   (`https://` plus the machine's Tailscale HTTPS name); the script only reads
+   `tailscale status --json` and does not turn sharing on. Add `--dry-run` to
+   print every adb command without running any.
+
+Before it changes anything, the script stops with a message (and a non-zero
+exit code) if the APK is missing (it prints the download page), the start URL
+is unknown or has characters other than letters, digits and `. _ ~ : / -`,
+`adb` is not on your PATH, no device or more than one device is connected,
+the tablet has not accepted USB debugging, or `adb shell dumpsys account`
+shows an account (or cannot be read).
+
+Then it runs, in order:
+
+1. `adb install -r <apk>`
+2. `adb shell dpm set-device-owner com.fullykiosk.emm/de.ozerov.fully.DeviceOwnerReceiver`,
+   skipped when `adb shell dumpsys device_policy` shows Fully is already the
+   device owner. If this fails, the script stops here.
+3. `adb push` of a filled copy of this file to
+   `/sdcard/Download/fully-settings.json`. The copy has `__START_URL__`
+   replaced by the start URL, and the `kioskPin` line (the `__KIOSK_PIN__`
+   placeholder) removed, so the script never pushes a PIN. The copy lives in a
+   temp folder that is deleted when the script ends.
+4. `adb shell settings put global stay_on_while_plugged_in 7` (the screen stays
+   on while the tablet charges).
+
+It then prints the steps left to do on the tablet: activate the license and
+grant permissions, install Tailscale if you use it, Import Settings from File
+in Fully (step 5 of [Importing the settings](#importing-the-settings)), set
+the kiosk PIN by hand in Kiosk Mode > Kiosk Mode PIN, turn on kiosk mode, and
+restart and pair the tablet. After the import, delete the pushed copy with
+`adb shell rm /sdcard/Download/fully-settings.json`.
+
+The manual steps in [Importing the settings](#importing-the-settings) remain
+the way to load this file without the script, for example on a tablet that
+already has an account. `bash demo/ci/check-provision-tablet.sh` checks both
+scripts against a fake adb; demo-ci runs it.
 
 ## Requirements
 

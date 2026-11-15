@@ -28,6 +28,10 @@
 #            And the Fully Kiosk hub settings (#129,
 #            demo/ci/check-fully-settings.sh): placeholder-only start URL and
 #            kiosk PIN, pinned values, no secrets, every key documented.
+#            And the hub tablet provisioning scripts (#128,
+#            demo/ci/check-provision-tablet.sh): against a fake adb, both
+#            scripts abort before any change on each failed pre-check, print
+#            the same dry-run command list, and push the same settings copy.
 #            And a failed export build (#183,
 #            demo/ci/check-export-failure.sh): with a stub npm whose build:web
 #            fails after writing dist/index.html, both scripts delete that
@@ -252,6 +256,11 @@ jobs:
       # secret), and demo/tablet/README.md documents every key and the import.
       - name: "Tablet: Fully settings file is placeholder-only and documented (#129)"
         run: bash demo/ci/check-fully-settings.sh
+
+      # #128 AC1-AC12: the provisioning scripts, both twins, against a fake adb
+      # and a fake tailscale. pwsh and jq are preinstalled on ubuntu-latest.
+      - name: "Tablet: provision-tablet scripts against a fake adb (#128)"
+        run: bash demo/ci/check-provision-tablet.sh
 
       # #102 AC7-AC11: the demo CLI scripts. pwsh is preinstalled on
       # ubuntu-latest. No stack is needed: usage is printed before docker is
