@@ -22,9 +22,11 @@ public sealed record UndoChoreCommand(
 
 /// <summary>
 /// Handles <see cref="UndoChoreCommand"/> via the application service, then
-/// records a <c>chore-undone</c> usage event (#122). The event is
-/// recorded here rather than in the service because the demo seeder calls the
-/// service directly and must not write fake usage.
+/// records a <c>chore-undone</c> usage event (#122) only when the service
+/// reports an actual transition back to <c>Open</c>: an idempotent undo on an
+/// assignment that is already <c>Open</c> (or was never completed) records
+/// nothing (#218). The event is recorded here rather than in the service because
+/// the demo seeder calls the service directly and must not write fake usage.
 /// </summary>
 public sealed class UndoChoreCommandHandler
     : IRequestHandler<UndoChoreCommand, UndoChoreResponse?>
@@ -53,19 +55,24 @@ public sealed class UndoChoreCommandHandler
                 request.PersonId,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (result is not null)
+        if (result is null)
+        {
+            return null;
+        }
+
+        if (result.Changed)
         {
             await _events.TryRecordAsync(
                     request.HouseholdId,
                     EventTypes.ChoreUndone,
                     personId: request.PersonId,
                     choreId: request.ChoreId,
-                    weekIso: result.WeekIso,
+                    weekIso: result.Response.WeekIso,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return result;
+        return result.Response;
     }
 }
 
@@ -83,3 +90,18 @@ public sealed record UndoChoreResponse(
     string ChoreId,
     string AssignedPersonId,
     string Status);
+
+/// <summary>
+/// The outcome of a tap-to-undo in the application service: the assignment's
+/// state plus whether this call actually changed it. The handler records the
+/// <c>chore-undone</c> usage event only when <paramref name="Changed"/> is
+/// <c>true</c> (#218). The flag never reaches the HTTP body - only
+/// <paramref name="Response"/> is returned to the controller.
+/// </summary>
+/// <param name="Response">The assignment's state after the call.</param>
+/// <param name="Changed">
+/// <c>true</c> when this call flipped the assignment from <c>Done</c> back to
+/// <c>Open</c>; <c>false</c> for the idempotent no-op on an assignment that was
+/// already <c>Open</c> (or never completed).
+/// </param>
+public sealed record UndoChoreResult(UndoChoreResponse Response, bool Changed);

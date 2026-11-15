@@ -21,7 +21,9 @@ public sealed record CompleteChoreCommand(
 
 /// <summary>
 /// Handles <see cref="CompleteChoreCommand"/> via the application service, then
-/// records a <c>chore-completed</c> usage event (#122). The event is
+/// records a <c>chore-completed</c> usage event (#122) only when the service
+/// reports an actual transition to <c>Done</c>: an idempotent replay on an
+/// already-<c>Done</c> assignment records nothing (#218). The event is
 /// recorded here rather than in the service because the demo seeder calls the
 /// service directly and must not write fake usage.
 /// </summary>
@@ -52,19 +54,24 @@ public sealed class CompleteChoreCommandHandler
                 request.PersonId,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (result is not null)
+        if (result is null)
+        {
+            return null;
+        }
+
+        if (result.Changed)
         {
             await _events.TryRecordAsync(
                     request.HouseholdId,
                     EventTypes.ChoreCompleted,
                     personId: request.PersonId,
                     choreId: request.ChoreId,
-                    weekIso: result.WeekIso,
+                    weekIso: result.Response.WeekIso,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return result;
+        return result.Response;
     }
 }
 
@@ -82,3 +89,17 @@ public sealed record CompleteChoreResponse(
     string ChoreId,
     string AssignedPersonId,
     string Status);
+
+/// <summary>
+/// The outcome of a tap-to-complete in the application service: the assignment's
+/// state plus whether this call actually changed it. The handler records the
+/// <c>chore-completed</c> usage event only when <paramref name="Changed"/> is
+/// <c>true</c> (#218). The flag never reaches the HTTP body - only
+/// <paramref name="Response"/> is returned to the controller.
+/// </summary>
+/// <param name="Response">The assignment's state after the call.</param>
+/// <param name="Changed">
+/// <c>true</c> when this call flipped the assignment to <c>Done</c>; <c>false</c>
+/// for the idempotent no-op on an assignment that was already <c>Done</c>.
+/// </param>
+public sealed record CompleteChoreResult(CompleteChoreResponse Response, bool Changed);

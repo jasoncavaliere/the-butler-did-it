@@ -356,17 +356,20 @@ succeeds:
 
 | Type | Recorded by | When |
 | --- | --- | --- |
-| `chore-completed` | `CompleteChoreCommandHandler` | the completion returned an assignment |
-| `chore-undone` | `UndoChoreCommandHandler` | the undo returned an assignment |
+| `chore-completed` | `CompleteChoreCommandHandler` | the completion flipped the assignment to `Done` (an already-`Done` replay records nothing) |
+| `chore-undone` | `UndoChoreCommandHandler` | the undo flipped the assignment back to `Open` (an already-`Open` or never-completed undo records nothing) |
 | `cart-item-added` | `CaptureUtteranceCommandHandler` | the capture outcome is `Added` (`ItemId` is the new line) |
-| `cart-confirmed` | `ConfirmCartCommandHandler` | the confirm returned a cart (`PersonId` is the confirming organizer) |
+| `cart-confirmed` | `ConfirmCartCommandHandler` | the confirm flipped the cart to `Confirmed` (`PersonId` is the confirming organizer; an already-`Confirmed` replay records nothing) |
 | `participant-claimed` | `ClaimPersonCommandHandler` | the claimed person is on the roster |
 
 They live in the handlers, not in `ChoreCompletionService`, `CaptureHandler` or
 `CartConfirmationService`, because the demo seeder calls those services directly and must not write fake
-usage on every seed. The handlers use `IEventRecorder.TryRecordAsync`, which is best effort: a storage
-failure is logged as a warning and swallowed (cancellation is not), so a usage event can never fail the
-action it describes.
+usage on every seed. For complete, undo and confirm the service returns a result record
+(`CompleteChoreResult`, `UndoChoreResult`, `ConfirmCartResult`) that wraps the response with a
+`Changed` flag, and the handler records only when `Changed` is true, so an idempotent replay counts
+once (#218). The flag never reaches the HTTP body. The handlers use `IEventRecorder.TryRecordAsync`,
+which is best effort: a storage failure is logged as a warning and swallowed (cancellation is not), so a
+usage event can never fail the action it describes.
 
 The one client-posted type is `hub-glanced`. `EventTypes.IsClientAllowed` accepts only that exact
 string (ordinal, case-sensitive); any other type, including `participant-claimed`, is a `400` before any
@@ -377,11 +380,9 @@ minutes; the API does not dedupe them.
 | --- | --- |
 | `POST /households/{householdId}/events` | Records a client usage event (`{ "type": "hub-glanced" }`). Returns `204`. Any other type, or an empty body, is a `400` RFC 7807 document and records nothing; an unknown `householdId` is `404`. Requires only authentication (a paired hub device, participant session or organizer), not the `Organizer` policy. |
 
-Known limits, accepted by design: an idempotent replay of complete, undo or confirm records a second
-event (the handler cannot tell a no-op from a real change); a glance replayed after an outage is stamped
-with the server time of the replay; and `Events` is not purged by the demo re-seed or by household
-teardown (#124). The feature registers via `AddEventsFeature()` in `Program.cs`, last, so `Events` is the
-last table provisioned.
+Known limits, accepted by design: a glance replayed after an outage is stamped with the server time of
+the replay; and `Events` is not purged by the demo re-seed or by household teardown (#124). The feature
+registers via `AddEventsFeature()` in `Program.cs`, last, so `Events` is the last table provisioned.
 
 ### Insights (organizer read model, #123)
 

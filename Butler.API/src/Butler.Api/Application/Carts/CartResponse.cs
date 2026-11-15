@@ -79,3 +79,18 @@ public static class CartItemSources
 /// <param name="HouseholdExists">Whether the household itself exists.</param>
 /// <param name="Cart">The week's cart, or <c>null</c> when the week has none.</param>
 public sealed record CartReadResult(bool HouseholdExists, CartResponse? Cart);
+
+/// <summary>
+/// The outcome of confirming one week's cart in the application service: the
+/// cart read the controller maps, plus whether this call actually changed the
+/// cart's state. The handler records the <c>cart-confirmed</c> usage event only
+/// when <paramref name="Changed"/> is <c>true</c> (#218). The flag never reaches
+/// the HTTP body - only <paramref name="Read"/> is returned to the controller.
+/// </summary>
+/// <param name="Read">The cart read after the call, including the two absences.</param>
+/// <param name="Changed">
+/// <c>true</c> when this call flipped the cart to <c>Confirmed</c>; <c>false</c>
+/// for the idempotent no-op on an already-confirmed cart, and for an unknown
+/// household or a week with no cart.
+/// </param>
+public sealed record ConfirmCartResult(CartReadResult Read, bool Changed);

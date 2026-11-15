@@ -50,6 +50,9 @@ public interface ICartConfirmationService
     /// that returns the cart with its original
     /// <see cref="CartResponse.ConfirmedByPersonId"/> and
     /// <see cref="CartResponse.ConfirmedUtc"/> untouched.
+    /// <see cref="ConfirmCartResult.Changed"/> is <c>true</c> only when this call
+    /// flipped the cart to <c>Confirmed</c>; it is <c>false</c> for the no-op and
+    /// for both absences.
     /// </returns>
     /// <exception cref="System.ComponentModel.DataAnnotations.ValidationException">
     /// <paramref name="weekIso"/> is not a well-formed ISO year-week (a <c>400</c>).
@@ -61,7 +64,7 @@ public interface ICartConfirmationService
     /// The supplied <c>If-Match</c> no longer matches the stored cart - it grew a
     /// line underneath the reviewer, who must re-read and confirm again (a <c>412</c>).
     /// </exception>
-    Task<CartReadResult> ConfirmAsync(
+    Task<ConfirmCartResult> ConfirmAsync(
         string householdId,
         string weekIso,
         string organizerObjectId,

@@ -84,9 +84,10 @@ public sealed class ChoreCompletionServiceTests
             Household, Week29, ChoreId, PersonId, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(Week29, result!.WeekIso);
-        Assert.Equal(ChoreId, result.ChoreId);
-        Assert.Equal(AssignmentStatus.Done, result.Status);
+        Assert.Equal(Week29, result!.Response.WeekIso);
+        Assert.Equal(ChoreId, result.Response.ChoreId);
+        Assert.Equal(AssignmentStatus.Done, result.Response.Status);
+        Assert.True(result.Changed);
 
         // Exactly one completion is appended, carrying the chore's effort, the
         // clock's instant, the actor, and the assignment's week.
@@ -120,7 +121,8 @@ public sealed class ChoreCompletionServiceTests
 
         // Success, no exception, and the assignment is reported Done.
         Assert.NotNull(result);
-        Assert.Equal(AssignmentStatus.Done, result!.Status);
+        Assert.Equal(AssignmentStatus.Done, result!.Response.Status);
+        Assert.False(result.Changed);
 
         // No second completion is appended and the assignment is never re-written.
         await harness.Completions.DidNotReceive().AddAsync(
@@ -211,9 +213,10 @@ public sealed class ChoreCompletionServiceTests
             Household, Week29, ChoreId, PersonId, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(Week29, result!.WeekIso);
-        Assert.Equal(ChoreId, result.ChoreId);
-        Assert.Equal(AssignmentStatus.Open, result.Status);
+        Assert.Equal(Week29, result!.Response.WeekIso);
+        Assert.Equal(ChoreId, result.Response.ChoreId);
+        Assert.Equal(AssignmentStatus.Open, result.Response.Status);
+        Assert.True(result.Changed);
 
         // Exactly one compensating completion is appended, backing out the chore's
         // effort (negated) for the actor in the assignment's week, under a distinct
@@ -250,7 +253,8 @@ public sealed class ChoreCompletionServiceTests
             Household, Week29, ChoreId, PersonId, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(AssignmentStatus.Open, result!.Status);
+        Assert.Equal(AssignmentStatus.Open, result!.Response.Status);
+        Assert.False(result.Changed);
 
         await harness.Completions.DidNotReceive().AddAsync(
             Household, Arg.Any<ChoreCompletionEntity>(), Arg.Any<CancellationToken>());
@@ -376,7 +380,7 @@ public sealed class ChoreCompletionServiceTests
             Household, Week29, ChoreId, PersonId, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(AssignmentStatus.Done, result!.Status);
+        Assert.Equal(AssignmentStatus.Done, result!.Response.Status);
 
         // The completion is still bucketed into the assignment's week (W29).
         await harness.Completions.Received(1).AddAsync(
@@ -451,7 +455,7 @@ public sealed class ChoreCompletionServiceTests
             Household, Week29, ChoreId, PersonId, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(AssignmentStatus.Open, result!.Status);
+        Assert.Equal(AssignmentStatus.Open, result!.Response.Status);
         await harness.Completions.Received(1).AddAsync(
             Household,
             Arg.Is<ChoreCompletionEntity>(c => c.WeekIso == Week29 && c.Effort == -5),
