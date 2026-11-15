@@ -1,15 +1,17 @@
 using System.Reflection;
 using Butler.Api.Application.Grocery;
 using Butler.Api.Tests.TestSupport;
+using Xunit.Sdk;
 
 namespace Butler.Api.Tests.Grocery;
 
 /// <summary>
 /// Search tests over the REAL embedded catalog (#114): a common synonym returns
 /// the intended product (AC7), at least twenty common demo phrases each return
-/// exactly their expected product (AC9), and catalog load plus search make no
-/// network call and return identical results across independent loads (AC10,
-/// BRD decision D-4). The anchor-phrase guards pin the phrases the capture,
+/// exactly their expected product (AC9; one shared <see cref="DemoPhraseRows"/>
+/// table feeds both the per-phrase theory and the count, #203), and catalog load
+/// plus search make no network call and return identical results across
+/// independent loads (AC10, BRD decision D-4). The anchor-phrase guards pin the phrases the capture,
 /// cart, and demo integration tests rely on, so growing the catalog can never
 /// quietly make one of them ambiguous. The short-phrase collision anchors (#202)
 /// pin that "pie" never resolves to diapers and "pb" auto-adds only peanut butter.
@@ -23,24 +25,64 @@ namespace Butler.Api.Tests.Grocery;
 /// </remarks>
 public sealed class HebCatalogSearchTests
 {
-    // Every AC9 demo phrase, in the same order as the theory rows below, so the
-    // determinism test replays the full demo set against two independent loads.
-    private static readonly string[] DemoPhrases =
-    [
-        "bananas", "avocados", "gala apples", "blueberries", "baby spinach",
-        "russet potatoes", "broccoli crowns", "yellow onions",
-        "oat milk", "eggs", "salted butter", "shredded cheese", "greek yogurt",
-        "sour cream", "orange juice",
-        "peanut butter", "bread", "rice", "black beans", "olive oil", "ground coffee",
-        "tortilla chips",
-        "vanilla ice cream", "french fries", "salmon", "chicken breast", "ground beef",
-        "paper towels", "dish soap", "laundry detergent", "trash bags",
-        "diapers", "baby wipes", "chicken nuggets", "juice boxes", "string cheese",
-        "milk",
-    ];
+    // The ambiguous control phrase: it matches several products, so it is not a
+    // demo row, but the determinism test still replays it.
+    private const string AmbiguousControlPhrase = "milk";
 
     private static readonly Lazy<SimulatedHebConnector> RealConnector =
         new(() => new SimulatedHebConnector(HebCatalog.Load()));
+
+    /// <summary>
+    /// Every AC9 demo phrase with the product it must return. The per-phrase
+    /// theory, the twenty-phrase count, and the determinism replay all read this
+    /// one table, so a phrase cannot be counted without also being checked
+    /// against its product id (#203).
+    /// </summary>
+    public static TheoryData<string, string> DemoPhraseRows { get; } = new()
+    {
+        // produce
+        { "bananas", "heb-0005" },
+        { "avocados", "heb-0006" },
+        { "gala apples", "heb-0018" },
+        { "blueberries", "heb-0021" },
+        { "baby spinach", "heb-0041" },
+        { "russet potatoes", "heb-0050" },
+        { "broccoli crowns", "heb-0039" },
+        { "yellow onions", "heb-0047" },
+        // dairy
+        { "oat milk", "heb-0017" },
+        { "eggs", "heb-0003" },
+        { "salted butter", "heb-0068" },
+        { "shredded cheese", "heb-0074" },
+        { "greek yogurt", "heb-0081" },
+        { "sour cream", "heb-0072" },
+        { "orange juice", "heb-0016" },
+        // pantry
+        { "peanut butter", "heb-0010" },
+        { "bread", "heb-0004" },
+        { "rice", "heb-0013" },
+        { "black beans", "heb-0014" },
+        { "olive oil", "heb-0110" },
+        { "ground coffee", "heb-0119" },
+        { "tortilla chips", "heb-0129" },
+        // frozen
+        { "vanilla ice cream", "heb-0143" },
+        { "french fries", "heb-0149" },
+        { "salmon", "heb-0152" },
+        { "chicken breast", "heb-0007" },
+        { "ground beef", "heb-0008" },
+        // household
+        { "paper towels", "heb-0160" },
+        { "dish soap", "heb-0163" },
+        { "laundry detergent", "heb-0165" },
+        { "trash bags", "heb-0167" },
+        // kids
+        { "diapers", "heb-0185" },
+        { "baby wipes", "heb-0186" },
+        { "chicken nuggets", "heb-0191" },
+        { "juice boxes", "heb-0200" },
+        { "string cheese", "heb-0193" },
+    };
 
     [Theory]
     [InlineData("oatmilk", "heb-0017")]
@@ -74,48 +116,7 @@ public sealed class HebCatalogSearchTests
     }
 
     [Theory]
-    // produce
-    [InlineData("bananas", "heb-0005")]
-    [InlineData("avocados", "heb-0006")]
-    [InlineData("gala apples", "heb-0018")]
-    [InlineData("blueberries", "heb-0021")]
-    [InlineData("baby spinach", "heb-0041")]
-    [InlineData("russet potatoes", "heb-0050")]
-    [InlineData("broccoli crowns", "heb-0039")]
-    [InlineData("yellow onions", "heb-0047")]
-    // dairy
-    [InlineData("oat milk", "heb-0017")]
-    [InlineData("eggs", "heb-0003")]
-    [InlineData("salted butter", "heb-0068")]
-    [InlineData("shredded cheese", "heb-0074")]
-    [InlineData("greek yogurt", "heb-0081")]
-    [InlineData("sour cream", "heb-0072")]
-    [InlineData("orange juice", "heb-0016")]
-    // pantry
-    [InlineData("peanut butter", "heb-0010")]
-    [InlineData("bread", "heb-0004")]
-    [InlineData("rice", "heb-0013")]
-    [InlineData("black beans", "heb-0014")]
-    [InlineData("olive oil", "heb-0110")]
-    [InlineData("ground coffee", "heb-0119")]
-    [InlineData("tortilla chips", "heb-0129")]
-    // frozen
-    [InlineData("vanilla ice cream", "heb-0143")]
-    [InlineData("french fries", "heb-0149")]
-    [InlineData("salmon", "heb-0152")]
-    [InlineData("chicken breast", "heb-0007")]
-    [InlineData("ground beef", "heb-0008")]
-    // household
-    [InlineData("paper towels", "heb-0160")]
-    [InlineData("dish soap", "heb-0163")]
-    [InlineData("laundry detergent", "heb-0165")]
-    [InlineData("trash bags", "heb-0167")]
-    // kids
-    [InlineData("diapers", "heb-0185")]
-    [InlineData("baby wipes", "heb-0186")]
-    [InlineData("chicken nuggets", "heb-0191")]
-    [InlineData("juice boxes", "heb-0200")]
-    [InlineData("string cheese", "heb-0193")]
+    [MemberData(nameof(DemoPhraseRows))]
     public async Task A_common_demo_phrase_returns_its_expected_product(string phrase, string expectedProductId)
     {
         var results = await RealConnector.Value.SearchProductsAsync(phrase, CancellationToken.None);
@@ -127,9 +128,38 @@ public sealed class HebCatalogSearchTests
     [Fact]
     public void The_demo_phrase_set_covers_at_least_twenty_phrases()
     {
-        // AC9's measure, stated directly: the demo set (less the deliberately
-        // ambiguous "milk" control) is at least twenty phrases.
-        Assert.True(DemoPhrases.Length - 1 >= 20, $"Only {DemoPhrases.Length - 1} demo phrases.");
+        // AC9's measure, stated directly over the same rows the theory checks:
+        // at least twenty distinct phrases, each paired with its product id.
+        AssertCoversAtLeastTwentyDistinctPhrases(DemoPhraseRows);
+    }
+
+    [Fact]
+    public void The_count_check_fails_below_twenty_phrases()
+    {
+        // Negative control: nineteen real rows must fail the count check.
+        var nineteen = new TheoryData<string, string>();
+        foreach (var row in DemoPhraseRows.Take(19))
+        {
+            nineteen.Add((string)row[0], (string)row[1]);
+        }
+
+        Assert.ThrowsAny<XunitException>(() => AssertCoversAtLeastTwentyDistinctPhrases(nineteen));
+    }
+
+    [Fact]
+    public void The_count_check_fails_when_a_duplicate_phrase_pads_the_count()
+    {
+        // Twenty rows, but only nineteen distinct phrases: a repeat must not count.
+        var padded = new TheoryData<string, string>();
+        foreach (var row in DemoPhraseRows.Take(19))
+        {
+            padded.Add((string)row[0], (string)row[1]);
+        }
+
+        var first = DemoPhraseRows.First();
+        padded.Add(((string)first[0]).ToUpperInvariant(), (string)first[1]);
+
+        Assert.ThrowsAny<XunitException>(() => AssertCoversAtLeastTwentyDistinctPhrases(padded));
     }
 
     [Fact]
@@ -168,7 +198,7 @@ public sealed class HebCatalogSearchTests
         var first = new SimulatedHebConnector(HebCatalog.Load());
         var second = new SimulatedHebConnector(HebCatalog.Load());
 
-        foreach (var phrase in DemoPhrases)
+        foreach (var phrase in DemoPhraseRows.Select(row => (string)row[0]).Append(AmbiguousControlPhrase))
         {
             var a = await first.SearchProductsAsync(phrase, CancellationToken.None);
             var b = await second.SearchProductsAsync(phrase, CancellationToken.None);
@@ -198,7 +228,7 @@ public sealed class HebCatalogSearchTests
     [Fact]
     public async Task Milk_is_still_ambiguous()
     {
-        var results = await RealConnector.Value.SearchProductsAsync("milk", CancellationToken.None);
+        var results = await RealConnector.Value.SearchProductsAsync(AmbiguousControlPhrase, CancellationToken.None);
 
         Assert.True(results.Count >= 2, $"Expected several milk candidates but got {results.Count}.");
     }
@@ -253,6 +283,14 @@ public sealed class HebCatalogSearchTests
             product => string.Equals(product.DisplayName, displayName, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(expectedProductId, exact.ProductId);
         Assert.Single(results);
+    }
+
+    private static void AssertCoversAtLeastTwentyDistinctPhrases(TheoryData<string, string> rows)
+    {
+        var phrases = rows.Select(row => (string)row[0]).ToArray();
+
+        Assert.Equal(rows.Count, phrases.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.True(rows.Count >= 20, $"Only {rows.Count} demo phrases.");
     }
 
     private static IEnumerable<string> FindNetworkCalls(Type type) =>
