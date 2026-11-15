@@ -216,14 +216,17 @@ dotnet test src/Butler.Api.SmokeTests
 
 With no settings, the suite targets the local dev URL `http://localhost:5099` (the `http` launch
 profile used by `dotnet run` and `Start-LocalSession.ps1`) and Azurite's `UseDevelopmentStorage=true`.
-Only `Liveness` runs against the `.workspace` demo stack: set
-`BUTLER_SMOKE_BASE_URL=http://localhost:5108` to point it at the containerized API. The stack's API
-writes to the compose `azurite` service, which does not publish port 10002, so a test run on the host
-cannot read the same store. `Endpoints`, `Provisioning` and `Demo` need an API and a test run that
-share one Azurite, so use the hand-started Azurite plus `dotnet run` on `:5099` shown above.
-`Storage` only exercises whichever Azurite the host reaches; it does not test the stack. The
-in-memory quick loop (also on `:5108`) fails `Endpoints`, because those tests read the `Rooms` table
-directly to prove the API persisted to Table Storage.
+`demo/demo.sh up` (and `demo.ps1 up`) runs `Liveness` and `Endpoints` against the demo stack itself
+once it is healthy (#103; see "Smoke step" in [`demo/README.md`](../demo/README.md)): through the
+Caddy proxy with `BUTLER_SMOKE_BASE_URL=http://localhost:8080/api/` (the trailing slash keeps the
+`/api` prefix), with `BUTLER_SMOKE_ORGANIZER_PIN` set to the demo PIN because the Demo API has no
+organizer bypass, and with `BUTLER_SMOKE_STORAGE_CONNECTION_STRING` pointing at the stack's Azurite,
+which publishes its Table port on loopback only as `127.0.0.1:10012`. `Provisioning` and `Demo` are
+not run there (`Demo` would replace the seeded demo household and needs the Development bypass), so
+for those use the hand-started Azurite plus `dotnet run` on `:5099` shown above. `Storage` only
+exercises whichever Azurite the host reaches; it does not test the stack. The in-memory quick loop
+(also on `:5108`) fails `Endpoints`, because those tests read the `Rooms` table directly to prove
+the API persisted to Table Storage.
 
 ### Run against a base URL (a deployed or already-running API)
 
@@ -246,6 +249,7 @@ dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
 | --- | --- | --- |
 | `BUTLER_SMOKE_BASE_URL` | `http://localhost:5099` | API every liveness request is sent to. Must be an absolute http(s) URL; a malformed value fails the run immediately. |
 | `BUTLER_SMOKE_STORAGE_CONNECTION_STRING` | `UseDevelopmentStorage=true` | Table Storage backend for the storage round trips (Azurite). |
+| `BUTLER_SMOKE_ORGANIZER_PIN` | unset (no sign-in) | Opt-in organizer PIN (#103). When set, the HTTP client signs in once per run with `POST auth/pin/sign-in` under the base URL and sends the token as `Authorization: Bearer` on every request, so `Endpoints` runs against an API whose organizer signs in with a PIN (the Demo stack). It must match the API's `BUTLER_DEMO_PIN`; a failed sign-in fails each test with a message that names this variable, never the PIN, and is not retried. |
 
 | Category (`--filter Category=...`) | What it checks | Needs | Safe against a shared env? |
 | --- | --- | --- | --- |
@@ -253,7 +257,7 @@ dotnet test src/Butler.Api.SmokeTests --filter Category=Liveness
 | `Storage` | Create, read, then update with `If-Match` through `IEntityRepository<T>`; a missing `If-Match` is rejected (`428`) and a stale ETag is rejected (`412`); the seam resolves the Table-backed repository, not the in-memory fallback. Each test creates and drops its own `Smoke<guid>` table. | Azurite | No - writes data; Azurite only |
 | `Demo` | `POST /demo/seed` twice succeeds and leaves one demo household with four participants and a fairness top contributor. | A running API in Development (the dev bypass; Demo needs a PIN token) and Azurite | No - replaces the demo household; Azurite only |
 | `Provisioning` | Every feature table (`Households`, `People`, `Rooms`, `Chores`, `ChoreCompletions`, `Assignments`, `Carts`, `CartItems`, `HubDevices`, `Events`) exists after the API starts and accepts a first write, with no table created by the test; once every table exists, provisioning them again (a restart) succeeds. No test in the suite creates a feature table, so a table the API failed to provision cannot be masked. Each write uses its own `smoke-provisioning-<guid>` partition and is deleted afterwards. | A running API booted against Azurite | No - writes data; Azurite only |
-| `Endpoints` | Rooms over HTTP: `POST /households/{id}/rooms` returns `201` and the row lands in the `Rooms` table; `GET` returns `200` with the `eTag`; `PUT` with the current `If-Match` returns `200` and a following `GET` shows the new values; `PUT` without `If-Match` returns `428`; `PUT` with a stale ETag returns `412`; `DELETE` returns `204`, then `GET` returns `404`. Each test uses its own `smoke-rooms-<guid>` partition, deletes every room it created, and creates no table. | A running API (Development) booted against Azurite | No - writes data; Azurite only |
+| `Endpoints` | Rooms over HTTP: `POST /households/{id}/rooms` returns `201` and the row lands in the `Rooms` table; `GET` returns `200` with the `eTag`; `PUT` with the current `If-Match` returns `200` and a following `GET` shows the new values; `PUT` without `If-Match` returns `428`; `PUT` with a stale ETag returns `412`; `DELETE` returns `204`, then `GET` returns `404`. Each test uses its own `smoke-rooms-<guid>` partition, deletes every room it created, and creates no table. | A running API booted against Azurite, and a test run that reads the same Azurite: Development (the dev bypass), or the Demo stack with `BUTLER_SMOKE_ORGANIZER_PIN` (as `demo up` runs it) | No - writes data; Azurite only |
 | `Settings` | How the suite resolves the variables above. | Nothing | Yes - offline |
 
 In CI, the `smoke (booted API + Azurite)` job in `.github/workflows/api-ci.yml` starts Azurite, boots

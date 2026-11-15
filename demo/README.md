@@ -5,7 +5,7 @@ the hub PWA served by Caddy, all started with one Docker Compose command.
 
 | Service | Image | What it does |
 | --- | --- | --- |
-| `azurite` | `mcr.microsoft.com/azure-storage/azurite:3.35.0` | Table storage, data kept in `demo/.data/azurite` |
+| `azurite` | `mcr.microsoft.com/azure-storage/azurite:3.35.0` | Table storage, data kept in `demo/.data/azurite`; Table port also on `127.0.0.1:10012` for the smoke step |
 | `api` | `butler-api:demo` (built from `Butler.API/`) | The Butler API in the `Demo` environment |
 | `web` | `caddy:2.10.2-alpine` | Serves the hub PWA export on port 8080 and proxies `/api/*` to the API |
 
@@ -17,7 +17,7 @@ subcommands, print the same text and work from any directory. Both run every
 command against the one compose file, `demo/docker-compose.yml`.
 
 ```bash
-demo/demo.sh up        # build the hub export if needed, start, wait for healthy
+demo/demo.sh up        # build the hub export if needed, start, wait for healthy, run the smoke suite
 demo/demo.sh status    # container health, hub URL and dataset id
 demo/demo.sh logs      # follow the API and Caddy logs (Ctrl+C to stop)
 demo/demo.sh logs --api   # API only
@@ -44,9 +44,9 @@ pwsh demo/demo.ps1 unshare
 
 | Command | What it does |
 | --- | --- |
-| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and returns only when every service reports healthy. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
+| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and waits until every service reports healthy. Then it runs the smoke suite with the host .NET SDK and prints `Demo ready: <urls>` and exits 0 only when every smoke check passes (see [Smoke step](#smoke-step)); it checks for the SDK first, before running npm or docker. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
-| `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, runs `up`, signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
+| `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`). Naming a compose service (`azurite`, `api` or `web`) shows only the services named: `logs -f azurite` follows Azurite alone, and the API and Caddy default applies only when no service is named. See [Logs](#logs). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
@@ -61,6 +61,9 @@ sections below are the fallback when you want to run the steps yourself.
 - Docker Desktop (or Docker Engine with the Compose v2 plugin on Linux).
 - A `demo/.env` file that sets `BUTLER_DEMO_PIN` (see [Organizer PIN](#organizer-pin)).
 - Node 22 (the active LTS) to build the hub export.
+- The .NET 10 SDK (`dotnet --list-sdks` lists a 10.x SDK) for the smoke step
+  `up` runs (see [Smoke step](#smoke-step)). Without an SDK, `up` stops
+  before it starts anything.
 - PowerShell 7 to use `demo/demo.ps1` (bash is enough for `demo/demo.sh`).
 - Optional, for `share`: Tailscale 1.52 or later (older versions use a
   different `tailscale serve` syntax).
@@ -143,6 +146,69 @@ still runs, but writes no log files. Compose reads `BUTLER_DEMO_PIN` from
 the API file log is off, see
 [When up says the API file log is off](#when-up-says-the-api-file-log-is-off).
 
+### Smoke step
+
+Once every service is healthy, `up` (both `demo.sh` and `demo.ps1`, but not
+`reset`) runs the API's smoke suite (`Butler.API/src/Butler.Api.SmokeTests`)
+against the running stack with the host .NET SDK, so a stack that is up but
+broken does not look ready (#103). It prints
+`Running the smoke suite against http://localhost:8080/api/ ...`, streams the
+`dotnet test` output, and runs:
+
+- **Liveness**: the read-only `GET /health` and `GET /api/system/ping`
+  checks, through the Caddy proxy.
+- **Endpoints**: the Rooms HTTP round trip (#92): create, read, update with
+  and without a current `If-Match`, and delete a room, and read the Rooms
+  table directly to prove the API wrote to Azurite. Each test works in its own
+  throwaway household, `smoke-rooms-<guid>`, and deletes the rooms it created,
+  so the seeded demo household is never touched.
+
+It never runs the Demo category (which seeds the demo household; `reset`
+does that), nor the Storage or Provisioning categories.
+
+The Demo API signs the organizer in with the PIN, so the suite signs in once,
+with the PIN from your shell or `demo/.env`, through
+`POST /api/auth/pin/sign-in` and sends the token on its requests. The PIN
+reaches `dotnet` only through its environment, never its command line. The
+direct Rooms table reads use Azurite's loopback-only host port
+`127.0.0.1:10012` and the well-known public `devstoreaccount1` key.
+
+When every check passes, the last line is:
+
+```text
+Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger
+```
+
+and `up` exits 0. When a check fails, `up` prints one line per failed test on
+stderr, then `Demo is not ready: the smoke suite failed. Run the logs command to see why.`,
+and exits 1. The stack keeps running, so you can look at the logs:
+
+```text
+Smoke check failed: Butler.Api.SmokeTests.LivenessSmokeTests.Get_health_returns_200_with_status_ok
+Demo is not ready: the smoke suite failed. Run the logs command to see why.
+```
+
+When no .NET SDK is found (no `dotnet` on `PATH`, or `dotnet --list-sdks`
+lists none), `up` prints this and exits 1 before it runs npm or docker. It
+never skips the smoke step:
+
+```text
+The .NET SDK is required for the smoke step that up runs, and none was found. Install the .NET 10 SDK, then run up again. See demo/README.md.
+```
+
+To run the same smoke step by hand against a running stack, from the repo root:
+
+```bash
+cd Butler.API
+BUTLER_SMOKE_BASE_URL=http://localhost:8080/api/ \
+BUTLER_SMOKE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10012/devstoreaccount1;' \
+BUTLER_SMOKE_ORGANIZER_PIN="<your BUTLER_DEMO_PIN>" \
+  dotnet test src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj --filter 'Category=Liveness|Category=Endpoints'
+```
+
+The trailing slash in `BUTLER_SMOKE_BASE_URL` matters: without it the suite's
+requests drop the `/api` prefix.
+
 ## Organizer PIN
 
 In the demo the organizer signs in with a 4-6 digit PIN (#105). The API reads
@@ -217,6 +283,8 @@ storage under `butler.hubPairing.v1`. To unpair it, do one of these:
 | System ping (through the proxy) | http://localhost:8080/api/api/system/ping |
 | Dataset id (through the proxy) | http://localhost:8080/api/api/system/dataset |
 | API health (direct, for debugging) | http://localhost:5108/health |
+| Swagger UI (direct) | http://localhost:5108/swagger |
+| Azurite Table endpoint (loopback only, for the smoke step) | http://127.0.0.1:10012/devstoreaccount1 |
 
 Use `http://localhost:8080` (not a LAN IP) so the browser treats the page as a
 secure context and registers the service worker. To open the hub on a tablet,
@@ -465,8 +533,9 @@ CI. In order, it:
 4. Deletes everything in `demo/.data/azurite`, inside a one-off `azurite`
    container (`find /data -mindepth 1 -delete`), so it needs no `sudo` on
    Linux. The API log files in `demo/.data/logs` are kept.
-5. Runs `up`: builds the hub export if needed and waits until every service
-   is healthy.
+5. Starts the stack as `up` does: builds the hub export if needed and waits
+   until every service is healthy. It does not run the smoke step or need
+   the .NET SDK.
 6. Signs in with `BUTLER_DEMO_PIN` (`POST /api/auth/pin/sign-in`), once, and
    seeds the demo household (`POST /api/demo/seed`): "The Parker Household",
    id `demo-household`, with Maria, Dan, Ava and Leo on the roster, chores,
@@ -513,3 +582,14 @@ no table-creation steps.
   port the in-memory quick loop documented in `.workspace/` binds `dotnet run`
   to. Stop a locally running API before `up`, or `up` fails with "port is
   already allocated".
+
+- Port 10012: Azurite's Table port is published on `127.0.0.1:10012` (loopback
+  only, never `0.0.0.0`) so the smoke step can read the Rooms table. 10012,
+  not Azurite's usual 10002, so it does not clash with an Azurite that
+  `Start-LocalSession` runs on 10002. If something else holds 10012, `up`
+  fails with "port is already allocated".
+
+- Smoke sign-in: the smoke step signs the organizer in with the PIN on every
+  `up` and never signs out. The token is not used again and expires after 15
+  minutes without use. A wrong PIN in the smoke step is a single failed
+  attempt, not one per test.

@@ -32,6 +32,8 @@ internal static class SmokeCategories
     /// <summary>
     /// Mutating round trips through the API's HTTP endpoints (a running API in
     /// Development booted against Azurite); never point it at a deployed environment.
+    /// <c>demo up</c> also runs it against the Demo stack (#103), with
+    /// <c>BUTLER_SMOKE_ORGANIZER_PIN</c> set so the client signs in with the PIN.
     /// </summary>
     public const string Endpoints = "Endpoints";
 

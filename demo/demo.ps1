@@ -10,8 +10,10 @@
     subcommands and print the same text, so keep every fixed string below
     byte-identical to the one in demo.sh. See demo/README.md.
 
-      up      Build the hub export if needed, start the stack and wait until
-              every service is healthy.
+      up      Build the hub export if needed, start the stack, wait until
+              every service is healthy, then run the smoke suite (Liveness
+              and Endpoints) with the host .NET SDK and print Demo ready.
+              Needs the .NET 10 SDK (#103).
       down    Stop the stack. The Azurite data in demo/.data/azurite is kept.
       reset   Delete the demo data in demo/.data/azurite, start the stack
               again, sign in with BUTLER_DEMO_PIN and seed the demo
@@ -79,12 +81,28 @@ $PinSignInUrl = "$HubUrl/api/auth/pin/sign-in"
 $SeedUrl = "$HubUrl/api/demo/seed"
 $WaitTimeout = '300'
 
+# The smoke step up runs once the stack is healthy (#103): the smoke suite,
+# run with the host .NET SDK from Butler.API/ (so global.json applies), through
+# the Caddy proxy. The trailing slash matters: without it, the suite's relative
+# URLs drop /api. The storage string is the well-known public Azurite
+# devstoreaccount1 key (not a secret, the same one docker-compose.yml gives
+# the api), pointed at Azurite's loopback-only host port 10012.
+$ApiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.API'
+$SmokeBaseUrl = "$HubUrl/api/"
+$SmokeStorageConnectionString = 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10012/devstoreaccount1;'
+$SmokeProject = 'src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj'
+# Liveness (read-only) and Endpoints (#92's Rooms round trip, in a throwaway
+# smoke-rooms-<guid> household). Never Demo: the seeded household stays as is.
+$SmokeFilter = 'Category=Liveness|Category=Endpoints'
+$SmokeLogger = 'console;verbosity=normal'
+$DemoReady = "Demo ready: hub $HubUrl | API $HubUrl/api/health | Swagger http://localhost:5108/swagger"
+
 # Subcommand registry, in usage order.
 # To add a subcommand: add an entry here and an Invoke-Demo<Name> function
 # below (and the same entry and handler in demo.sh, plus a row in
 # demo/README.md).
 $Commands = [ordered]@{
-    up      = 'Build the hub export if needed, start the stack and wait until it is healthy'
+    up      = 'Build the hub export if needed, start the stack, wait until it is healthy and run the smoke suite'
     down    = 'Stop the stack (data in demo/.data/azurite is kept)'
     reset   = 'Delete the demo data, restart the stack, re-seed the demo household and change the dataset id'
     status  = 'Show container health, the hub URL and the dataset id'
@@ -293,8 +311,33 @@ function Set-BuildSha {
     $env:BUTLER_BUILD_SHA = $sha
 }
 
-function Invoke-DemoUp {
-    if (-not (Test-DemoPin)) { return }
+# The smoke step needs the host .NET SDK (#103), so fail fast, before npm or
+# docker run. A dotnet with no SDK (a runtime-only install) counts as none.
+function Test-DotnetSdk {
+    $found = $false
+    if (Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue) {
+        try {
+            # Captured on purpose: only checked, never printed.
+            $sdks = @(& dotnet --list-sdks 2>$null)
+            if ($LASTEXITCODE -eq 0) {
+                $found = @($sdks | Where-Object { ([string]$_).Trim() }).Count -gt 0
+            }
+        }
+        catch {
+            $found = $false
+        }
+    }
+    if ($found) {
+        return $true
+    }
+    Write-Err 'The .NET SDK is required for the smoke step that up runs, and none was found. Install the .NET 10 SDK, then run up again. See demo/README.md.'
+    $script:ExitCode = 1
+    return $false
+}
+
+# Builds the hub export if needed, starts the stack and waits until every
+# service is healthy. up runs the smoke suite after it; reset does not.
+function Start-DemoStack {
     Set-BuildSha
     $rebuilt = $false
     switch (Get-ExportState) {
@@ -332,6 +375,71 @@ function Invoke-DemoUp {
         return
     }
     Write-Out "Demo stack is up and healthy: $HubUrl"
+}
+
+# The smoke step (#103): runs the Liveness and Endpoints smoke tests against
+# the running stack. Their output streams through and is kept in memory; a
+# failure names each failed test (in order, once each) on stderr. The
+# settings go to dotnet only through its environment, so the PIN is never in
+# argv or printed. Same lines as run_smoke in demo.sh.
+function Invoke-Smoke {
+    Write-Out "Running the smoke suite against $SmokeBaseUrl ..."
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $names = @{
+        BUTLER_SMOKE_BASE_URL                  = $SmokeBaseUrl
+        BUTLER_SMOKE_STORAGE_CONNECTION_STRING = $SmokeStorageConnectionString
+        BUTLER_SMOKE_ORGANIZER_PIN             = [string](Get-DemoPin)
+        MSBUILDTERMINALLOGGER                  = 'off'
+        DOTNET_NOLOGO                          = '1'
+    }
+    $saved = @{}
+    foreach ($name in $names.Keys) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+        [Environment]::SetEnvironmentVariable($name, $names[$name])
+    }
+    Push-Location -LiteralPath $ApiDir
+    try {
+        # Native stderr arrives as ErrorRecords, hence the [string] cast.
+        & dotnet test $SmokeProject --filter $SmokeFilter --logger $SmokeLogger 2>&1 | ForEach-Object {
+            $line = [string]$_
+            $lines.Add($line)
+            Write-Out $line
+        }
+        $script:ExitCode = $LASTEXITCODE
+    }
+    catch {
+        $script:ExitCode = 1
+    }
+    finally {
+        Pop-Location
+        foreach ($name in $saved.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $saved[$name])
+        }
+    }
+    if ($script:ExitCode -eq 0) {
+        Write-Out $DemoReady
+        return
+    }
+    # VSTest prints "  Failed <test name> [<duration>]" once per failed test.
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($line in $lines) {
+        if (($line -replace "`r", '') -cmatch '^\s*Failed (.*) \[[^\]\[]*\]$') {
+            $failed = $Matches[1]
+            if ($seen.Add($failed)) {
+                Write-Err "Smoke check failed: $failed"
+            }
+        }
+    }
+    Write-Err 'Demo is not ready: the smoke suite failed. Run the logs command to see why.'
+    $script:ExitCode = 1
+}
+
+function Invoke-DemoUp {
+    if (-not (Test-DemoPin)) { return }
+    if (-not (Test-DotnetSdk)) { return }
+    Start-DemoStack
+    if ($script:ExitCode -ne 0) { return }
+    Invoke-Smoke
 }
 
 function Invoke-DemoDown {
@@ -439,7 +547,7 @@ function Invoke-DemoReset {
         return
     }
 
-    Invoke-DemoUp
+    Start-DemoStack
     if ($script:ExitCode -ne 0) { return }
 
     # Sign in once, after up (a restart drops PIN tokens), with no retry: five

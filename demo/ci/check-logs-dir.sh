@@ -24,8 +24,8 @@
 # (AC4).
 #
 # A fresh, stamped hub export is put in Butler.UI/dist so up never builds; a
-# stub npm fails if called, and a stub docker only logs and succeeds, so no
-# real stack starts. An existing Butler.UI/dist is moved aside, and an
+# stub npm fails if called, a stub docker only logs and succeeds, so no
+# real stack starts, and a stub dotnet passes the smoke step (#103). An existing Butler.UI/dist is moved aside, and an
 # existing demo/.data is renamed to demo/.data-saved-by-check-logs-dir; both
 # are put back on exit. Cases D-F need passwordless sudo; without it they are
 # skipped locally and fail in GitHub Actions. Refuses to run as root (a
@@ -64,6 +64,9 @@ FIX_CMD="${FIX_CMD#  }"
 L_FRESH='Hub export is up to date (Butler.UI/dist).'
 L_STARTING='Starting the demo stack ...'
 L_HEALTHY='Demo stack is up and healthy: http://localhost:8080'
+# The smoke step (#103) runs after the stack is healthy; the stub dotnet passes.
+L_RUNNING='Running the smoke suite against http://localhost:8080/api/ ...'
+L_READY='Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger'
 L_COMPOSE_UP='up -d --build --wait --wait-timeout 300'
 
 fail() {
@@ -165,7 +168,22 @@ cat > "$STUB_DIR/docker" <<'STUB'
 printf '%s\n' "$*" >> "${DOCKER_STUB_LOG:-/dev/null}"
 exit 0
 STUB
-chmod +x "$STUB_DIR/npm" "$STUB_DIR/docker"
+# A stub dotnet (#103): up checks for an SDK and runs the smoke suite once the
+# stack is healthy. --list-sdks prints one SDK and test prints nothing and
+# passes; anything else goes to the real dotnet, if there is one (a pwsh
+# installed as a .NET global tool starts through `dotnet pwsh.dll`).
+export REAL_DOTNET="$(command -v dotnet || true)"
+cat > "$STUB_DIR/dotnet" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --list-sdks) echo '10.0.100 [/usr/share/dotnet/sdk]'; exit 0 ;;
+  test) exit 0 ;;
+esac
+[ -n "${REAL_DOTNET:-}" ] && exec "$REAL_DOTNET" "$@"
+echo "stub dotnet: unexpected arguments: $*" >&2
+exit 64
+STUB
+chmod +x "$STUB_DIR/npm" "$STUB_DIR/docker" "$STUB_DIR/dotnet"
 
 # up checks the PIN before anything else. A fixed SHA keeps the runs alike.
 export BUTLER_DEMO_PIN=1234
@@ -176,8 +194,8 @@ export PATH="$STUB_DIR:$PATH"
 # cannot (the warning comes right before "Starting the demo stack ...").
 QUIET="$WORK/quiet.expected"
 LOUD="$WORK/loud.expected"
-printf '%s\n' "$L_FRESH" "$L_STARTING" "$L_HEALTHY" > "$QUIET"
-printf '%s\n' "$L_FRESH" "$MESSAGE" "$L_STARTING" "$L_HEALTHY" > "$LOUD"
+printf '%s\n' "$L_FRESH" "$L_STARTING" "$L_HEALTHY" "$L_RUNNING" "$L_READY" > "$QUIET"
+printf '%s\n' "$L_FRESH" "$MESSAGE" "$L_STARTING" "$L_HEALTHY" "$L_RUNNING" "$L_READY" > "$LOUD"
 
 # run_up <script> <tag>: runs `up` through demo.sh or demo.ps1 and saves its
 # stdout, stderr, exit code, npm and docker calls in $WORK/<tag>.*.

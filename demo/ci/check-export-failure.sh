@@ -82,7 +82,21 @@ printf '%s\n' "$*" >> "${DOCKER_STUB_LOG:-/dev/null}"
 echo "stub docker: must not be called: $*" >&2
 exit 1
 STUB
-chmod +x "$STUB_DIR/npm" "$STUB_DIR/docker"
+# A stub dotnet (#103): up checks for an SDK before it builds, so this run never
+# depends on a real one. --list-sdks prints one SDK and test passes; anything else goes to the real dotnet, if there is one (a pwsh
+# installed as a .NET global tool starts through `dotnet pwsh.dll`).
+export REAL_DOTNET="$(command -v dotnet || true)"
+cat > "$STUB_DIR/dotnet" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --list-sdks) echo '10.0.100 [/usr/share/dotnet/sdk]'; exit 0 ;;
+  test) exit 0 ;;
+esac
+[ -n "${REAL_DOTNET:-}" ] && exec "$REAL_DOTNET" "$@"
+echo "stub dotnet: unexpected arguments: $*" >&2
+exit 64
+STUB
+chmod +x "$STUB_DIR/npm" "$STUB_DIR/docker" "$STUB_DIR/dotnet"
 
 # up checks the PIN before anything else.
 export BUTLER_DEMO_PIN=1234
