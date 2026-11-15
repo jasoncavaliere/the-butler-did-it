@@ -14,6 +14,10 @@ set -euo pipefail
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$DEMO_DIR")"
 COMPOSE_FILE="$DEMO_DIR/docker-compose.yml"
+# The services in docker-compose.yml (#190). Naming one of these narrows
+# logs to the services named. Keep in step with the compose file and with
+# $ComposeServices in demo.ps1 (demo/ci/check-logs-args.sh fails on drift).
+COMPOSE_SERVICES="azurite api web"
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 LOGS_DIR="$DEMO_DIR/.data/logs"
 UI_DIR="$REPO_ROOT/Butler.UI"
@@ -270,21 +274,31 @@ EOF
 }
 
 # Default: follow the api and web (Caddy) logs, last 100 lines each. --api
-# narrows to the API. Any other argument goes to docker compose logs as-is and
-# turns off the default --follow --tail 100 (pass -f to follow).
+# narrows the default to the API. Any other argument goes to docker compose
+# logs as-is and turns off the default --follow --tail 100 (pass -f to
+# follow). Naming a service from COMPOSE_SERVICES (exact, case-sensitive
+# match), as in `logs -f azurite`, shows only the services named (#190).
 cmd_logs() {
-  local services="api web" rest=() arg
+  local services="api web" rest=() arg svc named=0
   for arg in "$@"; do
     if [ "$arg" = "--api" ]; then
       services="api"
     else
       rest+=("$arg")
+      for svc in $COMPOSE_SERVICES; do
+        if [ "$arg" = "$svc" ]; then
+          named=1
+        fi
+      done
     fi
   done
   if [ "${#rest[@]}" -eq 0 ]; then
     rest=(--follow --tail 100)
   fi
-  # $services is unquoted on purpose: it is one or two service names.
+  if [ "$named" -eq 1 ]; then
+    services=""
+  fi
+  # $services is unquoted on purpose: it is zero, one or two service names.
   # shellcheck disable=SC2086
   compose logs "${rest[@]}" $services
 }

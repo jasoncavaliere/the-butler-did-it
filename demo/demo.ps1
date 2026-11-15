@@ -18,7 +18,8 @@
       logs    Follow the API and Caddy (web) logs, last 100 lines each.
               --api shows only the API. Any other argument goes to
               docker compose logs as-is and turns off the default
-              --follow --tail 100.
+              --follow --tail 100. Naming a service (azurite, api or
+              web), as in `logs -f azurite`, shows only that service.
       share   Share the hub on your tailnet over HTTPS (tailscale serve
               --bg 8080) and print its https://<host>.<tailnet>.ts.net URL
               and a QR code for the tablet.
@@ -34,6 +35,8 @@
     ./demo/demo.ps1 logs --api
 .EXAMPLE
     ./demo/demo.ps1 logs --api --no-color --since 10m
+.EXAMPLE
+    ./demo/demo.ps1 logs -f azurite
 #>
 
 Set-StrictMode -Version Latest
@@ -41,6 +44,10 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
 $ComposeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
+# The services in docker-compose.yml (#190). Naming one of these narrows
+# logs to the services named. Keep in step with the compose file and with
+# COMPOSE_SERVICES in demo.sh (demo/ci/check-logs-args.sh fails on drift).
+$ComposeServices = @('azurite', 'api', 'web')
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 $LogsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'logs'
 $UiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.UI'
@@ -347,11 +354,14 @@ function Invoke-DemoStatus {
 }
 
 # Default: follow the api and web (Caddy) logs, last 100 lines each. --api
-# narrows to the API. Any other argument goes to docker compose logs as-is and
-# turns off the default --follow --tail 100 (pass -f to follow).
+# narrows the default to the API. Any other argument goes to docker compose
+# logs as-is and turns off the default --follow --tail 100 (pass -f to
+# follow). Naming a service from $ComposeServices (exact, case-sensitive
+# match), as in `logs -f azurite`, shows only the services named (#190).
 function Invoke-DemoLogs([string[]]$LogArgs) {
     $services = @('api', 'web')
     $pass = @()
+    $named = $false
     foreach ($arg in @($LogArgs)) {
         if ($null -eq $arg) { continue }
         if ($arg -ceq '--api') {
@@ -359,10 +369,14 @@ function Invoke-DemoLogs([string[]]$LogArgs) {
         }
         else {
             $pass += $arg
+            if ($ComposeServices -ccontains $arg) { $named = $true }
         }
     }
     if ($pass.Count -eq 0) {
         $pass = @('--follow', '--tail', '100')
+    }
+    if ($named) {
+        $services = @()
     }
     Invoke-Compose (@('logs') + $pass + $services)
 }
