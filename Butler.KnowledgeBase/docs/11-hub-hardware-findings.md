@@ -6,7 +6,7 @@ tags: [hub, hardware, tablet, kiosk, device owner, byo-tablet, offline, research
 category: Product & Strategy
 lifecycle: Record
 owner: agent-managed
-related: [10-product-vision, 17-byo-tablet-setup-guidance]
+related: [10-product-vision, 17-byo-tablet-setup-guidance, 40-hub-tablet-kiosk-setup]
 sources:
   - { id: issue-83, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/83, title: Spike - hub tablet and kiosk boot findings }
   - { id: xda-fire-unlock, resource: https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/, title: Fire tablet bootloader unlock status (XDA) }
@@ -81,7 +81,7 @@ Rough split: **A9+** for the longest support runway; **M11** for ambient auto-di
 1. Unbox -> run setup -> **skip the Google account entirely**. Wi-Fi only.
 2. Developer Options -> USB debugging. Verify with `adb devices`.
 3. **Sideload** the Fully Kiosk APK from `fully-kiosk.com`. (A Play Store install works functionally, but adding the Play account blocks step 4 - sideload first, add the account later if wanted.)
-4. Promote to device owner: `adb shell dpm set-device-owner de.ondevice.fullykiosk/.DeviceOwnerReceiver` - **confirm the exact component against Fully's current device-owner docs before running it.**
+4. Promote to device owner: `adb shell dpm set-device-owner de.ondevice.fullykiosk/.DeviceOwnerReceiver` - **confirm the exact component against Fully's current device-owner docs before running it.** Superseded: this component is wrong; the confirmed command is in the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md#stock-android-path) runbook.
 5. Fully config: start URL = the SWA URL; Kiosk Mode on with a PIN; **Launch on Boot** on; screensaver/dim schedule for overnight; auto-reload on connection recovery.
 6. Set Fully as the default HOME launcher. **Device owner is what makes that stick and blocks the home/recents escape hatches** - a kids-in-the-kitchen requirement given [tap-to-claim](90-glossary.md#tap-to-claim) trusts whoever is standing at the hub (vision risk: "the hub trusts whoever is standing at it", see [Risks and how we de-risk them](10-product-vision.md#risks-and-how-we-de-risk-them)).
 7. Verify: power-cycle -> lands on Butler with no swipe. Then pull Wi-Fi -> the last-known week still renders. That second check is #32's acceptance criterion ([O2](../brd/tickets/O2-last-known-week-cache-glanceable-offline.md)) executed on real hardware.
@@ -113,7 +113,7 @@ Status: deferred - not proposed for v1; no issue filed.
 These were written from the findings above and are tracked as their own issues:
 
 - [#163 Hub reference-device decision + ADR](https://github.com/jasoncavaliere/the-butler-did-it/issues/163) - ratify a reference validation device (F4) and record it, so #31-#34 and #16 have a named hardware target instead of "a tablet."
-- [#164 Kiosk provisioning runbook](https://github.com/jasoncavaliere/the-butler-did-it/issues/164) - turn F5 into a repeatable, tested runbook (kiosk app choice included; Fully is the reference but not the only option), covering the one-shot device-owner ordering trap.
+- [#164 Kiosk provisioning runbook](https://github.com/jasoncavaliere/the-butler-did-it/issues/164) - turn F5 into a repeatable, tested runbook (kiosk app choice included; Fully is the reference but not the only option), covering the one-shot device-owner ordering trap. Folded into #127, which wrote the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) runbook.
 - [#165 Offline epic validation on real hardware](https://github.com/jasoncavaliere/the-butler-did-it/issues/165) - a hardware acceptance pass for #31-#34 on the reference device, since F2 says the emulator or desktop-Chrome result is not sufficient evidence.
 - [#166 BYO-tablet setup guidance for families](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) - what Butler tells a customer about mounting, charging (F6), and locking down the tablet they already own. Product surface, not just internal ops. Answered for families in the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md).
 - **Native Android shell (F7): deferred.** Parked as an explicit deferred option; no issue is filed. Revisit only if the web-first v1 line in the vision changes.
@@ -132,3 +132,4 @@ These were written from the findings above and are tracked as their own issues:
 
 - [Product Vision](10-product-vision.md) - the BYO-tablet hardware and offline decision these findings test and reinforce.
 - [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md) - the family-facing setup guidance (choosing, power, mounting, lockdown) built from F4, F5 and F6.
+- [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) - the step-by-step runbook built from F3, F5 and F6.
