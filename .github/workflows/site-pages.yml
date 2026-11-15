@@ -12,7 +12,11 @@
 #            with the pilot subject, README coverage, plain ASCII. Then the
 #            layout check (Butler.Site/ci/check-layout.mjs): headless Chrome
 #            at 375px (one column, no horizontal scroll, AC5) and 1280px
-#            (three-column desktop grid, no horizontal scroll, AC6).
+#            (three-column desktop grid, no horizontal scroll, AC6). Then the
+#            layout check's shutdown test (Butler.Site/ci/check-layout.test.mjs)
+#            against a stub Chrome that never answers Browser.close: the script
+#            must still exit within 15 s (#230). The job is capped at 10 minutes
+#            so a hung step cannot hold a runner for hours.
 #   deploy - on a push to main or a manual run only (never on a PR): publishes
 #            index.html and styles.css to GitHub Pages. Needs Pages enabled
 #            with Source set to "GitHub Actions" (one-time owner step).
@@ -44,6 +48,7 @@ jobs:
   check:
     name: static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -53,6 +58,11 @@ jobs:
       # Uses the runner's preinstalled google-chrome; no npm install.
       - name: Check the layout at 375px and 1280px
         run: node Butler.Site/ci/check-layout.mjs
+
+      # Stub Chrome, no real browser: the layout check must exit within 15 s
+      # when Chrome never answers Browser.close (#230).
+      - name: Check layout shutdown with a stuck Chrome
+        run: node --test Butler.Site/ci/check-layout.test.mjs
 
   deploy:
     name: deploy to GitHub Pages
