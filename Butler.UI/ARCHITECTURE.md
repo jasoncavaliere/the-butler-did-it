@@ -281,14 +281,20 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
   formula in `src/theme/contrast.ts`: each light variant >= 3:1 on the light bg and surface, each
   dark variant >= 3:1 on the dark bg and surface, and on-claim / on-claim-dark text >= 4.5:1 on its
   variant (ADR-0010). The hub's rendered palette still lives in `Screen.tsx`.
-- **Fit model.** `measureHubBoard(layout, { people, todayRowsByPerson, weekRowsByPerson })` sums page
-  padding, the chrome row (44), zone gaps, header, tile rows and the Today panel (frame, heading, day
-  labels, person groups chunked by column, rows). Fixed boxes render as `minHeight` over single-line
-  content and spacing is `gap` only, so the model matches the render. A 4-person household with 8
-  chores due today models 682px at compact (budget 800) and 794px at roomy (budget 1200).
+- **Fit model.** `measureHubBoard(layout, { people, todayRowsByPerson, weekRowsByPerson }, windowHeight)`
+  sums page padding, the chrome row (44), zone gaps, the hub's household header, tile rows and the
+  Today panel (frame, heading, day labels, person groups chunked by column, rows). Fixed boxes render
+  as `minHeight` over single-line content and spacing is `gap` only, so the model matches the render.
+  The native-stack "Butler" header is inside the budget (#211): `RootNavigator` keeps it on Home, so
+  `budget` is the window height minus `NATIVE_STACK_HEADER_HEIGHT` (64, react-navigation's web and
+  Android default), and `fits` is `total <= budget`. A 4-person household with 8 chores due today
+  models 682px at compact (budget 736 = 800 - 64) and 794px at roomy (budget 1136 = 1200 - 64).
+  Uneven compact splits such as 4-2-1-1 model 754px, over the 736 budget, and scroll inside the
+  Today panel.
 - **Outside the budget:** the signed-in organizer bar or its PIN pad, `LastKnownBanner`, the
-  `SyncIndicator` detail rows, and the board's clock notice. A board over budget scrolls inside the
-  Today panel; there is no automatic paging.
+  `SyncIndicator` detail rows, the board's clock notice, and the Android status-bar inset (the model
+  assumes 0, as on web). A board over budget scrolls inside the Today panel; there is no automatic
+  paging.
 
 ### Staying awake and recovering (#109)
 

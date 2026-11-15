@@ -3,6 +3,7 @@ import {
   DEFAULT_HUB_LAYOUT,
   LANDSCAPE_COMPACT,
   LANDSCAPE_ROOMY,
+  NATIVE_STACK_HEADER_HEIGHT,
   PANEL_BORDER_MAX,
   PORTRAIT,
   ROOMY_MIN_HEIGHT,
@@ -212,38 +213,60 @@ describe('layout metrics', () => {
 });
 
 describe('measureHubBoard', () => {
-  it('a 4-person household with 8 chores due today fits 800px at 1280x800 (AC4)', () => {
+  it('budgets against the window height minus the native-stack header (#211 AC1)', () => {
+    expect(NATIVE_STACK_HEADER_HEIGHT).toBe(64);
+    expect(measureHubBoard(LANDSCAPE_COMPACT, FOUR_PEOPLE_EIGHT_TODAY, 800).budget).toBe(800 - 64);
+    expect(measureHubBoard(LANDSCAPE_ROOMY, FOUR_PEOPLE_EIGHT_TODAY, 1200).budget).toBe(1200 - 64);
+
+    // The boundary: the board fits exactly when the window holds it plus the
+    // header, and one pixel less overflows although the board alone fits.
+    const m = measureHubBoard(LANDSCAPE_COMPACT, FOUR_PEOPLE_EIGHT_TODAY, 800);
+    const h = m.total + NATIVE_STACK_HEADER_HEIGHT;
+    expect(measureHubBoard(LANDSCAPE_COMPACT, FOUR_PEOPLE_EIGHT_TODAY, h).fits).toBe(true);
+    const short = measureHubBoard(LANDSCAPE_COMPACT, FOUR_PEOPLE_EIGHT_TODAY, h - 1);
+    expect(short.total).toBeLessThanOrEqual(h - 1);
+    expect(short.fits).toBe(false);
+  });
+
+  it('a 4-person household with 8 chores due today fits 800px at 1280x800 with the native-stack header (#211 AC2)', () => {
     const layout = selectHubLayout({ width: 1280, height: 800 });
-    const measure = measureHubBoard(layout, FOUR_PEOPLE_EIGHT_TODAY);
+    const measure = measureHubBoard(layout, FOUR_PEOPLE_EIGHT_TODAY, 800);
 
-    expect(measure).toEqual({ chrome: 44, header: 48, tiles: 64, today: 430, total: 682 });
-    // The AC's literal sum (header + tile row + rows x row height) is inside it.
+    expect(measure).toEqual({ chrome: 44, header: 48, tiles: 64, today: 430, total: 682, budget: 736, fits: true });
+    // The #118 AC's literal sum (header + tile row + rows x row height) is inside it.
     expect(measure.header + measure.tiles + 8 * layout.rowHeight).toBe(624);
-    expect(measure.total).toBeLessThanOrEqual(800);
+    expect(measure.total + NATIVE_STACK_HEADER_HEIGHT).toBeLessThanOrEqual(800);
   });
 
-  it('a 4-person household with 8 chores due today fits 1200px at 1920x1200 (AC5)', () => {
+  it('a 4-person household with 8 chores due today fits 1200px at 1920x1200 with the native-stack header (#211 AC2)', () => {
     const layout = selectHubLayout({ width: 1920, height: 1200 });
-    const measure = measureHubBoard(layout, FOUR_PEOPLE_EIGHT_TODAY);
+    const measure = measureHubBoard(layout, FOUR_PEOPLE_EIGHT_TODAY, 1200);
 
-    expect(measure).toEqual({ chrome: 44, header: 64, tiles: 70, today: 480, total: 794 });
-    expect(measure.total).toBeLessThanOrEqual(1200);
+    expect(measure).toEqual({ chrome: 44, header: 64, tiles: 70, today: 480, total: 794, budget: 1136, fits: true });
+    expect(measure.total + NATIVE_STACK_HEADER_HEIGHT).toBeLessThanOrEqual(1200);
   });
 
-  it('still fits when the 8 chores are skewed across the 4 people', () => {
-    expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: [3, 3, 1, 1] }).total).toBe(682);
-    expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: [4, 2, 1, 1] }).total).toBe(754);
-    expect(measureHubBoard(LANDSCAPE_ROOMY, { people: 4, todayRowsByPerson: [8, 0, 0, 0] }).total).toBe(1044);
-    // A 5-1-1-1 split models 826px at compact: beyond the guarantee, which the
-    // Today panel's own scroll absorbs (automatic paging is out of scope).
-    for (const rows of [[3, 3, 1, 1], [4, 2, 1, 1], [1, 2, 3, 2], [2, 3, 1, 2]]) {
-      expect(measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: rows }).total).toBeLessThanOrEqual(800);
-      expect(measureHubBoard(LANDSCAPE_ROOMY, { people: 4, todayRowsByPerson: rows }).total).toBeLessThanOrEqual(1200);
+  it('an uneven 8-chore split fits at roomy but can overflow compact into the Today panel scroll (#211 AC2)', () => {
+    const compact = (rows: number[]) => measureHubBoard(LANDSCAPE_COMPACT, { people: 4, todayRowsByPerson: rows }, 800);
+    const roomy = (rows: number[]) => measureHubBoard(LANDSCAPE_ROOMY, { people: 4, todayRowsByPerson: rows }, 1200);
+
+    expect(compact([3, 3, 1, 1])).toMatchObject({ total: 682, fits: true });
+    for (const rows of [[4, 2, 1, 1], [1, 2, 3, 2], [2, 3, 1, 2]]) {
+      expect(compact(rows)).toMatchObject({ total: 754, fits: false });
     }
+    expect(roomy([4, 2, 1, 1])).toMatchObject({ total: 866, fits: true });
+    for (const rows of [[3, 3, 1, 1], [1, 2, 3, 2], [2, 3, 1, 2]]) {
+      expect(roomy(rows).fits).toBe(true);
+    }
+    expect(roomy([8, 0, 0, 0])).toMatchObject({ total: 1044, fits: true });
+    // A 5-1-1-1 split models 826px at compact (890 with the header): beyond the
+    // budget, which the Today panel's own scroll absorbs (automatic paging is
+    // out of scope).
+    expect(compact([5, 1, 1, 1])).toMatchObject({ total: 826, fits: false });
   });
 
   it('measures an empty board as just the panel frame', () => {
-    const measure = measureHubBoard(LANDSCAPE_COMPACT, { people: 0, todayRowsByPerson: [] });
+    const measure = measureHubBoard(LANDSCAPE_COMPACT, { people: 0, todayRowsByPerson: [] }, 800);
     expect(measure.today).toBe(
       2 * LANDSCAPE_COMPACT.panelPadding +
         2 * PANEL_BORDER_MAX +
@@ -254,11 +277,11 @@ describe('measureHubBoard', () => {
   });
 
   it('adds a second day bucket, separated by the group spacing', () => {
-    const todayOnly = measureHubBoard(LANDSCAPE_COMPACT, FOUR_PEOPLE_EIGHT_TODAY);
+    const todayOnly = measureHubBoard(LANDSCAPE_COMPACT, FOUR_PEOPLE_EIGHT_TODAY, 800);
     const withWeek = measureHubBoard(LANDSCAPE_COMPACT, {
       ...FOUR_PEOPLE_EIGHT_TODAY,
       weekRowsByPerson: [1, 0, 0, 0],
-    });
+    }, 800);
     const weekBucket =
       LANDSCAPE_COMPACT.dayLabelLineHeight +
       LANDSCAPE_COMPACT.dayGap +
@@ -269,20 +292,20 @@ describe('measureHubBoard', () => {
   });
 
   it('gives an odd last group its own row in two columns', () => {
-    const three = measureHubBoard(LANDSCAPE_COMPACT, { people: 3, todayRowsByPerson: [1, 1, 1] });
-    const two = measureHubBoard(LANDSCAPE_COMPACT, { people: 3, todayRowsByPerson: [1, 1] });
+    const three = measureHubBoard(LANDSCAPE_COMPACT, { people: 3, todayRowsByPerson: [1, 1, 1] }, 800);
+    const two = measureHubBoard(LANDSCAPE_COMPACT, { people: 3, todayRowsByPerson: [1, 1] }, 800);
     const group = LANDSCAPE_COMPACT.personLabelLineHeight + LANDSCAPE_COMPACT.groupGap + LANDSCAPE_COMPACT.rowHeight;
     expect(three.today - two.today).toBe(group + LANDSCAPE_COMPACT.groupSpacing);
   });
 
   it('wraps portrait tiles three to a row and stacks every group', () => {
-    const measure = measureHubBoard(PORTRAIT, FOUR_PEOPLE_EIGHT_TODAY);
+    const measure = measureHubBoard(PORTRAIT, FOUR_PEOPLE_EIGHT_TODAY, 1280);
     expect(measure.tiles).toBe(2 * PORTRAIT.tileHeight + PORTRAIT.tileGap);
     const group = PORTRAIT.personLabelLineHeight + 2 * PORTRAIT.groupGap + 2 * PORTRAIT.rowHeight;
     const bucket = PORTRAIT.dayLabelLineHeight + PORTRAIT.dayGap + 4 * group + 3 * PORTRAIT.groupSpacing;
     expect(measure.today).toBe(
       2 * PORTRAIT.panelPadding + 2 * PANEL_BORDER_MAX + PORTRAIT.panelHeadingLineHeight + PORTRAIT.panelHeadingGap + bucket,
     );
-    expect(measureHubBoard(PORTRAIT, { people: 0, todayRowsByPerson: [] }).tiles).toBe(PORTRAIT.tileHeight);
+    expect(measureHubBoard(PORTRAIT, { people: 0, todayRowsByPerson: [] }, 1280).tiles).toBe(PORTRAIT.tileHeight);
   });
 });

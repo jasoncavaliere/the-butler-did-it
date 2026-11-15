@@ -36,6 +36,11 @@ import {
  * only appears some of the time: the signed-in organizer bar or its PIN pad,
  * the `LastKnownBanner`, the `SyncIndicator` detail rows, and the
  * board's clock notice.
+ *
+ * The window height includes the native-stack "Butler" header that
+ * `RootNavigator` renders above `HubShell`, so the header is inside the budget:
+ * {@link measureHubBoard} budgets the window height minus
+ * {@link NATIVE_STACK_HEADER_HEIGHT}, not the full window height (#211).
  */
 export type HubLayoutName = 'landscape-roomy' | 'landscape-compact' | 'portrait';
 
@@ -52,6 +57,7 @@ export type HubLayout = Readonly<{
   chromeGap: number;
   nameSize: number;
   nameLineHeight: number;
+  /** The hub's own household-name header row, not the native-stack header. */
   headerHeight: number;
   headerGap: number;
   dateSize: number;
@@ -95,6 +101,13 @@ export const TILE_BORDER = 2;
 export const ROW_BORDER_MAX = 2;
 /** The Today panel's widest border (each side): 2 when accented, else 1. */
 export const PANEL_BORDER_MAX = 2;
+/**
+ * The react-navigation native-stack header's height on web and Android:
+ * `getDefaultHeaderHeight` returns 64 plus the top inset, which is 0 on web.
+ * `RootNavigator` keeps the "Butler" header on Home, so the hub's fit budget is
+ * the window height minus this (#211).
+ */
+export const NATIVE_STACK_HEADER_HEIGHT = 64;
 
 /** The smallest window height that gets the roomy landscape density. */
 export const ROOMY_MIN_HEIGHT = 1000;
@@ -238,13 +251,19 @@ export type HubBoardShape = {
   weekRowsByPerson?: readonly number[];
 };
 
-/** The modelled height of each measured piece, and their total (px). */
+/** The modelled height of each measured piece, their total, and the budget (px). */
 export type HubBoardMeasure = {
   chrome: number;
+  /** The hub's own household-name header row, not the native-stack header. */
   header: number;
   tiles: number;
   today: number;
+  /** The hub's own content: everything below the native-stack header. */
   total: number;
+  /** The window height minus {@link NATIVE_STACK_HEADER_HEIGHT}. */
+  budget: number;
+  /** Whether `total` fits `budget`, so the board shows without a scroll. */
+  fits: boolean;
 };
 
 /** One person group: label, then rows, all separated by the group gap. */
@@ -268,10 +287,16 @@ function bucketHeight(layout: HubLayout, rowsByPerson: readonly number[]): numbe
 
 /**
  * Sum the height of everything the layout renders for a household's board
- * (see the module notes for what is left out). `total` is what has to fit the
- * window height for the board to show without a scroll.
+ * (see the module notes for what is left out). `total` is what has to fit
+ * `budget` for the board to show without a scroll. The budget is the window
+ * height minus the native-stack header ({@link NATIVE_STACK_HEADER_HEIGHT}), so
+ * the header is inside the budget, not added to `total`.
  */
-export function measureHubBoard(layout: HubLayout, shape: HubBoardShape): HubBoardMeasure {
+export function measureHubBoard(
+  layout: HubLayout,
+  shape: HubBoardShape,
+  windowHeight: number,
+): HubBoardMeasure {
   const chrome = layout.chromeHeight;
   const header = layout.headerHeight;
 
@@ -294,5 +319,6 @@ export function measureHubBoard(layout: HubLayout, shape: HubBoardShape): HubBoa
     board;
 
   const total = 2 * layout.pagePadding + chrome + 3 * layout.zoneGap + header + tiles + today;
-  return { chrome, header, tiles, today, total };
+  const budget = windowHeight - NATIVE_STACK_HEADER_HEIGHT;
+  return { chrome, header, tiles, today, total, budget, fits: total <= budget };
 }
