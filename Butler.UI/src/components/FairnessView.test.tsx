@@ -310,4 +310,66 @@ describe('FairnessView', () => {
       expect(screen.queryByTestId('fairness-error')).toBeNull();
     });
   });
+
+  describe('automatic retry (#109)', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    async function advance(ms: number) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    }
+
+    it('re-requests on the backoff while in error, keeping the error card up (AC4, AC5)', async () => {
+      const get = jest
+        .fn()
+        .mockResolvedValueOnce(unreachable)
+        .mockResolvedValueOnce(unreachable)
+        .mockResolvedValueOnce(ok(balance));
+      const client: ApiClient = {
+        baseUrl: 'http://api.test:1',
+        get: get as unknown as ApiClient['get'],
+        update: jest.fn() as unknown as ApiClient['update'],
+      };
+      await renderView(client, { people });
+      await advance(0);
+      expect(screen.getByTestId('fairness-error')).toBeOnTheScreen();
+      expect(get).toHaveBeenCalledTimes(1);
+
+      // First retry after 2s fails again: the error card stays, no skeleton.
+      await advance(1_999);
+      expect(get).toHaveBeenCalledTimes(1);
+      await advance(1);
+      expect(get).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('fairness-error')).toBeOnTheScreen();
+      expect(screen.queryByTestId('fairness-loading')).toBeNull();
+
+      // The next one waits 4s, and succeeds.
+      await advance(3_999);
+      expect(get).toHaveBeenCalledTimes(2);
+      await advance(1);
+      expect(get).toHaveBeenCalledTimes(3);
+      expect(screen.getByTestId('fairness-row-p1')).toBeOnTheScreen();
+
+      // Recovered: nothing more is requested.
+      await advance(10 * 60_000);
+      expect(get).toHaveBeenCalledTimes(3);
+    });
+
+    it('a healthy balance is never re-requested', async () => {
+      const client = fairnessClient();
+      await renderView(client, { people });
+      await advance(0);
+
+      await advance(10 * 60_000);
+
+      expect(client.get).toHaveBeenCalledTimes(1);
+    });
+  });
 });

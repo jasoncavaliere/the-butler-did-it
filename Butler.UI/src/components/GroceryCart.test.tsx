@@ -703,6 +703,54 @@ describe('GroceryCart', () => {
     });
   });
 
+  describe('automatic retry (#109)', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    async function advance(ms: number) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    }
+
+    it('re-reads the cart on the backoff while in error, keeping the error card up (AC4, AC5)', async () => {
+      const client = cartClient({ reads: [unreachable, unreachable, ok(building([oatMilk]))] });
+      await renderCart(client);
+      await advance(0);
+      expect(screen.getByTestId('grocery-cart-error')).toBeOnTheScreen();
+
+      await advance(2_000);
+      expect(client.get).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('grocery-cart-error')).toBeOnTheScreen();
+      expect(screen.queryByTestId('grocery-cart-loading')).toBeNull();
+
+      await advance(3_999);
+      expect(client.get).toHaveBeenCalledTimes(2);
+      await advance(1);
+      expect(client.get).toHaveBeenCalledTimes(3);
+      expect(screen.getByTestId(`grocery-item-${oatMilk.itemId}`)).toBeOnTheScreen();
+
+      await advance(10 * 60_000);
+      expect(client.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('a confirmed week (409) is an answer, not an error, and is not retried', async () => {
+      const client = cartClient({ reads: [alreadyConfirmed] });
+      await renderCart(client);
+      await advance(0);
+      expect(screen.getByTestId('grocery-cart-week-confirmed')).toBeOnTheScreen();
+
+      await advance(10 * 60_000);
+
+      expect(client.get).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('failed-confirm: the cart stays Building and says what to do next', async () => {
     const stale: ApiResult<never> = {
       ok: false,

@@ -6,8 +6,10 @@ import { colors } from './Screen';
  * Shared load states for the hub widgets (TodayPanel, ChoreBoard, FairnessView,
  * GroceryCart) and household setup. ADR-0007: loading is a calm skeleton, never a
  * blank panel; an empty widget gets a designed title and a small detail line; a
- * failure is an icon plus friendly text plus colour, with a manual "Try again"
- * (automatic retry is #109). Status is never colour alone (ADR-0010).
+ * failure is an icon plus friendly text plus colour, with a manual "Try again";
+ * the hub widgets also retry by themselves on a capped backoff
+ * (`useAutoRetrySignal`, #109), keeping the error up meanwhile. Status is never
+ * colour alone (ADR-0010).
  */
 
 /** A static skeleton: a few soft bars and a muted caption. No animation. */

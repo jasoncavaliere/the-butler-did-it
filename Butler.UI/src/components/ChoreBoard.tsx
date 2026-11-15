@@ -14,6 +14,7 @@ import { DEFAULT_HUB_LAYOUT, type HubLayout } from '../layout/hubLayout';
 import { radii, space, typeScale } from '../layout/tokens';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { hubTouchTarget } from '../theme/theme';
+import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';
 import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext } from '../offline/WriteQueueContext';
@@ -77,7 +78,10 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * Load states (P8, ADR-0007): a calm skeleton while the week loads, a designed
  * "all caught up" empty state when nothing is on the board (or on the active
  * participant's list), and a friendly error - fixed copy, never the raw API
- * text - whose "Try again" re-requests the week. Automatic retry is #109.
+ * text - whose "Try again" re-requests the week. While degraded (an error, or a
+ * cached week) the board also re-requests the week by itself on a capped backoff
+ * (#109), without the skeleton, so the error or the cached board stays on screen
+ * while it retries.
  *
  * A board - live or served from cache - is a control (Epic 60 O3), and it comes
  * back to life by itself:
@@ -348,6 +352,9 @@ export function ChoreBoard({
   // counter is a load dependency, so the network coming back refetches the week.
   const degraded = fromCache || phase === 'error';
   const reconnectSignal = useReconnectSignal(degraded);
+  // While degraded it also retries by itself on a capped backoff (#109). The
+  // automatic path never shows the skeleton, so what is on screen stays put.
+  const autoRetrySignal = useAutoRetrySignal(degraded);
 
   // The durable offline write queue (O3), shared with the hub's sync indicator
   // through the one WriteQueueProvider the hub mounts (O4). It hydrates from
@@ -564,7 +571,9 @@ export function ChoreBoard({
     };
     // `reconnectSignal` bumps when the network returns while degraded; listing it
     // here is what makes the reconnect refetch (AC-4/AC-5) rather than waiting for
-    // someone to reload a tablet nobody touches. `confirmedRevision` bumps once
+    // someone to reload a tablet nobody touches; `autoRetrySignal` bumps on the
+    // backoff schedule while degraded (#109), so an API-only outage or an HTTP
+    // error recovers without a tap either. `confirmedRevision` bumps once
     // per drain run that confirmed a queued write, so the board refetches the
     // post-sync week (#88): the cleanup discards a load that raced the drain and
     // may hold the pre-sync snapshot. `currentWeek` changes once at the week
@@ -573,11 +582,20 @@ export function ChoreBoard({
     // finds the network gone it falls back to the cache like any other load.
     // `reloadRevision` bumps when a live load's week disagreed with the tablet's
     // and the backoff has elapsed, or when a tap was refused, so a board whose
-    // boundary reload beat the server's clock loads again. All four are triggers
+    // boundary reload beat the server's clock loads again. All five are triggers
     // only, never read here. Any of these loads can race a live tap; the live-tap
     // overlay above covers that (#147), so a tap settling is deliberately not a
     // trigger.
-  }, [client, householdId, reconnectSignal, confirmedRevision, currentWeek, reloadRevision, recheckWeek]);
+  }, [
+    client,
+    householdId,
+    reconnectSignal,
+    autoRetrySignal,
+    confirmedRevision,
+    currentWeek,
+    reloadRevision,
+    recheckWeek,
+  ]);
 
   // The backoff retry for a live load whose week disagreed with the tablet's.
   // Keyed on the count, which every disagreeing load bumps and every agreeing

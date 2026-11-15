@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import type { ApiClient } from '../api/client';
 import { reportHubGlance } from './hubGlance';
+import { defaultVisibilityTarget, type VisibilityTarget } from './visibilityTarget';
 import type { WriteRequest } from './writeQueue';
 
 /**
@@ -13,25 +14,8 @@ import type { WriteRequest } from './writeQueue';
  * without a stub) it still reports on mount but listens for nothing.
  */
 
-/** The sliver of the DOM document this hook needs (no DOM lib dependency). */
-export type VisibilityTarget = {
-  readonly visibilityState?: string;
-  addEventListener(type: string, listener: () => void): void;
-  removeEventListener(type: string, listener: () => void): void;
-};
-
-/** The ambient document, or `undefined` where there is none (native, Jest). */
-export function defaultVisibilityTarget(): VisibilityTarget | undefined {
-  try {
-    const target = (globalThis as { document?: Partial<VisibilityTarget> }).document;
-    return typeof target?.addEventListener === 'function' &&
-      typeof target.removeEventListener === 'function'
-      ? (target as VisibilityTarget)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
+// Re-exported: the visibility seam started here, and the wake lock (#109) shares it.
+export { defaultVisibilityTarget, type VisibilityTarget };
 
 /** Report a glance on mount and on each return to visibility. */
 export function useHubGlance(

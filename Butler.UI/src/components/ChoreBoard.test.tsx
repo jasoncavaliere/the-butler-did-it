@@ -2863,6 +2863,130 @@ describe('ChoreBoard load states', () => {
   });
 });
 
+describe('ChoreBoard automatic retry (#109)', () => {
+  const GENERATE_PATH = '/households/hh-1/assignments/generate';
+  const serverError: ApiResult<never> = {
+    ok: false,
+    error: { kind: 'http', status: 500, title: 'Server error' },
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    const map = new Map<string, string>();
+    const storage: GlanceStorage = {
+      getItem: (key) => map.get(key) ?? null,
+      setItem: (key, value) => {
+        map.set(key, value);
+      },
+    };
+    Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    Object.defineProperty(globalThis, 'localStorage', { value: undefined, configurable: true, writable: true });
+  });
+
+  async function advance(ms: number) {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  /** How many times the board asked for the week. */
+  function generateCalls(client: ApiClient): number {
+    return (client.update as jest.Mock).mock.calls.filter(([path]) => path === GENERATE_PATH).length;
+  }
+
+  it('re-requests a failed week on the backoff without the skeleton, then shows the board (AC4, AC5)', async () => {
+    const api: { generate: ApiResult<unknown> } = { generate: serverError };
+    const client = boardClient();
+    const live = client.update as jest.Mock;
+    const original = live.getMockImplementation()!;
+    live.mockImplementation(async (path: string, ...rest: unknown[]) =>
+      path === GENERATE_PATH && !api.generate.ok ? api.generate : original(path, ...rest),
+    );
+    await renderBoard(client);
+    await advance(0);
+    expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen();
+    expect(generateCalls(client)).toBe(1);
+
+    // The first retry, 2s on, fails again: the error stays, no skeleton.
+    await advance(2_000);
+    expect(generateCalls(client)).toBe(2);
+    expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen();
+    expect(screen.queryByTestId('chore-board-loading')).toBeNull();
+
+    // The next waits 4s, and the API is back.
+    api.generate = ok({ weekIso: WEEK, assignments, unassigned: [] });
+    await advance(3_999);
+    expect(generateCalls(client)).toBe(2);
+    await advance(1);
+    expect(generateCalls(client)).toBe(3);
+    expect(screen.getByTestId('chore-board')).toBeOnTheScreen();
+
+    await advance(10 * 60_000);
+    expect(generateCalls(client)).toBe(3);
+  });
+
+  it('keeps a cached board on screen while it retries, and goes live when the API answers (AC5)', async () => {
+    writeGlance(
+      'hh-1',
+      {
+        board: {
+          weekIso: WEEK,
+          items: [
+            { choreId: 'c1', title: 'Dishes', cadence: 'Daily', assignedPersonId: 'p1', status: 'Open' },
+          ],
+        },
+      },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+    const onLastKnown = jest.fn();
+    const api: { down: boolean } = { down: true };
+    const client = boardClient();
+    const live = client.update as jest.Mock;
+    const original = live.getMockImplementation()!;
+    live.mockImplementation(async (path: string, ...rest: unknown[]) =>
+      path === GENERATE_PATH && api.down ? unreachable : original(path, ...rest),
+    );
+    useApiClientMock.mockReturnValue(client);
+    await render(
+      inQueue(
+        client,
+        <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onLastKnown={onLastKnown} />,
+      ),
+    );
+    await advance(0);
+    expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen();
+    expect(onLastKnown).toHaveBeenLastCalledWith('2026-07-20T09:00:00.000Z');
+
+    await advance(2_000);
+    await advance(4_000);
+    expect(generateCalls(client)).toBe(3);
+    expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen();
+    expect(screen.queryByTestId('chore-board-loading')).toBeNull();
+
+    api.down = false;
+    await advance(8_000);
+    expect(generateCalls(client)).toBe(4);
+    expect(onLastKnown).toHaveBeenLastCalledWith(null);
+    expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen();
+  });
+
+  it('a live board is never re-requested on a timer', async () => {
+    const client = boardClient();
+    await renderBoard(client);
+    await advance(0);
+    expect(screen.getByTestId('chore-board')).toBeOnTheScreen();
+
+    await advance(10 * 60_000);
+
+    expect(generateCalls(client)).toBe(1);
+  });
+});
+
 describe('describeFailure', () => {
   it('marks only an unreachable API as offline', () => {
     expect(describeFailure(unreachable)).toEqual({ offline: true });

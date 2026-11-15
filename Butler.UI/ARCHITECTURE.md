@@ -287,6 +287,33 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
   `SyncIndicator` detail rows, and the board's clock notice. A board over budget scrolls inside the
   Today panel; there is no automatic paging.
 
+### Staying awake and recovering (#109)
+
+Nobody touches the kitchen tablet, so the hub keeps its own screen on and climbs out of a failed read
+by itself. All three pieces are feature-detected and inert off web.
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Wake lock | `src/pwa/wakeLock.ts`, `src/pwa/useScreenWakeLock.ts` | `useScreenWakeLock()`, called once in the outer `HubShell` (above the dataset guard, so a body remount does not re-ask), requests `navigator.wakeLock.request('screen')` on mount and again on each `visibilitychange` to visible (the browser drops the lock while hidden). It keeps only the newest sentinel and releases the rest, and the held one on unmount. `requestScreenWakeLock` never rejects: unsupported or refused is silent, with no log and no UI. |
+| Auto retry | `src/offline/autoRetry.ts`, `src/offline/useAutoRetrySignal.ts` | `autoRetryDelayMs(attempt)` = 2s, 4s, 8s, 16s, 32s, then 60s (0-based, no jitter). `useAutoRetrySignal(failing)` is a counter that bumps on that schedule while `failing` and restarts from 2s after a success. The four hub reads list it in their load effect: the shell's household + roster (while degraded), `ChoreBoard` (while degraded), `FairnessView` and `GroceryCart` (while in error). |
+| Watchdog | `src/pwa/useHubWatchdog.ts` | `useHubWatchdog({ inError, online, queueEmpty })` in `HubShellBody` reloads the page once after `WATCHDOG_RELOAD_AFTER_MS` (5 minutes). `inError` is the shell's error state or any region on its last-known cache (household selected); `online` is `navigator.onLine` (`useBrowserOnline`, re-checked at fire time); `queueEmpty` is a pending count of 0. |
+
+- **No loading on the automatic path.** Only the manual `Try again` handlers set the loading phase. The
+  automatic retry re-reads behind whatever is on screen - the cached glance and its last-known banner,
+  a cached board, or the error card - so the wall never flashes a skeleton every few seconds.
+- **The signal only grows.** A decrease is a dependency change too, and would fire one extra read on
+  recovery.
+- **Five continuous minutes.** The watchdog's timer runs only while all three conditions hold; any one
+  dropping clears it, and the count starts over. It never reloads while a write is pending, however
+  long the error lasts, so a reload never costs an unsynced tap. Failed writes do not block it (they
+  are permanent flags that survive the reload anyway). Balance and cart errors do not count.
+- **Interplay with the glance write.** During a real outage the hub glance (#122) queues an event, so
+  the queue is not empty and the watchdog waits until a drain succeeds. That is intended.
+- **Known limits.** A load that hangs (no answer at all) is not an error, so neither the retry nor the
+  watchdog sees it. An outage where the API keeps answering with an HTTP error while the browser is
+  online reloads the page every 5 minutes until it clears. Organizer screens and setup keep manual
+  retry.
+
 ## Project structure
 
 Application code lives under `src/`, layered so later capability tickets have a clear home:
@@ -340,11 +367,17 @@ src/
               useWriteQueue.ts # React seam over the write queue: hydrate, drain on mount/reconnect/backoff, enqueue (O3)
               WriteQueueContext.tsx # WriteQueueProvider: the one queue per household, shared by board and indicator (O4)
               useBrowserOnline.ts # navigator.onLine + online/offline events; inert off web (O4)
+              autoRetry.ts  # the hub reads' automatic retry schedule: 2s doubling, capped at 60s (#109)
+              useAutoRetrySignal.ts # counter that bumps on that schedule while a read is failing (#109)
+              visibilityTarget.ts # the feature-detected document seam shared by the hub glance and the wake lock (#122, #109)
   motion/     useReducedMotion.ts # prefers-reduced-motion via AccessibilityInfo; starts reduced until the platform answers (ADR-0006, #119)
   voice/      speechRecognition.ts # feature-detected browser SpeechRecognition / webkitSpeechRecognition + local Web Speech types (#116)
               useSpeechCapture.ts # one-utterance recognition hook behind the grocery mic: supported, listening, start(handlers) (#116)
   pwa/        registerServiceWorker.ts     # registers /sw.js; feature-detected no-op off web (O1)
               useServiceWorkerRegistration.ts # the hook App.tsx calls on mount (O1)
+              wakeLock.ts                  # feature-detected screen wake lock request; never rejects (#109)
+              useScreenWakeLock.ts         # request the wake lock on mount and on return to visible (#109)
+              useHubWatchdog.ts            # reload after 5 minutes in error while online with no pending write (#109)
   state/      AppConfigContext.tsx # app-wide config/context providers
               HouseholdContext.tsx # current householdId + setter (useHousehold)
               OrganizerContext.tsx # signed-in organizer + token, backed by IAuthProvider (T4)
@@ -403,7 +436,8 @@ their load states through the shared `src/components/WidgetState.tsx` (ADR-0007)
 line), and `WidgetError` (a circled `!` in the danger colour plus friendly text, never the raw API
 text, and a `Try again` button). Each widget keeps its copy in a module `COPY` const. `Try again` is an
 event handler that sets the loading phase and bumps a revision counter listed in the load effect's
-dependencies, so the widget re-requests its data. Retry is manual only; automatic retry is #109.
+dependencies, so the widget re-requests its data. Hub widgets also retry by themselves on a capped
+backoff without showing the skeleton (`useAutoRetrySignal`, #109; see "Staying awake and recovering").
 
 **The chore board** (`src/components/ChoreBoard.tsx`, Epic 40 C5) is the visible payoff of the wedge
 (journey 6.2): it fills `TodayPanel` with the current week's assignments and lets a tap mark one done.
