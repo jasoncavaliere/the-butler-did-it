@@ -6,7 +6,7 @@ tags: [hub, hardware, tablet, kiosk, device owner, byo-tablet, offline, research
 category: Product & Strategy
 lifecycle: Record
 owner: agent-managed
-related: [10-product-vision, 17-byo-tablet-setup-guidance, 40-hub-tablet-kiosk-setup]
+related: [10-product-vision, 17-byo-tablet-setup-guidance, 40-hub-tablet-kiosk-setup, ADR-0012]
 sources:
   - { id: issue-83, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/83, title: Spike - hub tablet and kiosk boot findings }
   - { id: xda-fire-unlock, resource: https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/, title: Fire tablet bootloader unlock status (XDA) }
@@ -15,14 +15,14 @@ sources:
   - { id: ha-fully-kiosk, resource: https://www.home-assistant.io/integrations/fully_kiosk/, title: Fully Kiosk Browser integration (Home Assistant) }
   - { id: spicehometech-fire, resource: https://spicehometech.com/how-to/setup-install/fire-tablet-home-assistant-kiosk/, title: Fire tablet HA kiosk walkthrough }
   - { id: whalesdev-lineageos, resource: https://whalesdev.com/best-tablets-for-lineageos/, title: Tablets with LineageOS support 2026 (WhalesDev) }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T21:49:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T23:07:10Z }
 ---
 
 # Hub Hardware Findings - Tablet and Kiosk Boot
 
 > **In one line:** Butler v1 does not need a flashed or custom OS - it needs a mainstream Android tablet running a current Chromium, locked into Android device-owner kiosk mode and pointed at the Static Web App URL.
 
-These findings were gathered on **2026-08-13** for [issue #83](https://github.com/jasoncavaliere/the-butler-did-it/issues/83) [7]. They are **research, not a ratified decision**: the reference device is ratified by its own ADR in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163), not here. Hardware availability, pricing, and unlock or ROM status all drift, so **re-verify F3 and F4 before purchasing**. This note is a Record: when the findings change, supersede it with a new dated note rather than editing it. Everything below is consistent with the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app) and its [BYO-tablet](90-glossary.md#byo-tablet) hardware decision; if anything, it reinforces them.
+These findings were gathered on **2026-08-13** for [issue #83](https://github.com/jasoncavaliere/the-butler-did-it/issues/83) [7]. They are **research, not a ratified decision**: the reference device is ratified by its own ADR in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163), not here. Hardware availability, pricing, and unlock or ROM status all drift, so **re-verify F3 and F4 before purchasing**. This note is a Record: when the findings change, supersede it with a new dated note rather than editing it. Everything below is consistent with the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app) and its [BYO-tablet](90-glossary.md#byo-tablet) hardware decision; if anything, it reinforces them. That decision is now [ADR-0012](../adr/0012-hub-reference-validation-tablet.md).
 
 ## Why this came up
 
@@ -104,7 +104,7 @@ Status: deferred - not proposed for v1; no issue filed.
 
 ## What this note does not do
 
-- It does not ratify a decision or write an ADR. The reference-device ADR is [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163).
+- It does not ratify a decision or write an ADR. The reference-device ADR is [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163). It is now [ADR-0012](../adr/0012-hub-reference-validation-tablet.md).
 - It does not buy hardware or change any product code.
 - It does not amend the vision's BYO-tablet decision (F1-F7 are consistent with it; if anything they reinforce it).
 
@@ -112,7 +112,7 @@ Status: deferred - not proposed for v1; no issue filed.
 
 These were written from the findings above and are tracked as their own issues:
 
-- [#163 Hub reference-device decision + ADR](https://github.com/jasoncavaliere/the-butler-did-it/issues/163) - ratify a reference validation device (F4) and record it, so #31-#34 and #16 have a named hardware target instead of "a tablet."
+- [#163 Hub reference-device decision + ADR](https://github.com/jasoncavaliere/the-butler-did-it/issues/163) - ratify a reference validation device (F4) and record it, so #31-#34 and #16 have a named hardware target instead of "a tablet." Recorded as [ADR-0012](../adr/0012-hub-reference-validation-tablet.md).
 - [#164 Kiosk provisioning runbook](https://github.com/jasoncavaliere/the-butler-did-it/issues/164) - turn F5 into a repeatable, tested runbook (kiosk app choice included; Fully is the reference but not the only option), covering the one-shot device-owner ordering trap. Folded into #127, which wrote the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) runbook.
 - [#165 Offline epic validation on real hardware](https://github.com/jasoncavaliere/the-butler-did-it/issues/165) - a hardware acceptance pass for #31-#34 on the reference device, since F2 says the emulator or desktop-Chrome result is not sufficient evidence.
 - [#166 BYO-tablet setup guidance for families](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) - what Butler tells a customer about mounting, charging (F6), and locking down the tablet they already own. Product surface, not just internal ops. Answered for families in the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md).
@@ -133,3 +133,4 @@ These were written from the findings above and are tracked as their own issues:
 - [Product Vision](10-product-vision.md) - the BYO-tablet hardware and offline decision these findings test and reinforce.
 - [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md) - the family-facing setup guidance (choosing, power, mounting, lockdown) built from F4, F5 and F6.
 - [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) - the step-by-step runbook built from F3, F5 and F6.
+- [ADR-0012](../adr/0012-hub-reference-validation-tablet.md) - the ratified demo device and offline-epic validation runtime built from F2, F3 and F4.
