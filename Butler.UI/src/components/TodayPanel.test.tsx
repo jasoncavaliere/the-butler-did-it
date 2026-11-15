@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
+import { useEffect } from 'react';
 import { StyleSheet, Text } from 'react-native';
 
 import { TodayPanel } from './TodayPanel';
-import { LANDSCAPE_COMPACT } from '../layout/hubLayout';
+import { LANDSCAPE_COMPACT, PORTRAIT } from '../layout/hubLayout';
 
 describe('TodayPanel', () => {
   it('renders the calm empty placeholder when given no children', async () => {
@@ -44,16 +45,44 @@ describe('TodayPanel', () => {
     );
 
     const scroll = screen.getByTestId('today-panel-scroll');
+    expect(scroll.props.scrollEnabled).toBe(true);
     expect(within(scroll).getByTestId('board-content')).toBeOnTheScreen();
     expect(StyleSheet.flatten(screen.getByTestId('today-panel').props.style)).toMatchObject({
       padding: LANDSCAPE_COMPACT.panelPadding,
     });
   });
 
-  it('keeps a plain body (no inner scroll) in the default portrait layout', async () => {
+  it('keeps the body ScrollView with scrolling off in the default portrait layout (#210)', async () => {
     await render(<TodayPanel />);
 
-    expect(screen.queryByTestId('today-panel-scroll')).toBeNull();
+    expect(screen.getByTestId('today-panel-scroll').props.scrollEnabled).toBe(false);
+  });
+
+  it('does not remount its children when the layout rotates (#210)', async () => {
+    const mounted = jest.fn();
+    function Stateful() {
+      useEffect(() => {
+        mounted();
+      }, []);
+      return <Text testID="board-content">Chore board goes here</Text>;
+    }
+
+    const view = await render(
+      <TodayPanel layout={LANDSCAPE_COMPACT}>
+        <Stateful />
+      </TodayPanel>,
+    );
+    expect(mounted).toHaveBeenCalledTimes(1);
+
+    await view.rerender(
+      <TodayPanel layout={PORTRAIT}>
+        <Stateful />
+      </TodayPanel>,
+    );
+
+    expect(screen.getByTestId('today-panel-scroll').props.scrollEnabled).toBe(false);
+    expect(screen.getByTestId('board-content')).toBeOnTheScreen();
+    expect(mounted).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to the brass accent when the active participant has no claim colour', async () => {

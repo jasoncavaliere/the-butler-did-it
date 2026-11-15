@@ -1,11 +1,17 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { Dimensions, StyleSheet } from 'react-native';
 
 import { HubShell } from './HubShell';
 import type { ApiClient, ApiResult } from '../api/client';
 import { DATASET_PATH } from '../api/dataset';
-import type { AssignmentView, ChoreResponse, RosterEntryResponse } from '../api/models';
+import type {
+  AssignmentView,
+  ChoreResponse,
+  FairnessResponse,
+  RosterEntryResponse,
+} from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import type { IAuthProvider } from '../auth/authProvider';
 import {
   LANDSCAPE_COMPACT,
   LANDSCAPE_ROOMY,
@@ -17,6 +23,7 @@ import { resetSessionFallbackStorage } from '../offline/storage';
 import { hubTouchTarget, minTargetGap } from '../theme/theme';
 import { currentWeekIso } from '../offline/weekIso';
 import { HouseholdProvider } from '../state/HouseholdContext';
+import { OrganizerProvider } from '../state/OrganizerContext';
 
 /**
  * The hub's per-window layouts (#118): the shell rendered at the three named
@@ -77,8 +84,22 @@ const emptyCart = {
   customItemCount: 0,
 };
 
-/** A client that answers every read the hub makes, routed by path. */
-function hubClient(): ApiClient {
+/** An empty but successful fairness answer (#210 AC3: no auto-retry timer). */
+const emptyFairness: FairnessResponse = {
+  windowStartWeekIso: WEEK,
+  windowEndWeekIso: WEEK,
+  windowWeeks: 4,
+  totalEffort: 0,
+  topContributorPersonId: null,
+  shares: [],
+};
+
+/**
+ * A client that answers every read the hub makes, routed by path. Fairness
+ * answers 500 unless `fairnessOk` is set; a failing region auto-retries on a
+ * timer, which a call-count test must not race (#210).
+ */
+function hubClient({ fairnessOk = false }: { fairnessOk?: boolean } = {}): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
     get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
@@ -92,6 +113,9 @@ function hubClient(): ApiClient {
         return ok(emptyCart);
       }
       if (path.includes('/fairness')) {
+        if (fairnessOk) {
+          return ok(emptyFairness);
+        }
         return { ok: false, error: { kind: 'http', status: 500, title: 'Not in this test.' } };
       }
       if (path.endsWith('/people')) {
@@ -175,13 +199,18 @@ function expectStylesFrom(layout: HubLayout) {
 
 /** The landscape three-zone arrangement (ADR-0005). */
 function expectLandscapeZones() {
-  expect(screen.queryByTestId('hub-scroll')).toBeNull();
-  expect(shellZones()).toEqual(['hub-chrome', 'hub-header', 'hub-name-tiles', 'hub-main-landscape']);
-  expect(hostChildren(node('hub-main-landscape')).map((child) => child.props.testID)).toEqual([
+  // The page ScrollView is kept (#210) but does not scroll; the panels do.
+  expect(node('hub-scroll').props.scrollEnabled).toBe(false);
+  // Exactly the window height, so the inner panels scroll instead of clipping.
+  expect(StyleSheet.flatten(node('hub-scroll').props.contentContainerStyle as never)).toMatchObject({ flex: 1 });
+  expect(node('hub-side').props.scrollEnabled).toBe(true);
+  expect(node('today-panel-scroll').props.scrollEnabled).toBe(true);
+  expect(shellZones()).toEqual(['hub-chrome', 'hub-header', 'hub-name-tiles', 'hub-main']);
+  expect(hostChildren(node('hub-main')).map((child) => child.props.testID)).toEqual([
     'hub-today-zone',
     'hub-side',
   ]);
-  expect(styleOf('hub-main-landscape')).toMatchObject({ flexDirection: 'row' });
+  expect(styleOf('hub-main')).toMatchObject({ flexDirection: 'row' });
   expect(within(screen.getByTestId('hub-today-zone')).getByTestId('today-panel')).toBeOnTheScreen();
   expect(within(screen.getByTestId('hub-today-zone')).getByTestId('today-panel-scroll')).toBeOnTheScreen();
   const side = within(screen.getByTestId('hub-side'));
@@ -241,21 +270,23 @@ describe('HubShell layout (#118)', () => {
   it('renders the portrait fallback when useWindowDimensions reports 800x1280 (AC3)', async () => {
     await renderHubAt(800, 1280);
 
-    expect(screen.getByTestId('hub-scroll')).toBeOnTheScreen();
     expect(within(screen.getByTestId('hub-scroll')).getByTestId('hub-shell')).toBeOnTheScreen();
-    expect(screen.queryByTestId('hub-main-landscape')).toBeNull();
-    expect(screen.queryByTestId('hub-side')).toBeNull();
-    expect(screen.queryByTestId('today-panel-scroll')).toBeNull();
-    // The single stack: every region is a direct child of the shell, in order.
-    const zones = shellZones();
-    expect(zones).toEqual([
-      'hub-chrome',
-      'hub-header',
-      'hub-name-tiles',
-      'today-panel',
-      'hub-groceries',
-      'hub-balance',
+    // The page scrolls; the side column and the Today panel do not (#210).
+    expect(node('hub-scroll').props.scrollEnabled).toBe(true);
+    expect(StyleSheet.flatten(node('hub-scroll').props.contentContainerStyle as never)).toMatchObject({ flexGrow: 1 });
+    expect(node('hub-side').props.scrollEnabled).toBe(false);
+    expect(node('today-panel-scroll').props.scrollEnabled).toBe(false);
+    // The same zones as landscape, stacked in one column, in order.
+    expect(shellZones()).toEqual(['hub-chrome', 'hub-header', 'hub-name-tiles', 'hub-main']);
+    expect(hostChildren(node('hub-main')).map((child) => child.props.testID)).toEqual([
+      'hub-today-zone',
+      'hub-side',
     ]);
+    expect(styleOf('hub-main')).toMatchObject({ flexDirection: 'column' });
+    expect(within(screen.getByTestId('hub-today-zone')).getByTestId('today-panel')).toBeOnTheScreen();
+    expect(
+      hostChildren(hostChildren(node('hub-side'))[0]).map((child) => child.props.testID),
+    ).toEqual(['hub-groceries', 'hub-balance']);
     expect(styleOf('hub-name-tiles')).toMatchObject({ flexWrap: 'wrap' });
     expect(styleOf('chore-board-groups-today')).toMatchObject({ flexDirection: 'column' });
     expect(styleOf('name-tile-p1')).toMatchObject({ flexBasis: '30%', flexGrow: 1 });
@@ -264,15 +295,110 @@ describe('HubShell layout (#118)', () => {
 
   it('re-lays the hub out when the tablet rotates', async () => {
     await renderHubAt(1280, 800);
-    expect(screen.getByTestId('hub-main-landscape')).toBeOnTheScreen();
+    expect(styleOf('hub-main')).toMatchObject({ flexDirection: 'row' });
+    expect(node('hub-scroll').props.scrollEnabled).toBe(false);
 
     await act(async () => {
       setWindow(800, 1280);
     });
 
-    expect(screen.queryByTestId('hub-main-landscape')).toBeNull();
-    expect(screen.getByTestId('hub-scroll')).toBeOnTheScreen();
+    expect(styleOf('hub-main')).toMatchObject({ flexDirection: 'column' });
+    expect(node('hub-scroll').props.scrollEnabled).toBe(true);
     expect(screen.getAllByTestId(/^chore-item-c\d+$/)).toHaveLength(8);
+  });
+});
+
+/**
+ * A rotation re-lays the hub out without remounting any widget (#210): every
+ * layout renders the same element tree and only styles and scrolling switch, so
+ * local state survives and no read is repeated.
+ */
+describe('HubShell rotation keeps widget state (#210)', () => {
+  async function rotate(width: number, height: number) {
+    await act(async () => {
+      setWindow(width, height);
+    });
+  }
+
+  function readCalls(client: ApiClient): number {
+    return (client.get as jest.Mock).mock.calls.length + (client.update as jest.Mock).mock.calls.length;
+  }
+
+  it('keeps an open organizer PIN pad open when the tablet rotates (AC1)', async () => {
+    setWindow(1280, 800);
+    useApiClientMock.mockReturnValue(hubClient());
+    const pinProvider: IAuthProvider = {
+      kind: 'pin',
+      signIn: jest.fn(() => Promise.resolve(null)),
+      signOut: () => Promise.resolve(),
+    };
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-1">
+        <OrganizerProvider authProvider={pinProvider}>
+          <HubShell />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+    await waitFor(() => expect(screen.getAllByTestId(/^chore-item-c\d+$/)).toHaveLength(8));
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('organizer-sign-in'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pin-digit-1'));
+    });
+    expect(screen.getByTestId('pin-pad')).toBeOnTheScreen();
+    expect(screen.getByTestId('pin-display').props.accessibilityLabel).toBe('1 digits entered');
+
+    await rotate(800, 1280);
+    expect(screen.getByTestId('pin-pad')).toBeOnTheScreen();
+    expect(screen.getByTestId('pin-display').props.accessibilityLabel).toBe('1 digits entered');
+
+    await rotate(1280, 800);
+    expect(screen.getByTestId('pin-pad')).toBeOnTheScreen();
+    expect(screen.getByTestId('pin-display').props.accessibilityLabel).toBe('1 digits entered');
+  });
+
+  it('keeps typed grocery text when the tablet rotates (AC2)', async () => {
+    await renderHubAt(1280, 800);
+    await waitFor(() => expect(screen.getByTestId('grocery-add-input')).toBeOnTheScreen());
+
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('grocery-add-input'), 'oat milk');
+    });
+    expect(screen.getByTestId('grocery-add-input').props.value).toBe('oat milk');
+
+    // After a remount the cart shows its loading state first, so read the input
+    // once it is back: the red result is an empty value, not a missing node.
+    await rotate(800, 1280);
+    await waitFor(() => expect(screen.getByTestId('grocery-add-input').props.value).toBe('oat milk'));
+
+    await rotate(1280, 800);
+    await waitFor(() => expect(screen.getByTestId('grocery-add-input').props.value).toBe('oat milk'));
+  });
+
+  it('issues no extra reads when the tablet rotates (AC3)', async () => {
+    setWindow(1280, 800);
+    const client = hubClient({ fairnessOk: true });
+    useApiClientMock.mockReturnValue(client);
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-1">
+        <HubShell />
+      </HouseholdProvider>,
+    );
+    await waitFor(() => expect(screen.getAllByTestId(/^chore-item-c\d+$/)).toHaveLength(8));
+    await waitFor(() => expect(screen.getByTestId('grocery-add-input')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('fairness-empty')).toBeOnTheScreen());
+    await act(async () => {});
+    const settled = readCalls(client);
+
+    await rotate(800, 1280);
+    await act(async () => {});
+    expect(readCalls(client)).toBe(settled);
+
+    await rotate(1280, 800);
+    await act(async () => {});
+    expect(readCalls(client)).toBe(settled);
   });
 });
 
