@@ -657,8 +657,8 @@ rooms and chores, behind `OrganizerGate` (`HouseholdScreen.tsx`). It reads `GET 
 `GET /households/{id}/chores` (all chores, active or not) together and lists each room with its chores;
 chores whose room is gone sit under "Not in a room". One editor is open at a time. Every write goes through
 the typed client and, on success, replaces the item with the response body, so the next edit carries that
-item's fresh `eTag` (the API's `ETag` member serializes as `eTag`, as `RoomResponse`/`ChoreResponse` now
-declare). Renames and chore edits are PUTs under `If-Match`; a `412` shows a reload prompt that re-reads
+item's fresh `eTag` (the API's `ETag` member serializes as `eTag`, as `HouseholdResponse`, `RoomResponse`,
+`ChoreResponse` and `PersonResponse` declare). Renames and chore edits are PUTs under `If-Match`; a `412` shows a reload prompt that re-reads
 both lists and closes the editor without re-sending the edit (`isPreconditionFailed`). Any other failure
 shows the problem-details message and leaves the list as it was. Deactivate and room DELETE carry no
 `If-Match`. Removing a room is refused on the client while it has active chores (the server DELETE does not

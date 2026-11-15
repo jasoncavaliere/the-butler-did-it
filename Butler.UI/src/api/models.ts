@@ -17,7 +17,11 @@ export type HouseholdResponse = {
   name: string;
   organizerObjectId: string;
   createdUtc: string;
-  etag: string;
+  /**
+   * Optimistic-concurrency stamp for `If-Match`. The API's `ETag` member
+   * serializes as `eTag` (camelCase), as noted on {@link CartResponse}.
+   */
+  eTag: string;
 };
 
 /** Body for `POST /households`. */
