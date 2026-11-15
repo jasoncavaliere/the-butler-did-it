@@ -16,12 +16,18 @@ namespace Butler.Api.Tests.Logging;
 /// (method, path, status, duration, household id, correlation id) to a rolling
 /// file, alongside the console; the sink has a size and a retention limit; the
 /// correlation id equals the RFC 7807 <c>traceId</c>; and outside Demo no file
-/// is written. Each test owns a fresh temp log directory and disposes its host
+/// is written. Criteria (#192 AC3-AC5): a request to the <c>/health</c>
+/// liveness probe writes no request line, while other requests still do. Each
+/// test owns a fresh temp log directory and disposes its host
 /// (closing the file) before deleting it.
 /// </summary>
 public sealed class DemoFileLoggingTests
 {
     private static readonly Uri HealthUri = new("/health", UriKind.Relative);
+
+    // Anonymous, storage-free and outside any household route; unlike /health
+    // it is request-logged (#192).
+    private static readonly Uri PingUri = new("/api/system/ping", UriKind.Relative);
 
     private static bool IsRequestEvent(JsonElement e) =>
         e.TryGetProperty("CorrelationId", out _) && e.TryGetProperty("StatusCode", out _);
@@ -69,15 +75,50 @@ public sealed class DemoFileLoggingTests
             await using var factory = DemoLogFiles.CreateDemoFactory(dir);
             using var client = factory.CreateClient();
 
-            using var response = await client.GetAsync(HealthUri);
+            using var response = await client.GetAsync(PingUri);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
             var events = await DemoLogFiles.WaitForEventsAsync(
                 dir,
-                e => IsRequestEvent(e) && e.HasString("Path", "/health"));
+                e => IsRequestEvent(e) && e.HasString("Path", "/api/system/ping"));
             var entry = Assert.Single(events);
             Assert.Equal(200, entry.GetProperty("StatusCode").GetInt32());
             Assert.Equal(JsonValueKind.Null, entry.GetProperty("HouseholdId").ValueKind);
+        }
+        finally
+        {
+            DemoLogFiles.TryDelete(dir);
+        }
+    }
+
+    [Fact]
+    public async Task Demo_health_probe_writes_no_request_line_but_other_requests_do()
+    {
+        var dir = DemoLogFiles.NewDirectory();
+        try
+        {
+            await using (var factory = DemoLogFiles.CreateDemoFactory(dir))
+            {
+                using var client = factory.CreateClient();
+
+                using (var health = await client.GetAsync(HealthUri))
+                {
+                    Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+                }
+
+                // The ping goes second: once its line has landed, a /health line
+                // written before it would be in the file too.
+                using var ping = await client.GetAsync(PingUri);
+                Assert.Equal(HttpStatusCode.OK, ping.StatusCode);
+                await DemoLogFiles.WaitForEventsAsync(
+                    dir,
+                    e => IsRequestEvent(e) && e.HasString("Path", "/api/system/ping"));
+            }
+
+            // Read after disposal, which flushes and closes the sink.
+            var requests = DemoLogFiles.ReadEvents(dir).Where(IsRequestEvent).ToList();
+            Assert.Contains(requests, e => e.HasString("Path", "/api/system/ping"));
+            Assert.DoesNotContain(requests, e => e.HasString("Path", "/health"));
         }
         finally
         {
@@ -94,8 +135,8 @@ public sealed class DemoFileLoggingTests
             await using (var factory = DemoLogFiles.CreateDemoFactory(dir))
             {
                 using var client = factory.CreateClient();
-                using var response = await client.GetAsync(HealthUri);
-                await DemoLogFiles.WaitForEventsAsync(dir, e => IsRequestEvent(e) && e.HasString("Path", "/health"));
+                using var response = await client.GetAsync(PingUri);
+                await DemoLogFiles.WaitForEventsAsync(dir, e => IsRequestEvent(e) && e.HasString("Path", "/api/system/ping"));
             }
 
             // appsettings: Default Information, Microsoft.AspNetCore Warning. In

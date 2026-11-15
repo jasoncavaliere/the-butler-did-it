@@ -18,8 +18,19 @@
 #
 # log: one JSON access-log line per request on stderr, so `demo logs` shows
 # Caddy's traffic next to the API's (#107). No log file.
+# log_skip @healthcheck: the compose healthcheck (busybox wget of / from
+# loopback inside the container, every 2s) is not logged (#192). Every other
+# request still is: real traffic reaches Caddy from the Docker bridge address,
+# not loopback. The matcher must change together with the probe URL in
+# docker-compose.yml.
 :8080 {
 	log
+
+	@healthcheck {
+		remote_ip 127.0.0.1/8 ::1
+		path /
+	}
+	log_skip @healthcheck
 
 	handle_path /api/* {
 		reverse_proxy api:8080

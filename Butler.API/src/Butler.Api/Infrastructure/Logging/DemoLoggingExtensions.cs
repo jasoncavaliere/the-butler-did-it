@@ -71,8 +71,9 @@ public static class DemoLoggingExtensions
     /// <summary>
     /// In the Demo environment, adds the request-summary logging middleware.
     /// Call it first, before <c>UseExceptionHandler</c>, so it observes the final
-    /// status code of every request, including exceptions mapped to problem
-    /// details. Outside Demo nothing is added.
+    /// status code of every request (except the <c>/health</c> liveness probe,
+    /// #192), including exceptions mapped to problem details. Outside Demo
+    /// nothing is added.
     /// </summary>
     /// <param name="app">The web application.</param>
     /// <returns>The same web application.</returns>

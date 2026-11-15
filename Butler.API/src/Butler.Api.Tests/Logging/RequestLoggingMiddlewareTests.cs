@@ -12,7 +12,9 @@ namespace Butler.Api.Tests.Logging;
 /// the event is written even when the pipeline throws, and with no ambient
 /// <see cref="Activity"/> the correlation id falls back to
 /// <see cref="HttpContext.TraceIdentifier"/> - the same fallback problem
-/// details use for <c>traceId</c>.
+/// details use for <c>traceId</c>. Criteria (#192 AC3-AC5): a request to the
+/// <c>/health</c> liveness probe writes no event, while paths that only start
+/// with <c>health</c> still do.
 /// </summary>
 public sealed class RequestLoggingMiddlewareTests
 {
@@ -96,5 +98,47 @@ public sealed class RequestLoggingMiddlewareTests
 
         var entry = Assert.Single(logger.Entries);
         Assert.Contains("household hh-unit", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("/health")]
+    [InlineData("/HEALTH")]
+    public async Task Does_not_log_the_health_probe(string path)
+    {
+        var logger = new CapturingLogger<RequestLoggingMiddleware>();
+        var nextRan = false;
+        var middleware = new RequestLoggingMiddleware(
+            ctx =>
+            {
+                nextRan = true;
+                ctx.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            new QuarterSecondClock(),
+            logger);
+        var context = NewContext();
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(nextRan, "the probe is still served");
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Empty(logger.Entries);
+    }
+
+    [Theory]
+    [InlineData("/healthz")]
+    [InlineData("/health/extra")]
+    public async Task Logs_paths_that_only_start_with_health(string path)
+    {
+        var logger = new CapturingLogger<RequestLoggingMiddleware>();
+        var middleware = new RequestLoggingMiddleware(_ => Task.CompletedTask, new QuarterSecondClock(), logger);
+        var context = NewContext();
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Contains($"HTTP GET {path} responded", entry.Message, StringComparison.Ordinal);
     }
 }
