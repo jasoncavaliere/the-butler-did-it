@@ -1100,6 +1100,57 @@ describe('GroceryCart voice capture', () => {
     expect(screen.getByTestId('grocery-voice-transcript')).toHaveTextContent('Heard "oat milk"');
   });
 
+  it('voice-shown-before-send: the Heard line is on screen when the voice capture is issued (#206)', async () => {
+    installSpeech();
+    let shownAtSend: boolean | null = null;
+    const client = cartClient({
+      reads: [ok(building()), ok(building([oatMilk]))],
+      updateImpl: async (path) => {
+        if (path === VOICE_PATH) {
+          shownAtSend = screen.queryByText(heardLabel('oat milk')) !== null;
+        }
+        return voiceAdded;
+      },
+    });
+    await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('oat milk');
+
+    // The send went out only after the transcript had rendered.
+    expect(shownAtSend).toBe(true);
+    expect(client.update).toHaveBeenCalledTimes(1);
+    expect(client.update).toHaveBeenCalledWith(
+      VOICE_PATH,
+      { utterance: 'oat milk', personId: 'p1', weekIso: WEEK, quantity: 1 },
+      { method: 'POST' },
+    );
+  });
+
+  it('voice-sends-once: a displayed transcript posts to /capture/voice exactly once, with no confirm tap, even when the cart re-renders (#206)', async () => {
+    installSpeech();
+    const client = cartClient({ reads: [ok(building()), ok(building([oatMilk]))] });
+    const view = await renderCart(client);
+    await whenLoaded();
+
+    await press('grocery-voice');
+    await hear('oat milk');
+
+    // No confirm tap: hearing it is enough to send it.
+    await waitFor(() =>
+      expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent('Added H-E-B Oat Milk.'),
+    );
+    expect(client.update).toHaveBeenCalledTimes(1);
+
+    // A new active person gives the send a new identity and re-runs the effect,
+    // but the transcript already went out, so nothing is sent again.
+    await view.rerender(<GroceryCart householdId={HOUSEHOLD} activePersonId="p2" />);
+
+    expect(client.update).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('grocery-voice-transcript')).toHaveTextContent(heardLabel('oat milk'));
+  });
+
   it('voice-capture-posts: a transcript posts to /capture/voice and the added line renders like a typed add', async () => {
     installSpeech();
     const client = cartClient({ reads: [ok(building()), ok(building([oatMilk]))] });

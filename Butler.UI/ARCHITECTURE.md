@@ -508,9 +508,9 @@ typed client:
   Firefox, Jest) it is absent, not disabled. A tap listens for one utterance (`continuous` and
   `interimResults` off, one alternative, `en-US`); the button reads `Listening...` and is disabled until
   recognition ends, and recognition stops after the first result. The transcript is shown
-  (`Heard "<transcript>"`) and sent straight away, with no confirm tap, to `/capture/voice` with the same
-  body as a typed add. The API's normalizer strips fillers such as "please add" and "to the list", so
-  the UI only trims it. The answer is handled exactly as a typed add's is (added and re-read,
+  (`Heard "<transcript>"`) and, once that line has rendered, sent with no confirm tap (#206) to
+  `/capture/voice` with the same body as a typed add. The API's normalizer strips fillers such as
+  "please add" and "to the list", so the UI only trims it. The answer is handled exactly as a typed add's is (added and re-read,
   suggestions, or the custom-item offer), except that a spoken add leaves the text field alone. A
   recognition error, no match, an empty transcript, or a session that ends with nothing heard posts
   nothing and says `I did not catch that. Tap Speak to try again, or type it.`, and the cart stays usable.
