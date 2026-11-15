@@ -500,8 +500,8 @@ typed client:
   A no-match is a `200` with outcome `NoMatch` (#113): the region keeps the term and offers
   `Add "<term>" as a custom item` (`grocery-add-custom`). Tapping it POSTs
   `/carts/{weekIso}/items` with `{ displayName, personId, quantity: 1 }`, then re-reads the cart; a
-  failure shows the readable error and keeps the offer to retry, and any new add withdraws a stale
-  offer. No outcome is ever a silent failure.
+  failure shows the readable error and keeps the offer to retry, and editing the term or any new add
+  withdraws a stale offer (#200). No outcome is ever a silent failure.
 - **Voice (#116).** Where the browser exposes speech recognition (`SpeechRecognition`, else
   `webkitSpeechRecognition`, feature-detected through `src/voice/` rather than switched on
   `Platform.OS`), a `Speak` button (`grocery-voice`) sits beside Add; with no recognizer (native,
