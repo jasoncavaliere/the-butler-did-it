@@ -24,7 +24,8 @@
 #
 # A stub npm builds a fake export (`run build:web` replaces dist with a new
 # index.html and logs the EXPO_PUBLIC_* values it got); a stub docker only
-# logs and succeeds, so no real stack starts. Runs the real scripts against
+# logs and succeeds, so no real stack starts; a stub dotnet passes the smoke
+# step (#103). Runs the real scripts against
 # the real Butler.UI/ folder. An existing Butler.UI/dist is moved aside and
 # put back on exit. Needs bash, GNU touch and pwsh (PowerShell 7); no Node,
 # no Docker and no stack.
@@ -44,6 +45,8 @@ L_UNSTAMPED='Hub export was not built with the demo settings; building Butler.UI
 L_FRESH='Hub export is up to date (Butler.UI/dist).'
 L_RECREATE='Recreating web to serve the new export ...'
 L_HEALTHY='Demo stack is up and healthy: http://localhost:8080'
+# The smoke step (#103): the stub dotnet passes, so every up ends ready.
+L_READY='Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger'
 L_BUILD_ENV='EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin'
 
 WORK="$(mktemp -d)"
@@ -111,7 +114,22 @@ cat > "$STUB_DIR/docker" <<'STUB'
 printf '%s\n' "$*" >> "${DOCKER_STUB_LOG:-/dev/null}"
 exit 0
 STUB
-chmod +x "$STUB_DIR/npm" "$STUB_DIR/docker"
+# A stub dotnet (#103): up checks for an SDK and runs the smoke suite once the
+# stack is healthy. --list-sdks prints one SDK and test prints nothing and
+# passes; anything else goes to the real dotnet, if there is one (a pwsh
+# installed as a .NET global tool starts through `dotnet pwsh.dll`).
+export REAL_DOTNET="$(command -v dotnet || true)"
+cat > "$STUB_DIR/dotnet" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --list-sdks) echo '10.0.100 [/usr/share/dotnet/sdk]'; exit 0 ;;
+  test) exit 0 ;;
+esac
+[ -n "${REAL_DOTNET:-}" ] && exec "$REAL_DOTNET" "$@"
+echo "stub dotnet: unexpected arguments: $*" >&2
+exit 64
+STUB
+chmod +x "$STUB_DIR/npm" "$STUB_DIR/docker" "$STUB_DIR/dotnet"
 
 # up checks the PIN before anything else. A fixed SHA keeps the runs alike.
 export BUTLER_DEMO_PIN=1234
@@ -237,6 +255,7 @@ expect_rebuilt() {
   expect_line "$label" "$OUT" "$state"
   expect_line "$label" "$OUT" "$L_RECREATE"
   expect_line "$label" "$OUT" "$L_HEALTHY"
+  expect_line "$label" "$OUT" "$L_READY"
   expect_no "$label" "$OUT" "$L_FRESH"
   expect_line "$label" "$NPM" "run build:web"
   expect_line "$label" "$NPM" "$L_BUILD_ENV"
@@ -249,6 +268,7 @@ expect_fresh() {
   [ "$RC" -eq 0 ] || fail "$label: expected exit 0, got $RC"
   expect_line "$label" "$OUT" "$L_FRESH"
   expect_line "$label" "$OUT" "$L_HEALTHY"
+  expect_line "$label" "$OUT" "$L_READY"
   expect_no "$label" "$OUT" "building Butler.UI/dist"
   expect_no "$label" "$OUT" "$L_RECREATE"
   expect_no "$label" "$NPM" "build:web"

@@ -15,6 +15,8 @@
 #
 # Services (names are seams other tickets depend on - do not rename):
 #   azurite - Table service only, data persisted to demo/.data/azurite.
+#             Its Table port is published on loopback only, as
+#             127.0.0.1:10012, for the host smoke step `demo up` runs (#103).
 #   api     - Butler.API image (Demo environment, container port 8080),
 #             published on 127.0.0.1:5108. Tables are created by the API's
 #             startup provisioning (#91), never by this stack. Writes rolling
@@ -48,7 +50,13 @@ services:
     # compose's default SIGTERM would drop up to 5s of unsaved writes on `down`.
     stop_signal: SIGINT
     stop_grace_period: 30s
-    # Port 10002 is deliberately not published; only the api talks to it.
+    # Published on loopback only (#103): `demo up` runs the smoke suite on the
+    # host, and #92's Rooms tests read the Rooms table directly to prove the
+    # API persisted to Table Storage. Host port 10012, not 10002, so it never
+    # clashes with an Azurite that Start-LocalSession runs on 10002. The api
+    # still talks to azurite:10002 over the compose network.
+    ports:
+      - "127.0.0.1:10012:10002"
 
   api:
     build:

@@ -28,7 +28,7 @@ at `/` and proxying `/api/*` to the API. A lighter in-memory dev loop (`dotnet r
 dotnet restore Butler.API/Butler.API.sln -v q --nologo
 npm --prefix Butler.UI ci --no-audit --no-fund --loglevel=error
 
-# service: azurite (demo.sh up also starts it; port 10002 is not published to the host)
+# service: azurite (demo.sh up also starts it; its Table port is on 127.0.0.1:10012 only)
 docker compose -f demo/docker-compose.yml up -d --wait azurite
 # ready: docker compose -f demo/docker-compose.yml ps azurite --format '{{.Health}}' | grep -qx healthy
 
@@ -38,7 +38,8 @@ demo/demo.sh up
 
 `demo/demo.sh up` builds `Butler.UI/dist` with `EXPO_PUBLIC_API_BASE_URL=/api` when the export is
 missing, stale, or lacks up's build stamp (`Butler.UI/dist/.demo-build-env`, #184), runs `docker compose -f demo/docker-compose.yml up -d --build --wait
---wait-timeout 300`, and recreates `web` after a rebuild so Caddy serves the new export.
+--wait-timeout 300`, and recreates `web` after a rebuild so Caddy serves the new export. Then (#103) it
+runs the smoke suite (Liveness + Endpoints) with the host .NET 10 SDK and ends with a `Demo ready:` line.
 
 Health is confirmed by:
 
@@ -47,7 +48,8 @@ Health is confirmed by:
 - http `http://localhost:8080/api/health` (600s) - proxy route: Caddy strips `/api` and reaches the API
 
 Exposed ports: `8080: web (Caddy) - hub PWA at / and the API at /api/*`,
-`5108: api (127.0.0.1 only; container port 8080)`. Azurite's 10002 is not published.
+`5108: api (127.0.0.1 only; container port 8080)`. Azurite's Table port is published on
+`127.0.0.1:10012` only, for `demo up`'s smoke step (#103); the api still uses `azurite:10002`.
 
 ## Run the tests
 

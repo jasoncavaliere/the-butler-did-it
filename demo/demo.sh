@@ -44,10 +44,25 @@ PIN_SIGN_IN_URL="$HUB_URL/api/auth/pin/sign-in"
 SEED_URL="$HUB_URL/api/demo/seed"
 WAIT_TIMEOUT=300
 
+# The smoke step up runs once the stack is healthy (#103): the smoke suite,
+# run with the host .NET SDK from Butler.API/ (so global.json applies), through
+# the Caddy proxy. The trailing slash matters: without it, the suite's relative
+# URLs drop /api. The storage string is the well-known public Azurite
+# devstoreaccount1 key (not a secret, the same one docker-compose.yml gives
+# the api), pointed at Azurite's loopback-only host port 10012.
+SMOKE_BASE_URL="$HUB_URL/api/"
+SMOKE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://127.0.0.1:10012/devstoreaccount1;"
+SMOKE_PROJECT="src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj"
+# Liveness (read-only) and Endpoints (#92's Rooms round trip, in a throwaway
+# smoke-rooms-<guid> household). Never Demo: the seeded household stays as is.
+SMOKE_FILTER="Category=Liveness|Category=Endpoints"
+SMOKE_LOGGER="console;verbosity=normal"
+DEMO_READY="Demo ready: hub $HUB_URL | API $HUB_URL/api/health | Swagger http://localhost:5108/swagger"
+
 # Subcommand registry, in usage order: one "name|description" per line.
 # To add a subcommand: add a line here and a cmd_<name> function below (and
 # the same entry and handler in demo.ps1, plus a row in demo/README.md).
-COMMANDS="up|Build the hub export if needed, start the stack and wait until it is healthy
+COMMANDS="up|Build the hub export if needed, start the stack, wait until it is healthy and run the smoke suite
 down|Stop the stack (data in demo/.data/azurite is kept)
 reset|Delete the demo data, restart the stack, re-seed the demo household and change the dataset id
 status|Show container health, the hub URL and the dataset id
@@ -216,9 +231,26 @@ ensure_build_sha() {
   export BUTLER_BUILD_SHA
 }
 
-cmd_up() {
+# The smoke step needs the host .NET SDK (#103), so fail fast, before npm or
+# docker run. A dotnet with no SDK (a runtime-only install) counts as none.
+check_dotnet_sdk() {
+  local sdks=""
+  if command -v dotnet >/dev/null 2>&1; then
+    sdks="$(dotnet --list-sdks 2>/dev/null)" || sdks=""
+  fi
+  case "$sdks" in
+    *[![:space:]]*)
+      return 0
+      ;;
+  esac
+  echo "The .NET SDK is required for the smoke step that up runs, and none was found. Install the .NET 10 SDK, then run up again. See demo/README.md." >&2
+  return 1
+}
+
+# Builds the hub export if needed, starts the stack and waits until every
+# service is healthy. up runs the smoke suite after it; reset does not.
+start_stack() {
   local state rebuilt=0 rc=0
-  check_pin || return 1
   ensure_build_sha
   state="$(export_state)"
   case "$state" in
@@ -255,6 +287,49 @@ cmd_up() {
     return "$rc"
   fi
   echo "Demo stack is up and healthy: $HUB_URL"
+}
+
+# The smoke step (#103): runs the Liveness and Endpoints smoke tests against
+# the running stack. Their output streams through and is kept in a temp log;
+# a failure names each failed test (in order, once each) on stderr. The
+# settings go to dotnet only through its environment, so the PIN is never in
+# argv or printed.
+run_smoke() {
+  local log rc=0 name
+  log="$(mktemp "${TMPDIR:-/tmp}/butler-demo-smoke.XXXXXX")" || return 1
+  echo "Running the smoke suite against $SMOKE_BASE_URL ..."
+  (
+    cd "$REPO_ROOT/Butler.API" &&
+      BUTLER_SMOKE_BASE_URL="$SMOKE_BASE_URL" \
+      BUTLER_SMOKE_STORAGE_CONNECTION_STRING="$SMOKE_STORAGE_CONNECTION_STRING" \
+      BUTLER_SMOKE_ORGANIZER_PIN="$(demo_pin)" \
+      MSBUILDTERMINALLOGGER=off \
+      DOTNET_NOLOGO=1 \
+      dotnet test "$SMOKE_PROJECT" --filter "$SMOKE_FILTER" --logger "$SMOKE_LOGGER"
+  ) 2>&1 | tee "$log" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    rm -f "$log"
+    echo "$DEMO_READY"
+    return 0
+  fi
+  # VSTest prints "  Failed <test name> [<duration>]" once per failed test.
+  while IFS= read -r name; do
+    if [ -n "$name" ]; then
+      echo "Smoke check failed: $name" >&2
+    fi
+  done <<EOF
+$(tr -d '\r' < "$log" | sed -n 's/^[[:space:]]*Failed \(.*\) \[[^][]*\]$/\1/p' | awk '!seen[$0]++')
+EOF
+  rm -f "$log"
+  echo "Demo is not ready: the smoke suite failed. Run the logs command to see why." >&2
+  return 1
+}
+
+cmd_up() {
+  check_pin || return 1
+  check_dotnet_sdk || return 1
+  start_stack || return $?
+  run_smoke
 }
 
 cmd_down() {
@@ -343,7 +418,7 @@ cmd_reset() {
     return "$rc"
   fi
 
-  cmd_up || return $?
+  start_stack || return $?
 
   # Sign in once, after up (a restart drops PIN tokens), with no retry: five
   # wrong PINs lock sign-in. The PIN goes to curl on stdin, not in argv.

@@ -51,6 +51,13 @@
 #            other compose project, non-Azurite storage, other data folder)
 #            exit 1 with the same message through both scripts and make no
 #            down, run or up call.
+#            And the smoke step (#103): Azurite's Table port is published
+#            only on 127.0.0.1:10012 while the api keeps azurite:10002, and
+#            demo/ci/check-smoke-step.sh (stub dotnet and docker) shows both
+#            scripts run the Liveness and Endpoints smoke tests from
+#            Butler.API/ with the smoke environment after a healthy stack,
+#            print Demo ready on a pass, name each failed test on a failure,
+#            and stop before npm or docker without a .NET SDK.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080 (with the precache list build:web
 #            injects, demo/ci/check-precache.cjs, #178; its exit codes
@@ -79,7 +86,13 @@
 #            (#98, demo/ci/check-reset.sh stack): demo.sh reset, demo.ps1
 #            reset and a reset from a stopped stack, each with stdin closed,
 #            wipe the data, re-seed The Parker Household (roster, this week's
-#            assignments, fairness) and change the dataset id.
+#            assignments, fairness) and change the dataset id. And the smoke
+#            step (#103): with the SDK from Butler.API/global.json, demo up
+#            runs the real Liveness and Rooms smoke tests through the proxy
+#            (signing in with the PIN, reading Azurite on 127.0.0.1:10012),
+#            never the Demo, Storage or Provisioning ones, and ends with the
+#            Demo ready line; a guard step pins the VSTest Failed-line format
+#            the scripts parse.
 name: demo-ci
 
 on:
@@ -150,6 +163,40 @@ jobs:
             exit 1
           fi
 
+      # #103 AC8b + AC8c: Azurite's Table port is published once, on loopback
+      # only (127.0.0.1:10012 -> 10002, never 0.0.0.0), for the host smoke
+      # step, and the api still reaches Azurite at azurite:10002. The JSON
+      # render is checked with jq and never printed (it holds the PIN).
+      - name: "Azurite table port on loopback 10012 only (#103)"
+        run: |
+          docker compose -f "$COMPOSE_FILE_PATH" config --format json > "$RUNNER_TEMP/compose.json"
+          jq -e '
+            (.services.azurite.ports // []) as $p
+            | ($p | length) == 1
+              and ($p[0].host_ip == "127.0.0.1")
+              and (($p[0].target | tostring) == "10002")
+              and (($p[0].published | tostring) == "10012")
+          ' "$RUNNER_TEMP/compose.json" > /dev/null || {
+            echo "azurite must publish exactly one port: 127.0.0.1:10012 -> 10002" >&2
+            jq -c '.services.azurite.ports' "$RUNNER_TEMP/compose.json" >&2
+            exit 1
+          }
+          jq -e '
+            [.services[] | (.ports // [])[] | select((.target | tostring) == "10002")]
+            | all(.host_ip == "127.0.0.1")
+          ' "$RUNNER_TEMP/compose.json" > /dev/null || {
+            echo "Azurite's 10002 must never be published on 0.0.0.0 or without a host IP" >&2
+            exit 1
+          }
+          jq -e '
+            .services.api.environment.Storage__ConnectionString
+            | contains(";TableEndpoint=http://azurite:10002/devstoreaccount1;")
+          ' "$RUNNER_TEMP/compose.json" > /dev/null || {
+            echo "the api must still use TableEndpoint=http://azurite:10002/devstoreaccount1" >&2
+            exit 1
+          }
+          echo "azurite: 127.0.0.1:10012 -> 10002 only; api: azurite:10002"
+
       # AC7: tables come from the API's startup provisioning (#91), not demo/.
       - name: Assert no table creation in demo/
         run: |
@@ -193,6 +240,12 @@ jobs:
           grep -F 'tailscale serve --bg 8080' demo/README.md
           grep -F 'mkcert' demo/README.md
           grep -F 'adb reverse tcp:8080 tcp:8080' demo/README.md
+          # #103 AC8: the smoke step, its .NET SDK prerequisite and the
+          # loopback Azurite port are documented.
+          grep -F '.NET 10 SDK' demo/README.md
+          grep -F '### Smoke step' demo/README.md
+          grep -F 'Demo ready:' demo/README.md
+          grep -F '127.0.0.1:10012' demo/README.md
 
       # #129 AC1-AC4: the Fully Kiosk settings file has the hub settings with
       # only the __START_URL__ and __KIOSK_PIN__ placeholders (no real PIN or
@@ -316,6 +369,16 @@ jobs:
       - name: "demo CLI: unwritable demo/.data/logs is reported on stdout (#193)"
         run: bash demo/ci/check-logs-dir.sh
 
+      # #103 AC1-AC7 + AC8b: the smoke step up runs after a healthy stack,
+      # through both scripts: dotnet test from Butler.API/ with the smoke
+      # environment and the Liveness|Endpoints filter, Demo ready on a pass,
+      # each failed test named once on a failure, the SDK message (before npm
+      # or docker) without a .NET SDK, and no smoke run when the stack is not
+      # healthy; demo.sh and demo.ps1 print the same bytes and make the same
+      # calls. Stub dotnet, docker and npm.
+      - name: "demo CLI: up runs the smoke step (#103)"
+        run: bash demo/ci/check-smoke-step.sh
+
       # #98 AC7 + AC8 + AC8b: reset refuses every non-local target and a
       # missing PIN before it touches the stack, stops on a failed down or
       # wipe, and is documented; demo.sh and demo.ps1 print the same bytes
@@ -344,6 +407,32 @@ jobs:
           printf 'BUTLER_DEMO_PIN=%s\n' "$pin" > demo/.env
           echo "BUTLER_DEMO_PIN=$pin" >> "$GITHUB_ENV"
           git check-ignore -q demo/.env
+
+      # #103: demo up runs the smoke suite with the host .NET SDK. Pin it from
+      # Butler.API/global.json, as api-ci.yml does.
+      - name: Set up .NET (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Butler.API/global.json
+
+      # #103 AC6: demo.sh and demo.ps1 name a failed smoke check by parsing
+      # VSTest's "  Failed <name> [<duration>]" lines, and
+      # demo/ci/check-smoke-step.sh stubs that output. Pin the real format:
+      # run the Liveness tests against a dead port and expect that line.
+      - name: "Smoke step: real VSTest Failed-line format (#103)"
+        working-directory: Butler.API
+        env:
+          BUTLER_SMOKE_BASE_URL: http://127.0.0.1:9/
+          MSBUILDTERMINALLOGGER: "off"
+          DOTNET_NOLOGO: "1"
+        run: |
+          set +e
+          out="$(dotnet test src/Butler.Api.SmokeTests/Butler.Api.SmokeTests.csproj --filter 'Category=Liveness' --logger 'console;verbosity=normal' 2>&1)"; rc=$?
+          set -e
+          printf '%s\n' "$out" | grep -vE '^[[:space:]]*(at |\[xUnit\.net)' | tail -n 40
+          [ "$rc" -ne 0 ] || { echo "the smoke tests passed against a dead port" >&2; exit 1; }
+          printf '%s\n' "$out" | tr -d '\r' | grep -E '^[[:space:]]*Failed Butler\.Api\.SmokeTests\.LivenessSmokeTests\.Get_health_returns_200_with_status_ok \[[^][]*\]$' \
+            || { echo "VSTest no longer prints '  Failed <name> [<duration>]'; update demo.sh, demo.ps1 and check-smoke-step.sh" >&2; exit 1; }
 
       # Same Node pin and npm cache as ui-ci.yml.
       - name: Set up Node (LTS)
@@ -638,7 +727,28 @@ jobs:
             echo "up warned that the API file log is off, but demo/.data/logs is writable (#193)" >&2
             exit 1
           fi
-          [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo stack is up and healthy: http://localhost:8080' ]
+          printf '%s\n' "$out" | grep -qxF 'Demo stack is up and healthy: http://localhost:8080'
+          # #103 AC1-AC5 + AC8b: up then ran the real smoke suite through the
+          # proxy: the two Liveness checks and #92's six Rooms round trips
+          # (signed in with the PIN, Rooms rows read on 127.0.0.1:10012), never
+          # the Demo, Storage or Provisioning tests, and ended ready.
+          printf '%s\n' "$out" | grep -qxF 'Running the smoke suite against http://localhost:8080/api/ ...'
+          for t in \
+            LivenessSmokeTests.Get_health_returns_200_with_status_ok \
+            LivenessSmokeTests.Get_ping_returns_200_with_service_identity \
+            RoomsHttpRoundTripSmokeTests.Post_room_returns_201_and_persists_it_to_table_storage \
+            RoomsHttpRoundTripSmokeTests.Get_room_returns_200_with_its_etag \
+            RoomsHttpRoundTripSmokeTests.Put_room_with_current_etag_returns_200_and_get_returns_new_values \
+            RoomsHttpRoundTripSmokeTests.Put_room_without_if_match_returns_428 \
+            RoomsHttpRoundTripSmokeTests.Put_room_with_stale_etag_returns_412 \
+            RoomsHttpRoundTripSmokeTests.Delete_room_returns_204_and_removes_it_from_table_storage; do
+            printf '%s\n' "$out" | grep -qE "^[[:space:]]*Passed Butler\.Api\.SmokeTests\.$t \[" || { echo "demo up did not pass smoke test $t" >&2; exit 1; }
+          done
+          if printf '%s\n' "$out" | grep -E '(DemoSeed|StorageRoundTrip|TableProvisioning|TableReprovisioning)SmokeTests\.|SmokeSettingsTests\.'; then
+            echo "demo up ran a smoke test outside the Liveness and Endpoints categories" >&2
+            exit 1
+          fi
+          [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger' ]
           grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
           # #184: the rebuild wrote up's build stamp, byte for byte.
           printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' | cmp - Butler.UI/dist/.demo-build-env
@@ -681,6 +791,9 @@ jobs:
               -e 'Recreating web to serve the new export ...' \
               -e 'Demo stack is up and healthy: http://localhost:8080' \
               -e 'Demo stack did not become healthy. Run the logs command to see why.' \
+              -e 'Running the smoke suite against http://localhost:8080/api/ ...' \
+              -e 'Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger' \
+              -e 'Demo is not ready: the smoke suite failed. Run the logs command to see why.' \
               -e 'Stopping the demo stack (data in demo/.data/azurite is kept) ...' \
               -e 'Demo stack stopped.' || true
           }
@@ -728,7 +841,9 @@ jobs:
           fresh_up="$(printf '%s\n' \
             'Hub export is up to date (Butler.UI/dist).' \
             'Starting the demo stack ...' \
-            'Demo stack is up and healthy: http://localhost:8080')"
+            'Demo stack is up and healthy: http://localhost:8080' \
+            'Running the smoke suite against http://localhost:8080/api/ ...' \
+            'Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger')"
           sh_out="$(demo/demo.sh up)"
           ps_out="$(ps1 up)"
           same "up (fresh)" "$(printf '%s\n' "$sh_out" | own)" "$(printf '%s\n' "$ps_out" | own)"
@@ -749,7 +864,9 @@ jobs:
             'Hub export is missing; building Butler.UI/dist ...' \
             'Starting the demo stack ...' \
             'Recreating web to serve the new export ...' \
-            'Demo stack is up and healthy: http://localhost:8080')"
+            'Demo stack is up and healthy: http://localhost:8080' \
+            'Running the smoke suite against http://localhost:8080/api/ ...' \
+            'Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger')"
           rm -rf Butler.UI/dist
           ps_out="$(ps1 up)"
           printf '%s\n' "$ps_out" | own
