@@ -29,7 +29,10 @@ public sealed record ConfirmCartCommand(
 
 /// <summary>
 /// Handles <see cref="ConfirmCartCommand"/> via the application service, then
-/// records a <c>cart-confirmed</c> usage event (#122) when a cart came back.
+/// records a <c>cart-confirmed</c> usage event (#122) only when the service
+/// reports an actual transition to <c>Confirmed</c>: an idempotent replay on an
+/// already-confirmed cart, an unknown household and a week with no cart all
+/// record nothing (#218).
 /// </summary>
 public sealed class ConfirmCartCommandHandler : IRequestHandler<ConfirmCartCommand, CartReadResult>
 {
@@ -55,17 +58,19 @@ public sealed class ConfirmCartCommandHandler : IRequestHandler<ConfirmCartComma
                 request.IfMatch,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (result.Cart is not null)
+        if (result.Changed)
         {
+            // A state change implies the re-read returned the cart.
+            var cart = result.Read.Cart!;
             await _events.TryRecordAsync(
                     request.HouseholdId,
                     EventTypes.CartConfirmed,
-                    personId: result.Cart.ConfirmedByPersonId,
-                    weekIso: result.Cart.WeekIso,
+                    personId: cart.ConfirmedByPersonId,
+                    weekIso: cart.WeekIso,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return result;
+        return result.Read;
     }
 }

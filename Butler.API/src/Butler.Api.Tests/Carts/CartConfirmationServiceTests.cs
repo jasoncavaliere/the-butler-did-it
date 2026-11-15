@@ -106,10 +106,11 @@ public sealed class CartConfirmationServiceTests
         var result = await fixture.Service.ConfirmAsync(
             HouseholdId, CurrentWeek, OrganizerObjectId, etag, CancellationToken.None);
 
-        Assert.True(result.HouseholdExists);
-        Assert.Equal(CartStatus.Confirmed, result.Cart!.Status);
-        Assert.Equal("person-organizer", result.Cart.ConfirmedByPersonId);
-        Assert.Equal(Now, result.Cart.ConfirmedUtc);
+        Assert.True(result.Changed);
+        Assert.True(result.Read.HouseholdExists);
+        Assert.Equal(CartStatus.Confirmed, result.Read.Cart!.Status);
+        Assert.Equal("person-organizer", result.Read.Cart.ConfirmedByPersonId);
+        Assert.Equal(Now, result.Read.Cart.ConfirmedUtc);
     }
 
     [Fact]
@@ -126,7 +127,7 @@ public sealed class CartConfirmationServiceTests
         var result = await fixture.Service.ConfirmAsync(
             HouseholdId, CurrentWeek, OrganizerObjectId, etag, CancellationToken.None);
 
-        Assert.Equal("person-a", result.Cart!.ConfirmedByPersonId);
+        Assert.Equal("person-a", result.Read.Cart!.ConfirmedByPersonId);
     }
 
     [Fact]
@@ -141,7 +142,7 @@ public sealed class CartConfirmationServiceTests
         var result = await fixture.Service.ConfirmAsync(
             HouseholdId, CurrentWeek, OrganizerObjectId, etag, CancellationToken.None);
 
-        Assert.Equal(OrganizerObjectId, result.Cart!.ConfirmedByPersonId);
+        Assert.Equal(OrganizerObjectId, result.Read.Cart!.ConfirmedByPersonId);
     }
 
     [Fact]
@@ -159,9 +160,11 @@ public sealed class CartConfirmationServiceTests
         var second = await fixture.Service.ConfirmAsync(
             HouseholdId, CurrentWeek, "another-organizer", ifMatch: null, CancellationToken.None);
 
-        Assert.Equal(first.Cart!.ConfirmedByPersonId, second.Cart!.ConfirmedByPersonId);
-        Assert.Equal(first.Cart.ConfirmedUtc, second.Cart.ConfirmedUtc);
-        Assert.Equal(first.Cart.ETag, second.Cart.ETag);
+        Assert.True(first.Changed);
+        Assert.False(second.Changed);
+        Assert.Equal(first.Read.Cart!.ConfirmedByPersonId, second.Read.Cart!.ConfirmedByPersonId);
+        Assert.Equal(first.Read.Cart.ConfirmedUtc, second.Read.Cart.ConfirmedUtc);
+        Assert.Equal(first.Read.Cart.ETag, second.Read.Cart.ETag);
     }
 
     [Fact]
@@ -172,8 +175,9 @@ public sealed class CartConfirmationServiceTests
         var result = await fixture.Service.ConfirmAsync(
             "no-such-house", CurrentWeek, OrganizerObjectId, "*", CancellationToken.None);
 
-        Assert.False(result.HouseholdExists);
-        Assert.Null(result.Cart);
+        Assert.False(result.Changed);
+        Assert.False(result.Read.HouseholdExists);
+        Assert.Null(result.Read.Cart);
     }
 
     [Fact]
@@ -184,8 +188,9 @@ public sealed class CartConfirmationServiceTests
         var result = await fixture.Service.ConfirmAsync(
             HouseholdId, "2026-W02", OrganizerObjectId, "*", CancellationToken.None);
 
-        Assert.True(result.HouseholdExists);
-        Assert.Null(result.Cart);
+        Assert.False(result.Changed);
+        Assert.True(result.Read.HouseholdExists);
+        Assert.Null(result.Read.Cart);
     }
 
     [Fact]
@@ -279,7 +284,7 @@ public sealed class CartConfirmationServiceTests
         service
             .ConfirmAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(new CartReadResult(HouseholdExists: false, Cart: null));
+            .Returns(new ConfirmCartResult(new CartReadResult(HouseholdExists: false, Cart: null), Changed: false));
         var recorder = Substitute.For<IEventRecorder>();
         var handler = new ConfirmCartCommandHandler(service, recorder);
 
@@ -313,5 +318,25 @@ public sealed class CartConfirmationServiceTests
             CurrentWeek,
             null,
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task The_command_handler_records_nothing_when_the_cart_was_already_confirmed()
+    {
+        var fixture = await SeededAsync();
+        var etag = await fixture.SeedBuildingCartAsync();
+        await fixture.Service.ConfirmAsync(
+            HouseholdId, CurrentWeek, OrganizerObjectId, etag, CancellationToken.None);
+        var recorder = Substitute.For<IEventRecorder>();
+        var handler = new ConfirmCartCommandHandler(fixture.Service, recorder);
+
+        // #218: the replay changes no state, so the handler records no event even
+        // though the cart comes back.
+        var result = await handler.Handle(
+            new ConfirmCartCommand(HouseholdId, CurrentWeek, OrganizerObjectId, etag),
+            CancellationToken.None);
+
+        Assert.Equal(CartStatus.Confirmed, result.Cart!.Status);
+        Assert.Empty(recorder.ReceivedCalls());
     }
 }

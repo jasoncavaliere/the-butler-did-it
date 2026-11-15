@@ -392,4 +392,25 @@ public sealed class ConfirmCartTests
         Assert.Null(recorded.ItemId);
         Assert.Null(recorded.ChoreId);
     }
+
+    [Fact]
+    public async Task A_replayed_confirm_records_no_second_cart_confirmed_event()
+    {
+        var clock = new MutableClock(ConfirmedAt);
+        using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+        var review = await ReviewAsync(client, householdId);
+        var reviewETag = review.GetProperty("eTag").GetString();
+
+        await ConfirmOkAsync(client, householdId, reviewETag);
+        await ConfirmOkAsync(client, householdId, reviewETag);
+
+        // #218: the replay is an idempotent no-op (already Confirmed), so it
+        // changes no state and records no second cart-confirmed event.
+        var events = await factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        var recorded = Assert.Single(events);
+        Assert.Equal(EventTypes.CartConfirmed, recorded.Type);
+    }
 }

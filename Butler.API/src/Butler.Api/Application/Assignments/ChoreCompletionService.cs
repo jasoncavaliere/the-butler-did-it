@@ -39,7 +39,7 @@ public sealed class ChoreCompletionService : IChoreCompletionService
     }
 
     /// <inheritdoc />
-    public async Task<CompleteChoreResponse?> CompleteAsync(
+    public async Task<CompleteChoreResult?> CompleteAsync(
         string householdId,
         string weekIso,
         string choreId,
@@ -69,7 +69,7 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         // trailing-load fairness math) and never touch the append-only ledger.
         if (string.Equals(assignment.Status, AssignmentStatus.Done, StringComparison.Ordinal))
         {
-            return Respond(assignment);
+            return new CompleteChoreResult(Respond(assignment), Changed: false);
         }
 
         // The effort credited mirrors the chore's effort (H3). The assignment
@@ -99,11 +99,11 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         assignment.Status = AssignmentStatus.Done;
         await _assignments.UpdateAsync(householdId, assignment, ifMatch, cancellationToken).ConfigureAwait(false);
 
-        return Respond(assignment);
+        return new CompleteChoreResult(Respond(assignment), Changed: true);
     }
 
     /// <inheritdoc />
-    public async Task<UndoChoreResponse?> UndoAsync(
+    public async Task<UndoChoreResult?> UndoAsync(
         string householdId,
         string weekIso,
         string choreId,
@@ -134,7 +134,7 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         // and never re-write the assignment.
         if (!string.Equals(assignment.Status, AssignmentStatus.Done, StringComparison.Ordinal))
         {
-            return RespondOpen(assignment);
+            return new UndoChoreResult(RespondOpen(assignment), Changed: false);
         }
 
         // The effort backed out mirrors the effort credited on completion: the chore's
@@ -168,7 +168,7 @@ public sealed class ChoreCompletionService : IChoreCompletionService
         assignment.Status = AssignmentStatus.Open;
         await _assignments.UpdateAsync(householdId, assignment, ifMatch, cancellationToken).ConfigureAwait(false);
 
-        return RespondOpen(assignment);
+        return new UndoChoreResult(RespondOpen(assignment), Changed: true);
     }
 
     // Rejects a weekIso outside the accepted window (issue #86) with a

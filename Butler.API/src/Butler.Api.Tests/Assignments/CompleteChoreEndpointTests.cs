@@ -262,6 +262,26 @@ public sealed class CompleteChoreEndpointTests : IClassFixture<ButlerApiFactory>
     }
 
     [Fact]
+    public async Task Replaying_a_complete_records_no_second_event()
+    {
+        using var client = _factory.CreateClient();
+        var (householdId, week, choreId, personId) = await SeedWeekAsync(client);
+        var uri = new Uri($"/households/{householdId}/assignments/{week}/{choreId}/complete", UriKind.Relative);
+
+        using var first = await client.PostAsJsonAsync(uri, new { personId });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        using var replay = await client.PostAsJsonAsync(uri, new { personId });
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+
+        // #218: the replay is an idempotent no-op (already Done), so it changes no
+        // state and records no second chore-completed event.
+        var events = await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        var recorded = Assert.Single(events);
+        Assert.Equal(EventTypes.ChoreCompleted, recorded.Type);
+    }
+
+    [Fact]
     public async Task Completing_an_unknown_assignment_records_nothing()
     {
         using var client = _factory.CreateClient();

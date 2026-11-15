@@ -35,8 +35,11 @@ public interface IChoreCompletionService
     /// <param name="personId">The actor the completion is attributed to.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>
-    /// The completed assignment's state, or <c>null</c> when no assignment matches
-    /// <c>(householdId, weekIso, choreId)</c> (the controller maps that to a <c>404</c>).
+    /// The completed assignment's state with <see cref="CompleteChoreResult.Changed"/>
+    /// set to <c>true</c> when this call flipped it to <c>Done</c> and <c>false</c> for
+    /// the idempotent no-op on an assignment already <c>Done</c>; or <c>null</c> when
+    /// no assignment matches <c>(householdId, weekIso, choreId)</c> (the controller
+    /// maps that to a <c>404</c>).
     /// </returns>
     /// <exception cref="WeekNotCurrentException">
     /// <paramref name="weekIso"/> is outside the accepted window: it is neither the
@@ -45,7 +48,7 @@ public interface IChoreCompletionService
     /// the API maps it to <c>409</c>. The window is checked before the assignment is
     /// looked up, so an out-of-window week is a <c>409</c> even when no assignment matches.
     /// </exception>
-    Task<CompleteChoreResponse?> CompleteAsync(
+    Task<CompleteChoreResult?> CompleteAsync(
         string householdId,
         string weekIso,
         string choreId,
@@ -79,8 +82,11 @@ public interface IChoreCompletionService
     /// <param name="personId">The acting person the reversal is attributed to.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>
-    /// The reopened assignment's state, or <c>null</c> when no assignment matches
-    /// <c>(householdId, weekIso, choreId)</c> (the controller maps that to a <c>404</c>).
+    /// The reopened assignment's state with <see cref="UndoChoreResult.Changed"/> set
+    /// to <c>true</c> when this call flipped it back to <c>Open</c> and <c>false</c> for
+    /// the idempotent no-op on an assignment already <c>Open</c> (or never completed);
+    /// or <c>null</c> when no assignment matches <c>(householdId, weekIso, choreId)</c>
+    /// (the controller maps that to a <c>404</c>).
     /// </returns>
     /// <exception cref="WeekNotCurrentException">
     /// <paramref name="weekIso"/> is outside the accepted window: it is neither the
@@ -89,7 +95,7 @@ public interface IChoreCompletionService
     /// the API maps it to <c>409</c>. The window is checked before the assignment is
     /// looked up, so an out-of-window week is a <c>409</c> even when no assignment matches.
     /// </exception>
-    Task<UndoChoreResponse?> UndoAsync(
+    Task<UndoChoreResult?> UndoAsync(
         string householdId,
         string weekIso,
         string choreId,

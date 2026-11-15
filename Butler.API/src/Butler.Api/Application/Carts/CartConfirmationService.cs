@@ -53,7 +53,7 @@ public sealed class CartConfirmationService : ICartConfirmationService
     }
 
     /// <inheritdoc />
-    public async Task<CartReadResult> ConfirmAsync(
+    public async Task<ConfirmCartResult> ConfirmAsync(
         string householdId,
         string weekIso,
         string organizerObjectId,
@@ -69,7 +69,7 @@ public sealed class CartConfirmationService : ICartConfirmationService
         var current = await _carts.GetCartAsync(householdId, weekIso, cancellationToken).ConfigureAwait(false);
         if (current.Cart is null)
         {
-            return current;
+            return new ConfirmCartResult(current, Changed: false);
         }
 
         // Idempotent: an already-confirmed cart is a no-op success. Nothing is
@@ -77,7 +77,7 @@ public sealed class CartConfirmationService : ICartConfirmationService
         // If-Match - stale by definition after the first confirm - is not consulted.
         if (string.Equals(current.Cart.Status, CartStatus.Confirmed, StringComparison.Ordinal))
         {
-            return current;
+            return new ConfirmCartResult(current, Changed: false);
         }
 
         var confirmedByPersonId = await ResolveOrganizerPersonIdAsync(
@@ -101,7 +101,8 @@ public sealed class CartConfirmationService : ICartConfirmationService
 
         // Re-read so the response carries the persisted version stamp and the
         // stored who/when rather than the locally assembled row.
-        return await _carts.GetCartAsync(householdId, weekIso, cancellationToken).ConfigureAwait(false);
+        var confirmed = await _carts.GetCartAsync(householdId, weekIso, cancellationToken).ConfigureAwait(false);
+        return new ConfirmCartResult(confirmed, Changed: true);
     }
 
     // Which household person the confirm is attributed to. Engineering Contract

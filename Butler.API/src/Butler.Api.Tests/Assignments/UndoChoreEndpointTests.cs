@@ -328,6 +328,47 @@ public sealed class UndoChoreEndpointTests : IClassFixture<ButlerApiFactory>, ID
     }
 
     [Fact]
+    public async Task Replaying_an_undo_records_no_second_event()
+    {
+        using var client = _factory.CreateClient();
+        var (householdId, week, choreId, personId) = await SeedWeekAsync(client, effort: 2);
+        await CompleteAsync(client, householdId, week, choreId, personId);
+        var uri = new Uri($"/households/{householdId}/assignments/{week}/{choreId}/undo", UriKind.Relative);
+
+        using var first = await client.PostAsJsonAsync(uri, new { personId });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        using var replay = await client.PostAsJsonAsync(uri, new { personId });
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+
+        // #218: the replay is an idempotent no-op (already Open), so only the
+        // complete and the first undo recorded an event. The pinned clock stamps
+        // both with the same tick, so compare them as a set.
+        var events = await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        Assert.Equal(
+            [EventTypes.ChoreCompleted, EventTypes.ChoreUndone],
+            events.Select(recorded => recorded.Type).Order(StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task Undoing_a_never_completed_assignment_records_nothing()
+    {
+        using var client = _factory.CreateClient();
+        var (householdId, week, choreId, personId) = await SeedWeekAsync(client);
+
+        using var response = await client.PostAsJsonAsync(
+            new Uri($"/households/{householdId}/assignments/{week}/{choreId}/undo", UriKind.Relative),
+            new { personId });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // #218: undoing an assignment that was never completed changes no state,
+        // so no chore-undone event is recorded.
+        var events = await _factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        Assert.Empty(events);
+    }
+
+    [Fact]
     public async Task Undoing_an_unknown_assignment_records_nothing()
     {
         using var client = _factory.CreateClient();
