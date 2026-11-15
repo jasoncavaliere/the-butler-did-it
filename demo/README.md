@@ -136,7 +136,9 @@ docker compose -f demo/docker-compose.yml up -d --build
 writable: the API container runs as a non-root user, and on a Linux engine a
 folder Docker creates for the bind mount is owned by root. Skip it and the API
 still runs, but writes no log files. Compose reads `BUTLER_DEMO_PIN` from
-`demo/.env` (or your shell); without it the API does not start.
+`demo/.env` (or your shell); without it the API does not start. If `up` says
+the API file log is off, see
+[When up says the API file log is off](#when-up-says-the-api-file-log-is-off).
 
 ## Organizer PIN
 
@@ -386,6 +388,39 @@ environment only; nowhere else):
 
 - The files are owned by the container user (uid 1654). Delete them with
   `sudo rm` on Linux if your user cannot.
+
+### When up says the API file log is off
+
+If `up` cannot create `demo/.data/logs` or make it writable for the API
+container, it prints this before it starts the stack (#193):
+
+```text
+WARNING: The API file log is off. up could not make demo/.data/logs writable for the API container.
+demo/.data is probably owned by root from an earlier run. The stack still starts, without the API log files.
+To fix it, run down, then this from the repo root, then up again:
+  sudo chown -R "$(id -u):$(id -g)" demo/.data
+```
+
+The usual cause is a `demo/.data` folder owned by root. On a Linux engine,
+Docker creates a missing bind-mount folder as root, for example after a plain
+`docker compose up` without the `mkdir` line above, or after a run from before
+`up` created the folder itself (#107). Your user then cannot create or chmod
+`demo/.data/logs`, and the non-root API container cannot write to it. The
+stack still runs and serves the hub, and `demo.sh logs` still works, but there
+are no `demo/.data/logs/butler-api-*.log` files.
+
+Fix it once, from the repo root:
+
+```bash
+demo/demo.sh down
+sudo chown -R "$(id -u):$(id -g)" demo/.data
+demo/demo.sh up
+```
+
+`-R` also hands you the Azurite data in `demo/.data/azurite`, which is
+harmless. After that, every `up` can make the log folder writable again, and
+the warning goes away. Docker Desktop on macOS and Windows normally does not
+hit this. The scripts never run `sudo` themselves.
 
 ## Stop the stack
 

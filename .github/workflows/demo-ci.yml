@@ -41,6 +41,11 @@
 #            demo/ci/check-logs-args.sh): with a stub docker, naming a
 #            compose service (`logs -f azurite`) narrows the logs call to
 #            that service, and both scripts make the same call.
+#            And an unwritable log folder (#193,
+#            demo/ci/check-logs-dir.sh): with stub npm and docker, a
+#            read-only or root-owned demo/.data makes up print the
+#            file-log-off warning and the chown fix on stdout, identically
+#            through both scripts, while a writable one prints nothing extra.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080 (with the precache list build:web
 #            injects, demo/ci/check-precache.cjs, #178), the single origin
@@ -292,6 +297,14 @@ jobs:
       # demo.ps1 make the same docker call. Stub docker.
       - name: "demo CLI: logs narrows to a named service (#190)"
         run: bash demo/ci/check-logs-args.sh
+
+      # #193 AC1-AC3, AC5: when up cannot make demo/.data/logs writable
+      # (read-only or root-owned demo/.data), it prints the file-log-off
+      # warning and the chown fix on stdout and still starts the stack; a
+      # writable folder prints nothing extra; demo.sh and demo.ps1 print the
+      # same bytes. Stub npm and docker; root-owned cases use sudo.
+      - name: "demo CLI: unwritable demo/.data/logs is reported on stdout (#193)"
+        run: bash demo/ci/check-logs-dir.sh
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -604,6 +617,10 @@ jobs:
           out="$(demo/demo.sh up)"
           printf '%s\n' "$out"
           printf '%s\n' "$out" | grep -qF 'Hub export is older than its sources'
+          if printf '%s\n' "$out" | grep -qF 'The API file log is off'; then
+            echo "up warned that the API file log is off, but demo/.data/logs is writable (#193)" >&2
+            exit 1
+          fi
           [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo stack is up and healthy: http://localhost:8080' ]
           grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
           # #184: the rebuild wrote up's build stamp, byte for byte.
@@ -621,6 +638,10 @@ jobs:
           out="$(demo/demo.sh up)"
           printf '%s\n' "$out"
           printf '%s\n' "$out" | grep -qxF 'Hub export is up to date (Butler.UI/dist).'
+          if printf '%s\n' "$out" | grep -qF 'The API file log is off'; then
+            echo "up warned that the API file log is off, but demo/.data/logs is writable (#193)" >&2
+            exit 1
+          fi
 
       # #102 AC1 + AC8: demo.ps1 runs logs, up and down too, with the same
       # output as demo.sh, and both rebuild a missing hub export. docker and

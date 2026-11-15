@@ -155,15 +155,27 @@ build_export() {
   printf '%s\n' "$EXPORT_STAMP_TEXT" > "$EXPORT_STAMP"
 }
 
+# True when demo/.data/logs exists and anyone may write and enter it, so the
+# API container can use it even though this user cannot chmod it.
+logs_dir_open() {
+  [ -d "$LOGS_DIR" ] && [ -n "$(find "$LOGS_DIR" -maxdepth 0 -perm -0003 2>/dev/null)" ]
+}
+
 # The API container runs as a non-root user, so on a Linux engine it cannot
 # write a bind-mount folder that Docker creates as root. Create it first and
-# make it world-writable. A failure only warns: the stack still works, only
-# the API's log files may be missing.
+# make it world-writable. A folder that is already world-writable is fine even
+# when this user cannot chmod it (it is root-owned). Otherwise up warns on
+# stdout (#193) that the API file log is off and prints the command that
+# fixes it: the user takes back ownership of demo/.data. The stack still
+# starts, the exit code is unchanged, and the script never runs sudo.
 ensure_logs_dir() {
-  if mkdir -p "$LOGS_DIR" 2>/dev/null && chmod 0777 "$LOGS_DIR" 2>/dev/null; then
+  if mkdir -p "$LOGS_DIR" 2>/dev/null && { chmod 0777 "$LOGS_DIR" 2>/dev/null || logs_dir_open; }; then
     return 0
   fi
-  echo "Could not make demo/.data/logs writable for the API container; its log files may be missing. Fix it with: sudo chmod 777 demo/.data/logs" >&2
+  echo 'WARNING: The API file log is off. up could not make demo/.data/logs writable for the API container.'
+  echo 'demo/.data is probably owned by root from an earlier run. The stack still starts, without the API log files.'
+  echo 'To fix it, run down, then this from the repo root, then up again:'
+  echo '  sudo chown -R "$(id -u):$(id -g)" demo/.data'
   return 0
 }
 
