@@ -413,6 +413,136 @@ describe('RosterEditor', () => {
     expect(screen.queryByTestId('roster-notice')).toBeNull();
   });
 
+  it('holds Edit, Remove and Add while a save is in flight, then shows the saved person', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, get, update } = rosterClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('roster-edit-p1');
+    await type('input-person-name', 'Alexis');
+    await press('roster-form-save');
+
+    expect(screen.getByTestId('roster-edit-p2')).toBeDisabled();
+    expect(screen.getByTestId('roster-remove-p2')).toBeDisabled();
+    expect(screen.getByTestId('roster-add-person')).toBeDisabled();
+    await press('roster-edit-p2');
+    await press('roster-remove-p2');
+    await press('roster-add-person');
+    // Nothing opened: still the one p1 form, and p2 was never read.
+    expect(screen.getAllByTestId('roster-form')).toHaveLength(1);
+    expect(screen.getByTestId('input-person-name').props.value).toBe('Alexis');
+    expect(screen.queryByTestId('roster-remove-confirmation-p2')).toBeNull();
+    expect(get).not.toHaveBeenCalledWith('/households/hh-1/people/p2');
+
+    await act(async () => {
+      held.resolve(ok(personRead({ ...ALEX, displayName: 'Alexis' }, 'Organizer', 'W/"p1-v2"')));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('roster-form')).toBeNull();
+    expect(screen.getByTestId('roster-name-p1')).toHaveTextContent('Alexis');
+    expect(screen.getByTestId('roster-name-p2')).toHaveTextContent('Sam');
+    expect(screen.getByTestId('roster-edit-p2')).not.toBeDisabled();
+    expect(screen.getByTestId('roster-remove-p2')).not.toBeDisabled();
+    expect(screen.getByTestId('roster-add-person')).not.toBeDisabled();
+  });
+
+  it('holds Edit and Remove while an add is in flight, then lists the added person', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, get, update } = rosterClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('roster-add-person');
+    await type('input-person-name', 'Jo');
+    await press('roster-form-save');
+
+    for (const id of ['p1', 'p2']) {
+      expect(screen.getByTestId(`roster-edit-${id}`)).toBeDisabled();
+      expect(screen.getByTestId(`roster-remove-${id}`)).toBeDisabled();
+    }
+    await press('roster-edit-p1');
+    await press('roster-remove-p2');
+    expect(get).not.toHaveBeenCalledWith('/households/hh-1/people/p1');
+    expect(screen.queryByTestId('roster-remove-confirmation-p2')).toBeNull();
+    expect(screen.getByTestId('input-person-name').props.value).toBe('Jo');
+
+    await act(async () => {
+      const jo: RosterEntryResponse = { personId: 'p3', displayName: 'Jo', claimColor: null, isChild: false };
+      held.resolve(ok(personRead(jo, 'Participant', 'W/"p3-v1"'), 201));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('roster-form')).toBeNull();
+    expect(screen.getByTestId('roster-name-p3')).toHaveTextContent('Jo');
+    expect(screen.getByTestId('roster-person-p1')).toBeOnTheScreen();
+    expect(screen.getByTestId('roster-person-p2')).toBeOnTheScreen();
+    expect(screen.getByTestId('roster-edit-p1')).not.toBeDisabled();
+  });
+
+  it('holds Edit, Remove and Add while a remove is in flight, then drops the person', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, get, update } = rosterClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('roster-remove-p2');
+    await press('roster-remove-confirm-p2');
+
+    expect(screen.getByTestId('roster-edit-p1')).toBeDisabled();
+    expect(screen.getByTestId('roster-remove-p1')).toBeDisabled();
+    expect(screen.getByTestId('roster-add-person')).toBeDisabled();
+    await press('roster-edit-p1');
+    await press('roster-remove-p1');
+    await press('roster-add-person');
+    expect(get).not.toHaveBeenCalledWith('/households/hh-1/people/p1');
+    expect(screen.queryByTestId('roster-remove-confirmation-p1')).toBeNull();
+    expect(screen.queryByTestId('roster-form')).toBeNull();
+    expect(screen.getByTestId('roster-remove-confirmation-p2')).toBeOnTheScreen();
+
+    await act(async () => {
+      held.resolve({ ok: true, status: 204, data: undefined, etag: null });
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('roster-person-p2')).toBeNull();
+    expect(screen.queryByTestId('roster-remove-confirmation-p2')).toBeNull();
+    expect(screen.getByTestId('roster-person-p1')).toBeOnTheScreen();
+    expect(screen.getByTestId('roster-add-person')).not.toBeDisabled();
+  });
+
+  it('keeps the editor closed when a save cancelled in flight comes back 412', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client } = rosterClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('roster-edit-p1');
+    await type('input-person-name', 'Alexis');
+    await press('roster-form-save');
+    await press('roster-form-cancel');
+    expect(screen.queryByTestId('roster-form')).toBeNull();
+
+    await act(async () => {
+      held.resolve({ ok: false, error: { kind: 'problem', status: 412, title: 'Precondition Failed' } });
+    });
+    expect(screen.queryByTestId('roster-form')).toBeNull();
+    expect(screen.queryByTestId('roster-stale')).toBeNull();
+    expect(screen.getByTestId('roster-name-p1')).toHaveTextContent('Alex');
+    expect(screen.getByTestId('roster-edit-p1')).not.toBeDisabled();
+  });
+
+  it('keeps what was typed during a save that comes back 412', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client } = rosterClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('roster-edit-p1');
+    await type('input-person-name', 'Alexis');
+    await press('roster-form-save');
+    await type('input-person-name', 'Alexis B');
+
+    await act(async () => {
+      held.resolve({ ok: false, error: { kind: 'problem', status: 412, title: 'Precondition Failed' } });
+    });
+    expect(screen.getByTestId('roster-stale')).toBeOnTheScreen();
+    expect(screen.getByTestId('input-person-name').props.value).toBe('Alexis B');
+  });
+
   it('shows the message and closes the editor when the person read fails', async () => {
     const { client, server } = rosterClient();
     server.person.p1 = problem(404, 'Person not found.');

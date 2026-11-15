@@ -697,7 +697,10 @@ trimmed name is empty. A `412` shows a reload prompt that re-reads that person a
 re-sending the edit; any other failure, such as a `400`, shows the problem-details message
 (`describeApiError`) and leaves the list as it was. Add person reuses the onboarding people-step fields
 (`src/components/PersonFields.tsx`, shared with `HouseholdSetup`) and POSTs role `Participant`. Remove asks
-for a confirmation that names the person, then sends a DELETE with no `If-Match`. Nothing regenerates the
+for a confirmation that names the person, then sends a DELETE with no `If-Match`. While a save, add or
+remove is in flight the Edit, Remove and Add person controls are held, and a finishing write changes only
+the editor it was started for (a form cancelled meanwhile stays closed, and a `412` keeps what was typed)
+while the list takes the server's result. Nothing regenerates the
 current week: a removed person's assignments stay on the board, where `ChoreBoard` shows an assignee
 missing from the roster as "Unassigned" instead of the raw id. The native stack keeps Home mounted under
 the pushed route, so `RootNavigator`'s Home bumps a `refreshSignal` when it regains focus after a blur, and
