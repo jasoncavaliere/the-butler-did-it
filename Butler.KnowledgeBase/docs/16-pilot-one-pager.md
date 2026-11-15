@@ -13,7 +13,7 @@ sources:
   - { id: pilot-to-paid-offer, resource: 12-pricing-hypothesis.md#the-pilot-to-paid-offer, title: Pricing Hypothesis - The pilot-to-paid offer }
   - { id: your-data-page, resource: ../../Butler.UI/src/screens/YourDataScreen.tsx, title: In-app Your data page text (#125) }
   - { id: vision-v1-scope, resource: 10-product-vision.md#what-we-are-not-building-in-v1, title: Product Vision - What we are NOT building in v1 }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T17:43:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T08:23:42Z }
 ---
 
 # Pilot One-Pager
@@ -35,11 +35,11 @@ Written for [issue #136](https://github.com/jasoncavaliere/the-butler-did-it/iss
 - A six-week pilot. Pilot week 1 is the first full Monday-to-Sunday week after setup.
 - A 10-minute check-in with the organizer every pilot week, six in all. The week-5 check-in comes after week 4 ends.
 - The hub in a common room, used by the whole household.
-- At the week-5 check-in, the organizer reads us these numbers and answers price questions.
+- At the week-5 check-in, the organizer reads us their household's numbers for weeks 1-4, with the cart count from Butler's API (we help), and answers price questions.
 
 ## What we measure
 
-After week 4, four numbers on the organizer's Insights screen decide if we build more, change course, or stop. The [Pilot Success Criteria](15-pilot-success-criteria.md) define them: weekly active households, fairness trend (top contributor's share), carts confirmed per month, and distinct participants per week.
+After week 4, four measures decide if we build more, change course, or stop. The [Pilot Success Criteria](15-pilot-success-criteria.md) define them: weekly active households (the share of pilot households active in week 4), fairness trend, carts confirmed per month, and distinct participants per week.
 
 ## Privacy
 
