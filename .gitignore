@@ -2,3 +2,5 @@
 demo/.data/
 # The demo organizer PIN (BUTLER_DEMO_PIN) lives here; never commit it (#105).
 demo/.env
+# Fully Kiosk APKs for demo/tablet/provision-tablet (#128); never commit one.
+*.apk
