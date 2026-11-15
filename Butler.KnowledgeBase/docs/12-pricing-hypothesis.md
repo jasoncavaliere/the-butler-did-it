@@ -10,7 +10,8 @@ related: [10-product-vision, 13-customer-interview-guide, 14-feedback-log-templa
 sources:
   - { id: issue-137, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/137, title: S4 - Pricing hypothesis and pilot-to-paid offer }
   - { id: vision-business-model, resource: 10-product-vision.md#business-model, title: Product Vision - Business model }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T17:41:37Z }
+  - { id: issue-232, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/232, title: Close the decision-rule gap in the pricing hypothesis }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T23:31:41Z }
 ---
 
 # Pricing Hypothesis and Pilot-to-Paid Offer
@@ -96,6 +97,7 @@ Pilot cohorts are small, so every measure is directional only and none of them i
 These thresholds are hypotheses, written down before the data arrives so the result cannot quietly move them.
 
 - **Keep $69 as the list hypothesis:** at least 40 percent of offered households accept $49, and the Stage B acceptable range includes $69. This keeps $69 on stated evidence only, and Stage D renewals confirm or reject it.
+- **Test $59 as list:** at least 40 percent of offered households accept $49, but the Stage B acceptable range excludes $69. The next cohort is offered a $59 list price: the $49 founding offer is unchanged, and the step-up after 12 months is to $59 instead of $69. Strong acceptance at $49 with $69 out of range puts the ceiling between the two, so $59 tests the midpoint.
 - **Change course on value:** fewer than 20 percent accept, which suggests the problem is what Butler does rather than what it costs, so improve the product before testing a lower price.
 - **Test $49 as list:** any acceptance rate in between. The next cohort is offered $49 with no step-up to $69 after 12 months. The only change is the dropped step-up, so a higher acceptance rate shows the later $69 was holding households back.
 - **Drop $69 as list:** fewer than half of converted households renew at $69 in Stage D, in which case $49 becomes the list price for everyone.
@@ -114,6 +116,7 @@ These thresholds are hypotheses, written down before the data arrives so the res
 1. [Issue #137 - S4 pricing hypothesis and pilot-to-paid offer](https://github.com/jasoncavaliere/the-butler-did-it/issues/137)
 2. [Product Vision - Business model](10-product-vision.md#business-model), which cites the price band, the hardware hub prices, and the subscription spend.
 3. [Issue #136 - S3 pilot one-pager](https://github.com/jasoncavaliere/the-butler-did-it/issues/136), for the 6-week pilot and the weekly 10-minute check-in.
+4. [Issue #232 - close the decision-rule gap in the pricing hypothesis](https://github.com/jasoncavaliere/the-butler-did-it/issues/232), for the $59 midpoint rule.
 
 ## Related
 
