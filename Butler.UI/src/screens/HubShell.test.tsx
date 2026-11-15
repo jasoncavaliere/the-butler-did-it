@@ -2178,13 +2178,16 @@ describe('HubShell sync indicator', () => {
     offending.push(...overlapStyles(panel).map((s) => `today-panel:${s}`));
     expect(offending).toEqual([]);
 
-    // ...and the header precedes the tiles, which precede the board, in the
-    // shell's own column - so in flow, the header's box ends before theirs begin.
+    // ...and the header precedes the tiles, which precede the main zone holding
+    // the board (#210), in the shell's own column - so in flow, the header's box
+    // ends before theirs begin.
+    const main = screen.getByTestId('hub-main') as unknown as HostNode;
+    expect(isWithin(panel, 'hub-main')).toBe(true);
     const order = shell.children.filter((child): child is HostNode => typeof child !== 'string');
     const indexOf = (node: HostNode) => order.indexOf(node);
     expect(indexOf(header)).toBeGreaterThanOrEqual(0);
     expect(indexOf(header)).toBeLessThan(indexOf(tiles));
-    expect(indexOf(tiles)).toBeLessThan(indexOf(panel));
+    expect(indexOf(tiles)).toBeLessThan(indexOf(main));
   });
 
   it('reads Offline when the shell load cannot reach the API and nothing is cached (#151)', async () => {

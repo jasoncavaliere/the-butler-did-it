@@ -26,6 +26,8 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * Its padding and heading size come from the hub `layout` (#118). In a landscape
  * layout the panel fills its zone and its body scrolls, so a board taller than
  * the fit model's budget scrolls inside the panel instead of pushing the page.
+ * The body is the same ScrollView in every layout, with scrolling off in
+ * portrait, so a rotation never remounts the board (#210).
  */
 export type TodayPanelParticipant = { displayName: string; claimColor: string | null };
 
@@ -72,7 +74,7 @@ export function TodayPanel({
       >
         {activeParticipant ? `${activeParticipant.displayName}'s day` : 'Today'}
       </Text>
-      {/* The body: scrolls inside the panel in landscape, plain in portrait. */}
+      {/* The body: scrolls inside the panel in landscape, not in portrait (#210). */}
       {renderBody(
         layout,
         styles,
@@ -102,18 +104,18 @@ export function TodayPanel({
 type PanelStyles = ReturnType<typeof makePanelStyles>;
 
 function renderBody(layout: HubLayout, styles: PanelStyles, body: ReactNode) {
-  if (layout.orientation === 'landscape') {
-    return (
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        testID="today-panel-scroll"
-      >
-        {body}
-      </ScrollView>
-    );
-  }
-  return <View style={styles.body}>{body}</View>;
+  // One element type in every layout: a View in portrait would remount the
+  // board on a rotation and make it read its chores again (#210).
+  return (
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.scrollContent}
+      scrollEnabled={layout.orientation === 'landscape'}
+      testID="today-panel-scroll"
+    >
+      {body}
+    </ScrollView>
+  );
 }
 
 function makePanelStyles(layout: HubLayout) {
@@ -136,8 +138,7 @@ function makePanelStyles(layout: HubLayout) {
       textTransform: 'uppercase',
       marginBottom: layout.panelHeadingGap,
     },
-    body: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    scroll: { flex: 1 },
+    scroll: layout.orientation === 'landscape' ? { flex: 1 } : { flexGrow: 1 },
     scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   });
 }

@@ -185,9 +185,12 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * scrolling inside the panel if it ever overflows) beside a side column that
  * holds the groceries and the balance. 1280x800 renders it at the compact type
  * steps and 1920x1200 at the roomy ones, and both fit a 4-person household with
- * 8 chores due today without a page scroll. A portrait window keeps the single
- * stack (every region a direct child of the shell) inside a page scroll. Every
- * size and gap is read from the layout, which reads `design-tokens.json`.
+ * 8 chores due today without a page scroll. A portrait window stacks the same
+ * zones in one column inside a page scroll. Both orientations render the same
+ * element tree and only styles and scrolling switch, so a rotation keeps every
+ * widget's state (an open PIN pad, typed grocery text) and makes no reads
+ * (#210). Every size and gap is read from the layout, which reads
+ * `design-tokens.json`.
  *
  * The whole hub, the dataset check included, renders inside one
  * {@link KioskSurface} (#130): no text selection, no iOS touch callout, and no
@@ -756,42 +759,41 @@ function HubShellBody({
           ))}
       </View>
 
-      {layout.sideColumn ? (
-        // Landscape: Today beside a side column holding groceries and the balance.
-        <View style={styles.main} testID="hub-main-landscape">
-          <View style={styles.todayZone} testID="hub-today-zone">
-            {todayPanel}
-          </View>
-          <ScrollView
-            style={styles.side}
-            contentContainerStyle={styles.sideContent}
-            testID="hub-side"
-          >
-            {groceries}
-            {balance}
-          </ScrollView>
-        </View>
-      ) : (
-        // Portrait: the single stack, every region a direct child of the shell.
-        <>
+      {/* The main zone. Landscape: Today beside a side column holding the
+          groceries and the balance. Portrait: the same elements stacked in one
+          column, the side column not scrolling on its own. The tree is the same
+          in both, so a rotation never remounts a widget (#210). */}
+      <View style={styles.main} testID="hub-main">
+        <View style={styles.todayZone} testID="hub-today-zone">
           {todayPanel}
+        </View>
+        <ScrollView
+          style={styles.side}
+          contentContainerStyle={styles.sideContent}
+          scrollEnabled={layout.sideColumn}
+          testID="hub-side"
+        >
           {groceries}
           {balance}
-        </>
-      )}
+        </ScrollView>
+      </View>
     </View>
   );
 
   // Portrait stacks taller than the window, so it scrolls as a page; landscape
-  // is sized to fit and scrolls only inside its panels.
-  const page = (node: ReactNode) =>
-    layout.sideColumn ? (
-      node
-    ) : (
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} testID="hub-scroll">
-        {node}
-      </ScrollView>
-    );
+  // is sized to fit and scrolls only inside its panels. The page ScrollView is
+  // there in both, with only its scrolling switched: swapping it for a bare
+  // node would remount the whole hub on a rotation (#210).
+  const page = (node: ReactNode) => (
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.pageContent}
+      scrollEnabled={!layout.sideColumn}
+      testID="hub-scroll"
+    >
+      {node}
+    </ScrollView>
+  );
 
   // A receipt only ever comes from a confirmed cart, which needs a household, so
   // it always renders inside the provider below. It can run longer than any
@@ -929,7 +931,12 @@ function makeHubStyles(layout: HubLayout) {
   const landscape = layout.orientation === 'landscape';
   return StyleSheet.create({
     scroll: { flex: 1, backgroundColor: colors.page },
+    // The receipt's page scroll: it can run longer than any window.
     scrollContent: { flexGrow: 1 },
+    // The hub's page scroll (#210). Landscape content is exactly the window
+    // height (flex, not flexGrow), so with page scrolling off the inner panels
+    // scroll instead of clipping.
+    pageContent: landscape ? { flex: 1 } : { flexGrow: 1 },
     hub: {
       flex: 1,
       backgroundColor: colors.page,
@@ -1002,9 +1009,11 @@ function makeHubStyles(layout: HubLayout) {
     // dark page ink for contrast against the accent.
     tileNameActive: { color: colors.page },
     // Landscape main row: Today takes two thirds, the side column one third.
-    main: { flex: 1, flexDirection: 'row', gap: layout.zoneGap },
-    todayZone: { flex: 2 },
-    side: { flex: 1 },
+    // Portrait stacks the same zones in one column, the side column at its
+    // content height (#210).
+    main: { flex: 1, flexDirection: landscape ? 'row' : 'column', gap: layout.zoneGap },
+    todayZone: landscape ? { flex: 2 } : { flex: 1 },
+    side: landscape ? { flex: 1 } : { flexGrow: 0 },
     sideContent: { gap: layout.zoneGap },
     // The Version panel's Close button (#126).
     closeButton: {
