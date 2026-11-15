@@ -16,6 +16,9 @@ namespace Butler.Api.Application.Fairness;
 /// joins display names from the People roster (H3), and computes each person's
 /// share of the household total. It writes nothing. Time comes from the injected
 /// <see cref="TimeProvider"/> seam so the window stays deterministic (7.5).
+/// Undo is netted first (<see cref="ChoreCompletionLedger.NetOfUndo"/>, #220): a
+/// reversal cancels the completion it reversed, so effort stays with the person who
+/// completed the chore rather than being charged to whoever pressed undo.
 /// </summary>
 public sealed class FairnessService : IFairnessService
 {
@@ -88,7 +91,7 @@ public sealed class FairnessService : IFairnessService
         var completions = await _completions.ListAsync(householdId, cancellationToken).ConfigureAwait(false);
 
         var effortByPerson = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var completion in completions)
+        foreach (var completion in ChoreCompletionLedger.NetOfUndo(completions))
         {
             if (!window.Weeks.Contains(completion.WeekIso))
             {

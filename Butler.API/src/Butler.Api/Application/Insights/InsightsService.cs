@@ -24,10 +24,6 @@ public sealed class InsightsService : IInsightsService
     /// <summary>The longest window a caller may ask for (a year of weeks); anything above is a <c>400</c>.</summary>
     public const int MaxWeeks = 52;
 
-    // An undo appends a reversal row whose RowKey ends with this suffix and whose
-    // effort is negated (ChoreCompletionService.UndoAsync).
-    private const string ReversalSuffix = "_void";
-
     private readonly IHouseholdRepository _households;
     private readonly IChoreCompletionRepository _completions;
     private readonly IPersonRepository _people;
@@ -104,9 +100,13 @@ public sealed class InsightsService : IInsightsService
                 .Select(person => person.RowKey),
             StringComparer.Ordinal);
 
+        // Net undo before dropping organizers (#220): a reversal cancels the
+        // completion it reversed whoever pressed undo, so an organizer's undo still
+        // cancels a participant's completion, and only surviving completions remain.
         var inWindow = new HashSet<string>(weekKeys, StringComparer.Ordinal);
-        var memberRows = completions
-            .Where(row => inWindow.Contains(row.WeekIso) && !organizerIds.Contains(row.PersonId))
+        var memberRows = ChoreCompletionLedger
+            .NetOfUndo(completions.Where(row => inWindow.Contains(row.WeekIso)))
+            .Where(row => !organizerIds.Contains(row.PersonId))
             .ToList();
 
         var members = BuildMembers(people, organizerIds, memberRows);
@@ -160,11 +160,10 @@ public sealed class InsightsService : IInsightsService
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var row in rows)
         {
-            // A reversal row already carries the negated effort; it also cancels
-            // the completion it undoes in the count.
+            // Rows are surviving completions only (undo is already netted out), so
+            // every row adds one completion and its positive effort.
             effort[row.PersonId] = effort.GetValueOrDefault(row.PersonId) + row.Effort;
-            var delta = row.RowKey.EndsWith(ReversalSuffix, StringComparison.Ordinal) ? -1 : 1;
-            counts[row.PersonId] = counts.GetValueOrDefault(row.PersonId) + delta;
+            counts[row.PersonId] = counts.GetValueOrDefault(row.PersonId) + 1;
         }
 
         var total = effort.Values.Sum();
@@ -183,7 +182,7 @@ public sealed class InsightsService : IInsightsService
         var completions = members
             .Select(member => new MemberCompletions(
                 member.PersonId,
-                Math.Max(0, counts.GetValueOrDefault(member.PersonId))))
+                counts.GetValueOrDefault(member.PersonId)))
             .ToList();
 
         return new WeeklyInsight(weekIso, total, topPersonId, share, completions);

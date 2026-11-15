@@ -175,11 +175,18 @@ eligible people, and each person's trailing load into an assignment set per Engi
   double-counts and the ledger is never mutated.
 - `IChoreCompletionService.UndoAsync(...)` (C7) is the inverse: it flips the matching `Assignment.Status`
   back to `Open` under the same `If-Match` precondition, and backs out the credited effort by appending
-  a **compensating** `ChoreCompletion` of `-effort` for the acting `personId` - the ledger stays
-  append-only (BRD R-2: the original entry is never touched or deleted), and net effort nets back to the
-  pre-completion value for the C3 trailing-load read. Undoing an assignment that is already `Open` (or
-  was never completed) is a success no-op - no compensating entry is appended, so effort is never
-  double-subtracted.
+  a **compensating** `ChoreCompletion` of `-effort` (row key `{ticks}_{choreId}_void`) stamped with the
+  `personId` who pressed undo, as an audit of who undid it - the ledger stays append-only (BRD R-2: the
+  original entry is never touched or deleted). The undoer need not be the completer, so the read models
+  never sum the reversal by its own `personId`: `ChoreCompletionLedger.NetOfUndo`
+  (`Infrastructure/ChoreCompletions/`, #220) replays the ledger in `CompletedUtc` order (a completion before a reversal at the
+  same instant), pairs each `_void` reversal with the latest un-reversed completion of the same chore in
+  the same week, and drops both, so the effort is effectively charged back to that completion's person.
+  A reversal with nothing open to cancel is dropped as an orphan, so no person's net effort or count can
+  go negative. Fairness and Insights read through it; the C3 trailing-load read
+  (`AssignmentGenerationService.ComputeTrailingLoadsAsync`) still sums raw rows (follow-up issue).
+  Undoing an assignment that is already `Open` (or was never completed) is a success no-op - no
+  compensating entry is appended, so effort is never double-subtracted.
 - Both `CompleteAsync` and `UndoAsync` first apply the completion week window (issue #86,
   `Domain/Scheduling/CompletionWeekWindow`): the requested `weekIso` must be the current ISO week, or the
   immediately previous ISO week while the injected clock is less than 24 hours after the Monday 00:00 UTC
@@ -204,7 +211,10 @@ of completed chores trending down over time). It is a pure aggregate over data C
 introduces no new table, repository, or write path: `IFairnessService.GetAsync(...)` scans only the
 household's `ChoreCompletions` partition (`PartitionKey = householdId`, 7.3 - no cross-household query),
 buckets each completion into a trailing ISO-week window anchored to the injected clock's current week
-(same `WeekIso` helper the assignment pipeline shares, 7.5), sums `Effort` per person, and joins display
+(same `WeekIso` helper the assignment pipeline shares, 7.5), nets undo first with
+`ChoreCompletionLedger.NetOfUndo` (each `_void` reversal cancels the completion it reversed, whoever
+pressed undo, and before organizers are skipped, so an organizer's undo still cancels a participant's
+completion; #220), sums the surviving completions' `Effort` per person, and joins display
 names from the People roster (H3) - falling back to the raw id for a person no longer on the roster,
 since the ledger is the source of truth. The share math is total-safe: a window with zero completions
 returns a well-formed zero result (every share `0`, `topContributorPersonId` `null`) rather than
@@ -396,12 +406,17 @@ series is oldest first and zero-filled.
 
 - **Members** are the non-organizer roster plus any ledger person no longer on it (name falls back to the
   id), ordered by display name then id (ordinal). Organizers are excluded, as in Fairness.
+- **Undo netting**: the window's rows are netted with `ChoreCompletionLedger.NetOfUndo` before
+  organizers are dropped (#220). Each `_void` reversal cancels the latest un-reversed completion of the
+  same chore in the same week and is charged to that completion's person, not to whoever pressed undo;
+  an organizer's undo still cancels a participant's completion, and an orphan reversal is ignored. Only
+  surviving completions (all with positive effort) reach the series below, so counts and effort are
+  never negative and the share stays within `0..1`.
 - **Top contributor's share per week**: completions are bucketed by their stored `WeekIso` (not
-  `CompletedUtc`); effort is summed per member, an undo reversal row (`_void` row key) already carrying
-  negative effort. When the week's total is not positive there is no top contributor and the share is
-  `0`; otherwise the top is the greatest effort (ties by `personId`) and the share is top / total.
-- **Completions per member per week**: `+1` per row and `-1` per `_void` reversal row (detected by the
-  row-key suffix, since a zero-effort chore makes the sign unreliable), clamped at `0`.
+  `CompletedUtc`); effort is summed per member over the surviving completions. When the week's total is
+  zero there is no top contributor and the share is `0`; otherwise the top is the greatest effort (ties
+  by `personId`) and the share is top / total.
+- **Completions per member per week**: `+1` per surviving completion.
 - **Glances per day**: `hub-glanced` events per UTC date from the window start through today; events
   before the window or after now are ignored.
 - **Carts confirmed per month**: carts with `Status = Confirmed` and a `ConfirmedUtc` in
