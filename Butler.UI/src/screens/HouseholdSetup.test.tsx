@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 
 import { HouseholdSetup } from './HouseholdSetup';
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
+import type { HouseholdResponse } from '../api/models';
 import { FRIENDLY_ERROR } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { templatesForRoom } from '../setup/starterTemplates';
@@ -82,8 +83,8 @@ async function reachChoresStep(
         name: 'H',
         organizerObjectId: 'o',
         createdUtc: 'x',
-        etag: '"h"',
-      });
+        eTag: '"h"',
+      } satisfies HouseholdResponse);
     }
     if (path.endsWith('/rooms')) {
       const name = String(fields.name);
@@ -163,8 +164,8 @@ describe('HouseholdSetup', () => {
           name: 'The Smiths',
           organizerObjectId: 'org-1',
           createdUtc: '2026-07-20T00:00:00Z',
-          etag: '"h1"',
-        });
+          eTag: '"h1"',
+        } satisfies HouseholdResponse);
       }
       if (path.endsWith('/rooms')) {
         return ok({ roomId: 'room-1', name: 'Kitchen', sortOrder: 0, eTag: '"r1"' });
@@ -260,8 +261,8 @@ describe('HouseholdSetup', () => {
             name: 'H',
             organizerObjectId: 'o',
             createdUtc: 'x',
-            etag: '"h"',
-          });
+            eTag: '"h"',
+          } satisfies HouseholdResponse);
         }
         if (path.endsWith('/rooms')) {
           return ok({ roomId: 'room-c', name: 'Kitchen', sortOrder: 0, eTag: '"r"' });
@@ -377,8 +378,8 @@ describe('HouseholdSetup', () => {
           name: 'H',
           organizerObjectId: 'o',
           createdUtc: 'x',
-          etag: '"h"',
-        });
+          eTag: '"h"',
+        } satisfies HouseholdResponse);
       }
       if (path.endsWith('/rooms')) {
         return ok({ roomId: 'room-9', name: 'Den', sortOrder: 0, eTag: '"r"' });
@@ -428,8 +429,8 @@ describe('HouseholdSetup', () => {
           name: 'H',
           organizerObjectId: 'o',
           createdUtc: 'x',
-          etag: '"h"',
-        });
+          eTag: '"h"',
+        } satisfies HouseholdResponse);
       }
       if (path.endsWith('/rooms')) {
         return ok({ roomId: 'room-2', name: 'Bath', sortOrder: 0, eTag: '"r"' });
@@ -492,8 +493,8 @@ describe('HouseholdSetup', () => {
           name: 'H',
           organizerObjectId: 'o',
           createdUtc: 'x',
-          etag: '"h"',
-        });
+          eTag: '"h"',
+        } satisfies HouseholdResponse);
       }
       return {
         ok: false,
@@ -523,8 +524,8 @@ describe('HouseholdSetup', () => {
           name: 'H',
           organizerObjectId: 'o',
           createdUtc: 'x',
-          etag: '"h"',
-        });
+          eTag: '"h"',
+        } satisfies HouseholdResponse);
       }
       if (path.endsWith('/rooms')) {
         return ok({ roomId: 'room-6', name: 'Kitchen', sortOrder: 0, eTag: '"r"' });
@@ -569,7 +570,7 @@ describe('HouseholdSetup', () => {
 
     await act(async () => {
       resolve(
-        ok({ householdId: 'hh-3', name: 'H', organizerObjectId: 'o', createdUtc: 'x', etag: '"h"' }),
+        ok({ householdId: 'hh-3', name: 'H', organizerObjectId: 'o', createdUtc: 'x', eTag: '"h"' } satisfies HouseholdResponse),
       );
       await pending;
     });
@@ -784,8 +785,8 @@ describe('HouseholdSetup', () => {
       name: 'H',
       organizerObjectId: 'o',
       createdUtc: 'x',
-      etag: '"h"',
-    });
+      eTag: '"h"',
+    } satisfies HouseholdResponse);
     const serverError: ApiResult<unknown> = {
       ok: false,
       error: { kind: 'http', status: 503, title: 'Service Unavailable' },
