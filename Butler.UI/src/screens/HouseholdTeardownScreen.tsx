@@ -9,7 +9,7 @@ import { Screen, colors } from '../components/Screen';
 import { space, typeScale } from '../layout/tokens';
 import { forgetHouseholdOffline } from '../offline/forgetHousehold';
 import { useBrowserOnline } from '../offline/useBrowserOnline';
-import type { ReconnectTarget } from '../offline/useReconnect';
+import { useReconnectSignal, type ReconnectTarget } from '../offline/useReconnect';
 import { useHousehold } from '../state/HouseholdContext';
 import { useHubDevice } from '../state/HubDeviceContext';
 import { useOrganizer } from '../state/OrganizerContext';
@@ -53,7 +53,9 @@ type LoadState =
  * It reads the household name, lists what will be deleted, says it cannot be
  * undone, and enables Delete only when the typed text equals the name exactly
  * (ordinal and case-sensitive, no trimming), an organizer is signed in, and the
- * browser is online. Confirming sends one `DELETE /households/{id}` with
+ * browser is online. A failed name read (for example, the screen was opened
+ * offline) re-reads each time the browser comes back online until the name
+ * loads (#252). Confirming sends one `DELETE /households/{id}` with
  * `{ confirmName }`; it is never put on the write queue, so an offline tap can
  * never replay a teardown later.
  *
@@ -89,6 +91,9 @@ export function HouseholdTeardownScreen({
   const online = useBrowserOnline(connectivityTarget);
 
   const [load, setLoad] = useState<LoadState>({ phase: 'loading' });
+  // Bumps on reconnect only while the name read is in error, so a read that
+  // failed offline is retried once the browser is back online (#252).
+  const reconnectSignal = useReconnectSignal(load.phase === 'error', connectivityTarget);
   const [typed, setTyped] = useState('');
   const [phase, setPhase] = useState<'idle' | 'deleting'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +118,7 @@ export function HouseholdTeardownScreen({
     return () => {
       active = false;
     };
-  }, [client, householdId]);
+  }, [client, householdId, reconnectSignal]);
 
   const name = load.phase === 'ready' ? load.name : null;
   const canDelete =

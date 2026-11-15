@@ -62,7 +62,7 @@ last-known week and today's board (BRD 6.5 step 1, guardrail BO-5).
 | Piece | Where | What it does |
 | --- | --- | --- |
 | Cache | `src/offline/glanceCache.ts` | One record per household under `butler.glance.v1.<householdId>`: the household + its people, the week + its board items, and a `cachedAtIso` freshness stamp. Read/write/merge helpers plus `describeLastKnown()`. |
-| Reconnect | `src/offline/useReconnect.ts` | `useReconnectSignal(enabled)` - a counter that bumps on the browser `online` event while a surface is degraded. Both load effects list it, so the network returning refetches. |
+| Reconnect | `src/offline/useReconnect.ts` | `useReconnectSignal(enabled)` - a counter that bumps on the browser `online` event while a surface is degraded. Both load effects list it, so the network returning refetches. The household teardown screen uses it the same way for its name read (#252). |
 | Tiles | `src/screens/HubShell.tsx` | Caches the household read; falls back to it when the API is unreachable, so the name tiles stay real. |
 | Board | `src/components/ChoreBoard.tsx` | Caches the built week; falls back to it the same way, renders that fallback read-only, and reports up so the hub can mark the view. |
 | Indication | `src/components/LastKnownBanner.tsx` | One calm line under the header ("Showing last-known - saved 12 minutes ago"), shown whenever any region is served from cache and cleared on the next successful load. |
@@ -660,7 +660,10 @@ replace the screen (and the offline message with it), and it would block the scr
 the organizer out. The screen instead disables Delete with a sign-in line while no organizer is signed in;
 the API enforces the `Organizer` policy. It reads the household name, lists what will be deleted, says it
 cannot be undone, and enables Delete only when the typed text equals the name exactly (ordinal and
-case-sensitive, no trimming). Offline (`useBrowserOnline`) Delete is disabled with a needs-a-connection
+case-sensitive, no trimming). A failed name read (for example, the screen was opened offline) re-reads on
+the browser `online` event (`useReconnectSignal`, enabled only while the read is in error), so Delete can
+enable after a reconnect without reopening the screen; once the name has loaded, a reconnect reads nothing
+(#252). Offline (`useBrowserOnline`) Delete is disabled with a needs-a-connection
 line, and the request never goes through the write queue, so a teardown can never replay later. Confirm
 sends one `DELETE /households/{id}` with `{ confirmName }` (#124). On success, using the household id
 captured before the call, it runs `forgetHouseholdOffline` (`src/offline/forgetHousehold.ts`: the write
