@@ -11,7 +11,6 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import type { ApiClient, ApiError } from '../api/client';
 import { resolveUiBuildSha } from '../api/config';
-import { describeApiError } from '../api/errors';
 import type {
   CartResponse,
   HouseholdResponse,
@@ -65,6 +64,18 @@ export const IDLE_TIMEOUT_MS = 45_000;
  * household; they are not chore-doing members, so they are never a claimable tile.
  */
 export const ORGANIZER_ROLE = 'Organizer';
+
+/**
+ * The tile row's own copy. The tile row never echoes server text: when the
+ * shell load fails, the Today panel owns the friendly error (with Try again), and
+ * the tile row shows a neutral line so the hub never shows two errors for one
+ * failed load (#208). The no-household line is the derived state where the Today
+ * panel shows its empty state instead.
+ */
+const COPY = {
+  tilesWaiting: 'Names will appear here once the hub loads.',
+  noHousehold: 'No household is set up yet.',
+} as const;
 
 /**
  * Whether a roster entry is a chore-doing member (and so a claimable tile) rather
@@ -149,8 +160,8 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * since that cache only ever stands in when the API did not answer, and so
  * does a shell load that could not reach the API with nothing cached (#151).
  * An error from an API that did answer (an HTTP error, a problem response, a
- * body that would not parse) does not: the API is reachable, and the shell's
- * error line says what went wrong.
+ * body that would not parse) does not: the API is reachable, and the Today
+ * panel's error says the load failed (the tile row shows a neutral line).
  *
  * "Wifi up, API down" never fires the browser's `online` event, so a reconnect
  * alone cannot revive a degraded shell after an API-only outage. A drain that
@@ -215,7 +226,6 @@ type LoadState =
     }
   | {
       phase: 'error';
-      message: string;
       /**
        * True when the read never reached the API (a `network`-kind failure);
        * the sync indicator reads Offline on it. False for an error from an API
@@ -237,7 +247,9 @@ type LoadState =
  *
  * The error state carries whether the read reached the API at all: only a
  * `network`-kind failure sets `networkFailure`, which drives the sync
- * indicator to Offline (#151), the same test that gates the cache here.
+ * indicator to Offline (#151), the same test that gates the cache here. It
+ * carries no server text: the Today panel shows the friendly error and the
+ * tile row a neutral line (#208).
  */
 function resolveShellFailure(householdId: string, error: ApiError): LoadState {
   const cached = error.kind === 'network' ? readGlance(householdId) : null;
@@ -249,7 +261,7 @@ function resolveShellFailure(householdId: string, error: ApiError): LoadState {
       cachedAtIso: cached.cachedAtIso,
     };
   }
-  return { phase: 'error', message: describeApiError(error), networkFailure: error.kind === 'network' };
+  return { phase: 'error', networkFailure: error.kind === 'network' };
 }
 
 /** Today's date, formatted for a glance ("Monday, July 20"). */
@@ -588,8 +600,7 @@ function HubShellBody({
     ) : null;
 
   // A missing household is a calm derived state, not a fetch outcome.
-  const view: LoadState =
-    householdId === null ? { phase: 'error', message: 'No household is set up yet.', networkFailure: false } : state;
+  const view: LoadState = householdId === null ? { phase: 'error', networkFailure: false } : state;
   const householdName = view.phase === 'ready' ? view.householdName : 'Butler';
   // The claimable roster is chore-doing members only: an organizer/admin identity
   // (including the synthetic "Development Organizer") is never a tile, never fed to
@@ -713,11 +724,17 @@ function HubShellBody({
           </View>
         )}
 
-        {view.phase === 'error' && (
-          <Text style={styles.status} testID="hub-error">
-            {view.message}
-          </Text>
-        )}
+        {/* A failed load's error is the Today panel's; the tile row stays neutral (#208). */}
+        {view.phase === 'error' &&
+          (householdId === null ? (
+            <Text style={styles.status} testID="hub-error">
+              {COPY.noHousehold}
+            </Text>
+          ) : (
+            <Text style={styles.status} testID="hub-tiles-waiting">
+              {COPY.tilesWaiting}
+            </Text>
+          ))}
 
         {view.phase === 'ready' &&
           (members.length === 0 ? (
