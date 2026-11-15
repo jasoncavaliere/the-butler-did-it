@@ -145,14 +145,17 @@ public sealed class ChoreCompletionService : IChoreCompletionService
 
         // Append-only reversal (BRD R-2): the original completion is never deleted or
         // mutated. Instead a compensating entry of -effort is appended in the same
-        // week for the acting person, so their net trailing load returns to its
-        // pre-completion value. The "_void" row-key suffix keeps the entry auditable
-        // and guarantees it can never collide with the original append's row key.
+        // week, stamped with the person who pressed undo (an audit of who undid it).
+        // The read models net the reversal against the completion it reverses
+        // (ChoreCompletionLedger.NetOfUndo, #220), so the completer's net returns to
+        // its pre-completion value whoever undoes it. The "_void" row-key suffix
+        // keeps the entry auditable and guarantees it can never collide with the
+        // original append's row key.
         var reversedUtc = _clock.GetUtcNow();
         var reversal = new ChoreCompletionEntity
         {
             PartitionKey = householdId,
-            RowKey = $"{reversedUtc.UtcTicks}_{choreId}_void",
+            RowKey = $"{reversedUtc.UtcTicks}_{choreId}{ChoreCompletionLedger.ReversalSuffix}",
             ChoreId = choreId,
             PersonId = personId,
             CompletedUtc = reversedUtc,

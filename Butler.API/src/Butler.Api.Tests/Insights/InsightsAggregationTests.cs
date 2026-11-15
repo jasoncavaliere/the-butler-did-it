@@ -77,7 +77,8 @@ public sealed class InsightsAggregationTests
             Carts.ListAsync(Household, Arg.Any<CancellationToken>()).Returns(carts);
     }
 
-    private static ChoreCompletionEntity Completion(string personId, int effort, string weekIso, string choreId = "c1") => new()
+    private static ChoreCompletionEntity Completion(
+        string personId, int effort, string weekIso, string choreId = "c1", DateTimeOffset? completedUtc = null) => new()
     {
         PartitionKey = Household,
         RowKey = $"{Guid.NewGuid():N}_{choreId}",
@@ -85,10 +86,11 @@ public sealed class InsightsAggregationTests
         PersonId = personId,
         Effort = effort,
         WeekIso = weekIso,
-        CompletedUtc = Now,
+        CompletedUtc = completedUtc ?? Now,
     };
 
-    private static ChoreCompletionEntity Reversal(string personId, int effort, string weekIso, string choreId = "c1") => new()
+    private static ChoreCompletionEntity Reversal(
+        string personId, int effort, string weekIso, string choreId = "c1", DateTimeOffset? completedUtc = null) => new()
     {
         PartitionKey = Household,
         RowKey = $"{Guid.NewGuid():N}_{choreId}_void",
@@ -96,7 +98,7 @@ public sealed class InsightsAggregationTests
         PersonId = personId,
         Effort = -effort,
         WeekIso = weekIso,
-        CompletedUtc = Now,
+        CompletedUtc = completedUtc ?? Now,
     };
 
     private static PersonEntity Person(string personId, string displayName, string? claimColor = null) => new()
@@ -218,7 +220,7 @@ public sealed class InsightsAggregationTests
     }
 
     [Fact]
-    public async Task A_week_whose_net_effort_is_negative_has_no_top_contributor()
+    public async Task A_stray_reversal_adds_no_negative_effort()
     {
         var harness = new Harness();
         harness.SetPeople(Person("p1", "Alex"));
@@ -227,9 +229,91 @@ public sealed class InsightsAggregationTests
         var result = await harness.Service.GetAsync(Household, 1);
 
         var week = Assert.Single(result!.Weeks);
-        Assert.Equal(-2, week.TotalEffort);
+        Assert.Equal(0, week.TotalEffort);
         Assert.Null(week.TopContributorPersonId);
         Assert.Equal(0d, week.TopContributorShare);
+        Assert.Equal(0, CompletionsFor(week, "p1"));
+    }
+
+    [Fact]
+    public async Task A_cross_person_undo_credits_back_the_original_completer()
+    {
+        // #220: Sam (p2) undoes Alex's (p1) Dishes. The week returns to exactly what
+        // it was before Alex completed Dishes: Alex 1 (Plants), Sam 1 (Trash).
+        var harness = new Harness();
+        harness.SetPeople(Person("p1", "Alex"), Person("p2", "Sam"));
+        harness.SetCompletions(
+            Completion("p2", 2, Week29, "trash", Now.AddMinutes(1)),
+            Completion("p1", 1, Week29, "plants", Now.AddMinutes(2)),
+            Completion("p1", 3, Week29, "dishes", Now.AddMinutes(3)),
+            Reversal("p2", 3, Week29, "dishes", Now.AddMinutes(4)));
+
+        var result = await harness.Service.GetAsync(Household, 1);
+
+        var week = Assert.Single(result!.Weeks);
+        Assert.Equal(1, CompletionsFor(week, "p1"));
+        Assert.Equal(1, CompletionsFor(week, "p2"));
+        Assert.Equal(3, week.TotalEffort);
+        Assert.Equal("p2", week.TopContributorPersonId);
+        Assert.Equal(2d / 3d, week.TopContributorShare, 10);
+    }
+
+    [Fact]
+    public async Task An_organizer_undo_cancels_the_participants_completion()
+    {
+        // The organizer's reversal is netted before organizers are dropped, so it
+        // still cancels the participant's completion instead of being discarded.
+        var harness = new Harness();
+        harness.SetPeople(Person("p1", "Alex"), Organizer("org", "Owner"));
+        harness.SetCompletions(
+            Completion("p1", 3, Week29, "dishes", Now.AddMinutes(1)),
+            Reversal("org", 3, Week29, "dishes", Now.AddMinutes(2)));
+
+        var result = await harness.Service.GetAsync(Household, 1);
+
+        var week = Assert.Single(result!.Weeks);
+        Assert.Equal(0, CompletionsFor(week, "p1"));
+        Assert.Equal(0, week.TotalEffort);
+        Assert.Null(week.TopContributorPersonId);
+        Assert.Equal(0d, week.TopContributorShare);
+    }
+
+    [Fact]
+    public async Task Every_week_keeps_counts_non_negative_and_the_top_share_within_zero_and_one()
+    {
+        // A mixed ledger: cross-person undos, organizer undos, orphan reversals and
+        // re-completions across three weeks.
+        var harness = new Harness();
+        harness.SetPeople(Person("p1", "Alex"), Person("p2", "Sam"), Organizer("org", "Owner"));
+        harness.SetCompletions(
+            Reversal("p1", 5, Week27, "c1", Now.AddMinutes(-10)),
+            Completion("p1", 2, Week27, "c2", Now.AddMinutes(1)),
+            Reversal("p2", 2, Week27, "c2", Now.AddMinutes(2)),
+            Reversal("p2", 2, Week27, "c2", Now.AddMinutes(3)),
+            Completion("p2", 4, Week28, "c3", Now.AddMinutes(1)),
+            Reversal("org", 4, Week28, "c3", Now.AddMinutes(2)),
+            Completion("p1", 4, Week28, "c3", Now.AddMinutes(3)),
+            Completion("p2", 1, Week29, "c4", Now.AddMinutes(1)),
+            Reversal("p1", 1, Week29, "c4", Now.AddMinutes(2)),
+            Completion("p1", 1, Week29, "c4", Now.AddMinutes(3)),
+            Reversal("p2", 9, Week29, "c9", Now.AddMinutes(4)));
+
+        var result = await harness.Service.GetAsync(Household, 3);
+
+        Assert.NotNull(result);
+        Assert.All(result!.Weeks, week =>
+        {
+            Assert.All(week.Completions, entry => Assert.True(entry.Completions >= 0));
+            Assert.True(week.TotalEffort >= 0);
+            Assert.InRange(week.TopContributorShare, 0d, 1d);
+        });
+
+        Assert.Equal(0, result.Weeks[0].TotalEffort);
+        Assert.Equal(4, result.Weeks[1].TotalEffort);
+        Assert.Equal("p1", result.Weeks[1].TopContributorPersonId);
+        Assert.Equal(1, CompletionsFor(result.Weeks[2], "p1"));
+        Assert.Equal(0, CompletionsFor(result.Weeks[2], "p2"));
+        Assert.Equal(1d, result.Weeks[2].TopContributorShare);
     }
 
     [Fact]

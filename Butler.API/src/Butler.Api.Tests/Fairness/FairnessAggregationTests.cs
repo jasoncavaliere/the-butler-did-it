@@ -70,6 +70,33 @@ public sealed class FairnessAggregationTests
         CompletedUtc = MidWeek29,
     };
 
+    // A completion of a specific chore at a specific instant, so a reversal can be
+    // paired with it (the plain helper above leaves ChoreId empty).
+    private static ChoreCompletionEntity Completion(
+        string personId, int effort, string weekIso, string choreId, DateTimeOffset completedUtc) => new()
+    {
+        PartitionKey = Household,
+        RowKey = $"{completedUtc.UtcTicks}_{choreId}",
+        ChoreId = choreId,
+        PersonId = personId,
+        Effort = effort,
+        WeekIso = weekIso,
+        CompletedUtc = completedUtc,
+    };
+
+    // The undo's append-only reversal row, stamped with whoever pressed undo.
+    private static ChoreCompletionEntity Reversal(
+        string personId, int effort, string weekIso, string choreId, DateTimeOffset reversedUtc) => new()
+    {
+        PartitionKey = Household,
+        RowKey = $"{reversedUtc.UtcTicks}_{choreId}{ChoreCompletionLedger.ReversalSuffix}",
+        ChoreId = choreId,
+        PersonId = personId,
+        Effort = -effort,
+        WeekIso = weekIso,
+        CompletedUtc = reversedUtc,
+    };
+
     private static PersonEntity Person(string personId, string displayName) => new()
     {
         PartitionKey = Household,
@@ -244,6 +271,50 @@ public sealed class FairnessAggregationTests
         var alex = Assert.Single(result.Shares);
         Assert.Equal("p1", alex.PersonId);
         Assert.Equal(1.0d, alex.Share, 9);
+    }
+
+    [Fact]
+    public async Task A_cross_person_undo_charges_the_original_completer_not_the_undoer()
+    {
+        // #220: Sam (p2) undoes Alex's (p1) Dishes; Alex keeps Plants (1), Sam keeps
+        // Trash (2), and nobody is charged negative effort.
+        var harness = new Harness();
+        harness.SetPeople(Person("p1", "Alex"), Person("p2", "Sam"));
+        harness.SetCompletions(
+            Completion("p2", 2, Week29, "trash", MidWeek29.AddMinutes(1)),
+            Completion("p1", 1, Week29, "plants", MidWeek29.AddMinutes(2)),
+            Completion("p1", 3, Week29, "dishes", MidWeek29.AddMinutes(3)),
+            Reversal("p2", 3, Week29, "dishes", MidWeek29.AddMinutes(4)));
+
+        var result = await harness.Service.GetAsync(Household, 1, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(3, result!.TotalEffort);
+        Assert.Equal("p2", result.TopContributorPersonId);
+        Assert.Equal(1, result.Shares.Single(s => s.PersonId == "p1").TotalEffort);
+        Assert.Equal(2, result.Shares.Single(s => s.PersonId == "p2").TotalEffort);
+        Assert.All(result.Shares, share => Assert.InRange(share.Share, 0d, 1d));
+    }
+
+    [Fact]
+    public async Task An_organizer_undo_cancels_the_participants_effort()
+    {
+        // The organizer's reversal is netted before organizers are skipped, so it
+        // still cancels the participant's completion instead of being ignored.
+        var harness = new Harness();
+        harness.SetPeople(Organizer("org-1", "Development Organizer"), Person("p1", "Alex"));
+        harness.SetCompletions(
+            Completion("p1", 3, Week29, "dishes", MidWeek29.AddMinutes(1)),
+            Reversal("org-1", 3, Week29, "dishes", MidWeek29.AddMinutes(2)));
+
+        var result = await harness.Service.GetAsync(Household, 1, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(0, result!.TotalEffort);
+        Assert.Null(result.TopContributorPersonId);
+        var alex = Assert.Single(result.Shares);
+        Assert.Equal(0, alex.TotalEffort);
+        Assert.Equal(0d, alex.Share);
     }
 
     [Fact]
