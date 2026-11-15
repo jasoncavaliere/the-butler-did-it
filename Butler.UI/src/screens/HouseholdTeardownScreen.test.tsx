@@ -6,7 +6,7 @@ import type { ApiClient, ApiError, ApiResult } from '../api/client';
 import { useApiClient } from '../api/useApiClient';
 import type { IAuthProvider } from '../auth/authProvider';
 import { OrganizerBar } from '../auth/OrganizerBar';
-import { typeScale } from '../layout/tokens';
+import { typeScale } from '../theme/theme';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { resetSessionFallbackStorage, type LocalStorageLike } from '../offline/storage';
 import { currentWeekIso } from '../offline/weekIso';

@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { space, typeScale } from '../layout/tokens';
+import { space, typeScale } from '../theme/theme';
 import { colors } from './Screen';
 
 /**

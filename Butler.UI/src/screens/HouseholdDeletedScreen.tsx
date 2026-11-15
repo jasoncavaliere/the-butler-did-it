@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, Text } from 'react-native';
 
 import { Screen, colors } from '../components/Screen';
-import { space, typeScale } from '../layout/tokens';
+import { space, typeScale } from '../theme/theme';
 
 /** How long the "Household deleted" notice shows before the setup wizard (#168). */
 export const HOUSEHOLD_DELETED_NOTICE_MS = 3_000;

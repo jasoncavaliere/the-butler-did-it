@@ -22,7 +22,7 @@ import {
   resolveMemberColors,
   weekLabel,
 } from '../insights/insightsSeries';
-import { minTouchTarget, space, typeScale } from '../layout/tokens';
+import { minTouchTarget, space, typeScale } from '../theme/theme';
 import { useHousehold } from '../state/HouseholdContext';
 
 /**

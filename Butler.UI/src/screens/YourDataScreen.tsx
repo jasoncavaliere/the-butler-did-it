@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '../components/FormControls';
 import { Screen, colors } from '../components/Screen';
-import { space, typeScale } from '../layout/tokens';
+import { space, typeScale } from '../theme/theme';
 import { useOrganizer } from '../state/OrganizerContext';
 
 /**

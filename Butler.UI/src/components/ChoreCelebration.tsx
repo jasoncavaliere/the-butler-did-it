@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-import { lineHeightFor, motionDuration, space, typeScale } from '../layout/tokens';
+import { lineHeightFor, motionDuration, space, typeScale } from '../theme/theme';
 import { colors } from './Screen';
 
 /**

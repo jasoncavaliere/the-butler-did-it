@@ -2,13 +2,17 @@ import tokensJson from '../../design-tokens.json';
 import {
   claimColors,
   hubTouchTarget,
+  lineHeightFor,
   minTargetGap,
   minTouchTarget,
+  motionDuration,
+  nameTileMinWidth,
   onClaim,
   radii,
   space,
   spacingScale,
   themes,
+  typeScale,
 } from './theme';
 
 describe('theme module', () => {
@@ -68,5 +72,14 @@ describe('theme module', () => {
     expect(hubTouchTarget).toBeGreaterThanOrEqual(minTouchTarget);
     expect(minTargetGap).toBe(8);
     expect(minTargetGap).toBe(space.s2);
+  });
+
+  it('re-exports the type scale, line-height helper, motion durations and name tile width from the size layer', () => {
+    expect(typeScale).toEqual(tokensJson.type_scale);
+    expect(motionDuration).toEqual(tokensJson.motion['duration-ms']);
+    expect(nameTileMinWidth).toBe(tokensJson.components['name-tile']['min-width']);
+    expect(lineHeightFor(typeScale.body)).toBe(
+      Math.round(typeScale.body * tokensJson.line_heights.tight),
+    );
   });
 });

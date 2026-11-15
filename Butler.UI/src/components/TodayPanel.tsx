@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from './Screen';
 import { DEFAULT_HUB_LAYOUT, type HubLayout } from '../layout/hubLayout';
-import { radii } from '../layout/tokens';
+import { radii } from '../theme/theme';
 import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
 /**

@@ -6,9 +6,8 @@ import type { ApiClient, ApiResult } from '../api/client';
 import type { InsightsResponse } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { colors } from '../components/Screen';
-import { typeScale } from '../layout/tokens';
 import { HouseholdProvider } from '../state/HouseholdContext';
-import { claimColors } from '../theme/theme';
+import { claimColors, typeScale } from '../theme/theme';
 
 jest.mock('../api/useApiClient', () => ({ useApiClient: jest.fn() }));
 

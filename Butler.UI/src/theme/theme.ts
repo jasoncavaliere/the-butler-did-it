@@ -12,15 +12,17 @@ import tokensJson from '../../design-tokens.json';
  *   claim colour is the dark variant (#120 AC3).
  * - `onClaim`: the ink that sits on a filled claim colour in each theme.
  * - `themes`: the light (`colors`) and dark (`colors_dark`) palettes.
- * - Sizes: the spacing scale, radii and the touch-target floors, re-exported
- *   from `src/layout/tokens.ts`. The hub's targets (name tiles, chore rows) are
- *   at least `hubTouchTarget` (48) square and sit at least `minTargetGap` (8)
- *   apart (#120 AC4/AC5).
+ * - Sizes: the spacing scale, radii, the touch-target floors, the type scale
+ *   (`typeScale`) and its `lineHeightFor` helper, the motion durations
+ *   (`motionDuration`) and the name tile min width (`nameTileMinWidth`),
+ *   re-exported from `src/layout/tokens.ts` (#285). The hub's targets (name
+ *   tiles, chore rows) are at least `hubTouchTarget` (48) square and sit at
+ *   least `minTargetGap` (8) apart (#120 AC4/AC5).
  *
- * The size layer is `src/layout/tokens.ts`. This module re-exports its spacing
- * scale, radii and touch-target floors (the `export ... from '../layout/tokens'`
- * block below), so UI code reads those sizes from here like any other design
- * value. The exception is layout code under `src/layout/` (for example
+ * The size layer is `src/layout/tokens.ts`. This module re-exports the sizes UI
+ * code uses (the `export ... from '../layout/tokens'` block below), so UI code
+ * reads those sizes from here like any other design value. ESLint
+ * `no-restricted-imports` enforces this outside `src/layout/` (#285). The exception is layout code under `src/layout/` (for example
  * `hubLayout.ts`): it imports sizes from `layout/tokens` directly. This is a
  * layering rule: this module sits above the layout layer and re-exports from
  * it, so layout code must not depend upward on it. Importing this module from
@@ -34,11 +36,15 @@ import tokensJson from '../../design-tokens.json';
 
 export {
   hubTouchTarget,
+  lineHeightFor,
   minTargetGap,
   minTouchTarget,
+  motionDuration,
+  nameTileMinWidth,
   radii,
   space,
   spacingScale,
+  typeScale,
 } from '../layout/tokens';
 
 /** The six claim colour names, in token order. */

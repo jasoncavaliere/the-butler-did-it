@@ -6,7 +6,7 @@ import { describeApiError } from '../api/errors';
 import { useApiClient } from '../api/useApiClient';
 import { ActionButton, Field } from '../components/FormControls';
 import { Screen, colors } from '../components/Screen';
-import { space, typeScale } from '../layout/tokens';
+import { space, typeScale } from '../theme/theme';
 import { forgetHouseholdOffline } from '../offline/forgetHousehold';
 import { useBrowserOnline } from '../offline/useBrowserOnline';
 import { useReconnectSignal, type ReconnectTarget } from '../offline/useReconnect';
