@@ -233,8 +233,11 @@ demo-ci also runs `node demo/ci/check-precache.cjs <url-or-file>` against the
 served `sw.js`. It passes only when the worker carries the precache list that
 `npm run build:web` injects: a 12-hex build id, the app shell (`/index.html`)
 and at least one `/_expo/**.js` bundle. It rejects the placeholder worker that
-a bare `expo export` copies from `Butler.UI/public/sw.js`. You can point it at
-a local build too, for example `node demo/ci/check-precache.cjs Butler.UI/dist/sw.js`.
+a bare `expo export` copies from `Butler.UI/public/sw.js`. The checker exits 0
+when the list is real, 1 when it rejects the worker, and 2 on bad usage or an
+error (unreadable file, failed fetch); `demo/ci/check-precache-exit.sh` checks
+those codes. You can point it at a local build too, for example
+`node demo/ci/check-precache.cjs Butler.UI/dist/sw.js`.
 
 To check it end to end, `demo/ci/check-household-flow.cjs` (run by demo-ci)
 opens the hub in a headless browser, creates a household through the setup
