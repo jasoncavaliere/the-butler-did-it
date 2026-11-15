@@ -49,7 +49,7 @@ The Product Vision (`10`) is intentionally one article because it is one idea. A
 | | **Living** | **Record** |
 | --- | --- | --- |
 | Purpose | Current reference, kept true to reality | A point-in-time snapshot of a decision or state |
-| When it is wrong | **Fix it in place** | **Do not edit** - supersede it with a new dated article and link forward |
+| When it is wrong | **Fix it in place** | **Do not edit** - supersede it with a new dated article and link forward (a format-only template migration is the one exception; see [Canonical scorer](#canonical-scorer)) |
 
 Every article's `lifecycle:` frontmatter says which it is. A superseded Record article also gets OKF `status: deprecated`. If unsure, it is Living. All four seed articles are Living, including the Product Vision - as decisions evolve, revise the vision in place rather than freezing it.
 
@@ -102,12 +102,15 @@ The raw source vision and the build brief live in `intake/`. They are the proven
 
 ## Canonical scorer
 
-The canonical scorer for this repo is the newer `kb_score.py` in the `knowledge-base` skill, as synced from the fe-docs plugin. You can tell it apart because it has the intent-header rule (`intent_labels`) and the legacy In-one-line callout rule. The owner decided this on **2026-11-15** in [issue #236](https://github.com/jasoncavaliere/the-butler-did-it/issues/236).
+The canonical scorer for this repo is the newer `kb_score.py` in the `knowledge-base` skill, as synced from the fe-docs plugin. You can tell it apart because it requires the intent header (`intent_labels`) and hard-fails any page that still has the legacy `> **In one line:**` callout. The owner decided this on **2026-11-15** in [issue #236](https://github.com/jasoncavaliere/the-butler-did-it/issues/236).
 
 | | **Canonical** | **Not canonical** |
 | --- | --- | --- |
 | Copy | The newer `kb_score.py`, synced from the fe-docs plugin | The older copy pinned in the fe-ai-skills repo |
-| Intent-header and In-one-line rules | Yes | No, so it passes pages this repo treats as defects |
+| Intent header | Required | Not checked |
+| Legacy `> **In one line:**` callout | Hard fail if present | Required: hard-fails every page without it, which is every migrated article |
+
+If the scorer reports `missing TL;DR (In one line) callout`, you are running the older copy. Switch to the synced scorer; do not restore the callout.
 
 Run it against this directory before you finish any change to `docs/`:
 
