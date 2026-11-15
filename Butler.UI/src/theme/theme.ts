@@ -17,6 +17,15 @@ import tokensJson from '../../design-tokens.json';
  *   at least `hubTouchTarget` (48) square and sit at least `minTargetGap` (8)
  *   apart (#120 AC4/AC5).
  *
+ * The size layer is `src/layout/tokens.ts`. This module re-exports its spacing
+ * scale, radii and touch-target floors (the `export ... from '../layout/tokens'`
+ * block below), so UI code reads those sizes from here like any other design
+ * value. The exception is layout code under `src/layout/` (for example
+ * `hubLayout.ts`): it may import sizes from `layout/tokens` directly, to avoid an
+ * import cycle, because this module depends on the layout layer and importing
+ * it back from there would make each depend on the other (#215, review advisory
+ * F1 from #120).
+ *
  * The hub's rendered palette stays in `src/components/Screen.tsx`; this module
  * does not re-skin it.
  */
