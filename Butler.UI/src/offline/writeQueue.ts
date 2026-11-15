@@ -28,7 +28,9 @@
  *   confirms it. A failure is retried with an exponential backoff, and a write
  *   that exhausts its retries is **flagged, kept, and stepped over** - bounded
  *   retries then flag-and-continue, so one poison write cannot block everything
- *   behind it forever, and O4 has something real to surface.
+ *   behind it forever, and O4 has something real to surface. The one exception
+ *   is a queued `hub-glance` the API refuses on replay: it is dropped, as the
+ *   online path drops it, and never shows as failed (#217).
  * - *Never replayed into an ended week.* An assignment write is addressed by the
  *   week it was tapped in, and the API resolves it by that week with no
  *   current-week check. A write whose week ended before it could sync would
@@ -63,9 +65,17 @@ export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * What a queued write is, for the humans reading it (and for O4, which groups
  * the pending count and the failed surface by it). It is descriptive only - the
  * replay itself is driven by the stored request triple - which is what lets a
- * new write type join the queue without teaching the drain about it.
+ * new write type join the queue without teaching the drain about it. The one
+ * kind the drain does read is {@link HUB_GLANCE_KIND}, to drop a refused glance
+ * (#217).
  */
 export type QueuedWriteKind = 'chore-complete' | 'chore-undo' | 'cart-add' | 'hub-glance';
+
+/**
+ * The kind the drain drops instead of retrying when the API refuses it (#217).
+ * A literal rather than an import from `./hubGlance`, which imports this module.
+ */
+const HUB_GLANCE_KIND: QueuedWriteKind = 'hub-glance';
 
 /** A write handed to the queue: the request to replay, plus how to identify it. */
 export type WriteRequest = {
@@ -303,8 +313,9 @@ export function saveWriteQueue(
 /**
  * Empty a household's queue (#100 D7).
  *
- * This is the only path that discards queued writes, and only two flows call
- * it, both via `forgetHouseholdOffline`: the dataset guard, once the API serves a
+ * This is the only path that discards queued writes wholesale (the drain's
+ * per-entry drop of a refused hub-glance, #217, is the one other discard), and
+ * only two flows call it, both via `forgetHouseholdOffline`: the dataset guard, once the API serves a
  * different dataset, and household teardown (#168), once the API has deleted the
  * household. Either way every queued write targets rows that no longer exist (or,
  * worse, rows that happen to share their ids), so replaying them would be wrong. Everywhere else the queue's rule stands - a tap
@@ -407,6 +418,10 @@ export type SendWrite = (write: QueuedWrite) => Promise<ApiResult<unknown>>;
  *   the entry is flagged `failed` with its last error and the drain moves *past*
  *   it. It stays in storage - never dropped, never auto-cleared - which is what
  *   O4 surfaces; and it stops holding the rest of the queue hostage.
+ * - **A refused hub-glance leaves the queue at once.** A glance is telemetry and
+ *   the online path already drops a refused one, so on replay a non-network
+ *   error removes it: it is not retried, flagged, or counted as confirmed, and
+ *   the drain continues with the write behind it (#217).
  *
  * - **A write whose week has ended is never sent.** An assignment write is
  *   addressed by its week, and the API resolves it by that week with no
@@ -482,6 +497,16 @@ export async function drainWriteQueue(
 
     if (result.error.kind === 'network') {
       return { queue, confirmed, retryDelayMs: OFFLINE_RETRY_MS, offline: true };
+    }
+
+    if (write.kind === HUB_GLANCE_KIND) {
+      // A glance is telemetry, and a request the API has refused will never
+      // succeed on retry, so it is dropped here exactly as the online path drops
+      // it (#217). It is not a confirmation, so `confirmed` stays put and no
+      // "All synced." flashes; the next entry has shifted into `index`.
+      queue = queue.filter((entry) => entry.dedupeKey !== write.dedupeKey);
+      saveWriteQueue(householdId, queue, storage);
+      continue;
     }
 
     queue = withAttempt(queue, write.dedupeKey, write.attempts + 1, result.error);

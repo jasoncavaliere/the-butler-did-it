@@ -20,7 +20,9 @@
  * - **Offline, it is queued.** Only a `network` error (the API is unreachable)
  *   enqueues the glance on the existing write queue, which replays it on
  *   reconnect. Any other refusal (401 on an unpaired hub, 400, 404) is dropped:
- *   retrying a request the API has answered would never succeed.
+ *   retrying a request the API has answered would never succeed. If a queued
+ *   glance is refused when it replays, the drain drops it the same way, and it
+ *   never shows as a failed write (#217).
  *
  * Pure apart from the storage seam and the injected client, so every branch is
  * testable without React.
