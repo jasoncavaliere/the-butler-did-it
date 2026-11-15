@@ -19,7 +19,12 @@ import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext } from '../offline/WriteQueueContext';
 import { currentWeekIso, isCurrentWeek } from '../offline/weekIso';
-import { assignmentDedupeKey, readWriteQueue, type QueuedWrite } from '../offline/writeQueue';
+import {
+  assignmentDedupeKey,
+  readWriteQueue,
+  type QueuedWrite,
+  type WriteRequest,
+} from '../offline/writeQueue';
 import { useReducedMotion } from '../motion/useReducedMotion';
 import { CELEBRATION_DURATION_MS, ChoreCelebration } from './ChoreCelebration';
 import { colors } from './Screen';
@@ -145,7 +150,10 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   both alone, so the last answer cannot undo what the family last meant
  *   (#153). A refused newest tap hands the record back to the tap it overtook,
  *   so that tap's answer still settles the row and a load that lands in between
- *   cannot redraw the state from before either tap (#241).
+ *   cannot redraw the state from before either tap (#241). An overtaken tap
+ *   that finds the network gone is held on the chain rather than queued, and
+ *   is queued only if the newest tap is refused, so it cannot replay over the
+ *   newest tap's success (#242).
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -267,12 +275,22 @@ export function applyQueuedWrites(
  * back to the one it overtook rather than being dropped, so an earlier tap
  * still in flight keeps its overlay and its own response can settle the row.
  * Settled records never carry it.
+ *
+ * `heldWrite` is set only on an overtaken link whose POST answered `network`
+ * (#242): the write it would have queued, held back while the tap above it is
+ * undecided. It is queued only if that tap is refused (the record then goes to
+ * the queue overlay, so it is never on a top-level record), and discarded if a
+ * newer tap succeeds or is itself queued, so it cannot replay over a newer
+ * tap's success. A held link carries no `overtook`: the chain is cut below it.
+ * It lives in memory only, for one in-flight request window; a reload in that
+ * window loses it.
  */
 export type LiveTap = {
   status: 'Open' | 'Done';
   settledAtLoad: number | null;
   tap: number;
   overtook?: LiveTap;
+  heldWrite?: WriteRequest;
 };
 
 /**
@@ -700,7 +718,10 @@ export function ChoreBoard({
   //   `unreachable`, which is the same situation arriving a moment later, so the
   //   write is queued too and the row still stays done. Reverting here would tell
   //   the family their tap was lost when it is sitting in a durable queue; a write
-  //   that ultimately cannot sync is surfaced instead (O4).
+  //   that ultimately cannot sync is surfaced instead (O4). An overtaken tap
+  //   that finds the network gone is held on the chain rather than queued, and
+  //   queued only if the newest tap is refused, so it cannot replay over the
+  //   newest tap's success (#242).
   // - Live, and the service answers with a real error (HTTP / problem details /
   //   an unreadable body): that is a refusal, not an outage, so the row reverts
   //   exactly as it did before O3 - the board never lies about the server.
@@ -741,14 +762,14 @@ export function ChoreBoard({
       const body = { personId: activePersonId };
       // Keyed by the target, not the direction, so tapping twice queues one write
       // and a complete-then-undo collapses to what the user last meant.
-      const queueWrite = () =>
-        enqueue({
-          kind: action === 'complete' ? 'chore-complete' : 'chore-undo',
-          dedupeKey: assignmentDedupeKey(weekIso, choreId),
-          method: 'POST',
-          path,
-          body,
-        });
+      const request: WriteRequest = {
+        kind: action === 'complete' ? 'chore-complete' : 'chore-undo',
+        dedupeKey: assignmentDedupeKey(weekIso, choreId),
+        method: 'POST',
+        path,
+        body,
+      };
+      const queueWrite = () => enqueue(request);
 
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: optimistic } : item)),
@@ -797,15 +818,25 @@ export function ChoreBoard({
 
       if (!result || !result.ok) {
         if (result && result.error.kind === 'network') {
-          // The queue overlay takes over from here. An overtaken tap is still
-          // queued, as any unreachable tap is, but leaves the newer tap's record;
-          // the chain is cut at this tap, since the queue now owns it and
-          // anything older.
           if (latest) {
+            // The queue overlay takes over from here.
             liveTapsRef.current.delete(tapKey);
+            queueWrite();
+            return;
           }
-          recordOvertaken(() => undefined);
-          queueWrite();
+          // An overtaken tap is not queued (#242): a newer tap on the chore is
+          // still in flight, and a queued write could replay after that tap
+          // succeeds and flip the server back. It is held on the chain instead,
+          // and queued only if the newest tap is refused. The chain is cut below
+          // it, so an older tap's later answer finds no link and is dropped; if
+          // this tap's own link is gone (a newer tap settled, or a newer held
+          // tap cut it off), a newer tap owns the outcome and nothing is kept.
+          recordOvertaken(() => ({
+            status: optimistic,
+            settledAtLoad: null,
+            tap,
+            heldWrite: request,
+          }));
           return;
         }
         if (!latest) {
@@ -818,9 +849,14 @@ export function ChoreBoard({
         // The newest tap was refused: hand the record back to the tap it
         // overtook, so that tap's overlay holds against a racing load and its
         // own response can still settle the row (#241). With nothing to hand
-        // back, the record goes, as before.
+        // back, the record goes, as before. A tap held back after finding the
+        // network gone (#242) is queued now instead, and the queue overlay
+        // draws the row, as for any unreachable tap.
         const restored = current?.overtook;
-        if (restored !== undefined) {
+        if (restored?.heldWrite !== undefined) {
+          liveTapsRef.current.delete(tapKey);
+          enqueue(restored.heldWrite);
+        } else if (restored !== undefined) {
           liveTapsRef.current.set(tapKey, restored);
         } else {
           liveTapsRef.current.delete(tapKey);
