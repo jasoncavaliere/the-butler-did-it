@@ -21,6 +21,7 @@ demo/demo.sh up        # build the hub export if needed, start, wait for healthy
 demo/demo.sh status    # container health, hub URL and dataset id
 demo/demo.sh logs      # follow the API and Caddy logs (Ctrl+C to stop)
 demo/demo.sh logs --api   # API only
+demo/demo.sh logs -f azurite   # Azurite only
 demo/demo.sh down      # stop; data in demo/.data/azurite is kept
 demo/demo.sh share     # HTTPS URL + QR code for a tablet on your tailnet
 demo/demo.sh unshare   # stop sharing; localhost:8080 keeps working
@@ -33,6 +34,7 @@ pwsh demo/demo.ps1 up          # or ./demo/demo.ps1 up from a pwsh prompt
 pwsh demo/demo.ps1 status
 pwsh demo/demo.ps1 logs
 pwsh demo/demo.ps1 logs --api
+pwsh demo/demo.ps1 logs -f azurite
 pwsh demo/demo.ps1 down
 pwsh demo/demo.ps1 share
 pwsh demo/demo.ps1 unshare
@@ -43,7 +45,7 @@ pwsh demo/demo.ps1 unshare
 | `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and returns only when every service reports healthy. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
-| `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`, or `logs -f azurite`). See [Logs](#logs). |
+| `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`). Naming a compose service (`azurite`, `api` or `web`) shows only the services named: `logs -f azurite` follows Azurite alone, and the API and Caddy default applies only when no service is named. See [Logs](#logs). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
 | `demo.sh unshare` | Removes only the `/` handler `share` added (`tailscale serve --https=443 --set-path=/ off`); other serve handlers on 443 are kept. The hub stays on `http://localhost:8080`. |
 
@@ -357,7 +359,8 @@ restarting adb drops it. Remove it with `adb reverse --remove tcp:8080`.
 
 `demo.sh logs` follows the API and Caddy container logs together (Caddy
 writes one JSON access-log line per request); `demo.sh logs --api` shows only
-the API. Caddy's access log exists only there, in its container log.
+the API, and naming a service (`demo.sh logs -f azurite`) shows only that
+service. Caddy's access log exists only there, in its container log.
 
 In the stack the API also writes a structured log file (the `Demo`
 environment only; nowhere else):

@@ -37,7 +37,10 @@
 #            export without up's matching, current
 #            Butler.UI/dist/.demo-build-env (a hand build) is rebuilt with
 #            EXPO_PUBLIC_API_BASE_URL=/api, and both scripts write and read
-#            the same stamp.
+#            the same stamp. And the logs arguments (#190,
+#            demo/ci/check-logs-args.sh): with a stub docker, naming a
+#            compose service (`logs -f azurite`) narrows the logs call to
+#            that service, and both scripts make the same call.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080 (with the precache list build:web
 #            injects, demo/ci/check-precache.cjs, #178), the single origin
@@ -52,9 +55,10 @@
 #            after unshare (#101, demo/ci/check-share.sh stack). And the Demo
 #            request log (#107): a 404's traceId appears as the CorrelationId
 #            in demo/.data/logs, `demo logs` follows api and web together, and
-#            `demo logs --api` shows only the API. The API runs with the PIN
-#            organizer (#105): the job writes a random CI-only PIN to the
-#            git-ignored demo/.env, builds the hub with
+#            `demo logs --api` shows only the API, and `demo logs ... azurite`
+#            shows only Azurite through both scripts (#190). The API runs
+#            with the PIN organizer (#105): the job writes a random CI-only
+#            PIN to the git-ignored demo/.env, builds the hub with
 #            EXPO_PUBLIC_AUTH_PROVIDER=pin, and signs in through
 #            POST /auth/pin/sign-in before every organizer call (again after
 #            every restart, since tokens live in API memory).
@@ -279,6 +283,12 @@ jobs:
       # demo.ps1 behave the same and read each other's stamp. Stub npm and docker.
       - name: "demo CLI: export without the demo build stamp is rebuilt by up (#184)"
         run: bash demo/ci/check-export-stamp.sh
+
+      # #190 AC1-AC3, AC5: naming a compose service narrows the logs call to
+      # it (the api web default applies only when none is named); demo.sh and
+      # demo.ps1 make the same docker call. Stub docker.
+      - name: "demo CLI: logs narrows to a named service (#190)"
+        run: bash demo/ci/check-logs-args.sh
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -637,6 +647,17 @@ jobs:
           ps_logs="$(ps1 logs --api --no-color --until "$until")"
           same "logs --api --no-color --until $until" "$sh_logs" "$ps_logs"
           printf '%s\n' "$ps_logs" | grep -E 'Provisioned [0-9]+ Table Storage tables'
+
+          # #190 AC1 + AC4: naming a service shows only that service, and
+          # both scripts print the same logs.
+          sh_az="$(demo/demo.sh logs --no-color --until "$until" azurite)"
+          ps_az="$(ps1 logs --no-color --until "$until" azurite)"
+          same "logs --no-color --until $until azurite" "$sh_az" "$ps_az"
+          printf '%s\n' "$ps_az" | grep -qE 'azurite-1 +[|]' || { echo "demo logs azurite showed no azurite lines" >&2; exit 1; }
+          if printf '%s\n' "$ps_az" | grep -qE '(api|web)-1 +[|]'; then
+            echo "demo logs azurite showed lines from another service" >&2
+            exit 1
+          fi
 
           # AC8 up, export fresh: same lines, no rebuild.
           fresh_up="$(printf '%s\n' \
