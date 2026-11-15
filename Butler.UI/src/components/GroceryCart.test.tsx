@@ -547,7 +547,42 @@ describe('GroceryCart', () => {
     expect(screen.queryByTestId('grocery-add-custom')).toBeNull();
   });
 
-  it('unpriced-note: a cart with custom items shows the estimated total and an unpriced note', async () => {
+  it('edit-after-no-match: editing the term withdraws the custom offer and a resubmit captures the edited term', async () => {
+    const captures = [noMatch, captureAdded];
+    const client = cartClient({
+      reads: [ok(building()), ok(building([oatMilk]))],
+      updateImpl: (path) =>
+        Promise.resolve(path.endsWith('/capture/text') ? captures.shift()! : ok(quinoa)),
+    });
+    await renderCart(client);
+    await whenLoaded();
+
+    await type('quinoa flakes');
+    await press('grocery-add-submit');
+    await waitFor(() => expect(screen.getByTestId('grocery-add-custom')).toBeOnTheScreen());
+
+    // Editing the term withdraws the offer: it named the old term, not this one.
+    await type('oat milk');
+    expect(screen.queryByTestId('grocery-add-custom')).toBeNull();
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', 'oat milk');
+
+    // Submitting captures the edited term, as a fresh submit does.
+    await press('grocery-add-submit');
+    expect(client.update).toHaveBeenLastCalledWith(
+      CAPTURE_PATH,
+      { utterance: 'oat milk', personId: 'p1', weekIso: WEEK, quantity: 1 },
+      { method: 'POST' },
+    );
+
+    await waitFor(() => expect(screen.getByTestId('grocery-item-item-1')).toBeOnTheScreen());
+    expect(screen.getByTestId('grocery-cart-notice')).toHaveTextContent('Added H-E-B Oat Milk.');
+    expect(screen.getByTestId('grocery-add-input')).toHaveProp('value', '');
+    expect(screen.queryByTestId('grocery-add-custom')).toBeNull();
+    // No custom item was ever posted under the old term.
+    expect(client.update).not.toHaveBeenCalledWith(ITEMS_PATH, expect.anything(), expect.anything());
+  });
+
+  it('unpriced-note:a cart with custom items shows the estimated total and an unpriced note', async () => {
     await renderCart(cartClient({ reads: [ok(building([oatMilk, quinoa]))] }));
     await whenLoaded();
 

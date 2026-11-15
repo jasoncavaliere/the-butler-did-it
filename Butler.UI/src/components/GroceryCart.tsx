@@ -41,6 +41,8 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   item`. Tapping it posts `/carts/{weekIso}/items` with that name and re-reads
  *   the cart. A custom line shows a `Custom` tag; it has no price, so the
  *   estimated total under the list says how many custom items it leaves out.
+ *   Editing the term withdraws the offer (#200), so the offer always names the
+ *   last submitted term.
  * - **Confirm (G4).** Organizer-only, and *absent* rather than disabled without
  *   one, matching the {@link OrganizerBar} convention. It posts to
  *   `/carts/{weekIso}/confirm` with the cart's `eTag` as `If-Match`
@@ -238,7 +240,9 @@ export function GroceryCart({
       const captured = result.data;
       if (captured.outcome === 'NoMatch' || captured.item === null) {
         // Nothing in the catalog: offer the term itself as a custom item. A typed
-        // term stays in the field so it can be refined instead.
+        // term stays in the field so it can be refined instead; editing it
+        // withdraws this offer (#200), so the offer always names the last
+        // submitted term.
         setCustomOffer({ displayName: captured.resolvedTerm, personId: activePersonId });
         setNotice(`The store has nothing matching "${captured.resolvedTerm}".`);
         setBusy(false);
@@ -272,6 +276,13 @@ export function GroceryCart({
     },
     [submitCapture, term],
   );
+
+  // Editing the term withdraws a stale no-match offer (#200): the offer names the
+  // last submitted term, so it must not outlive an edit of that term.
+  const editTerm = useCallback((next: string) => {
+    setTerm(next);
+    setCustomOffer(null);
+  }, []);
 
   // Adding by voice (#116): listen for one utterance, show it, and send it with
   // no confirm tap. A miss (an error, nothing heard) never calls the API and
@@ -404,7 +415,7 @@ export function GroceryCart({
           <AddItemRow
             term={term}
             busy={busy}
-            onChangeTerm={setTerm}
+            onChangeTerm={editTerm}
             onSubmit={() => {
               void add(cart);
             }}
