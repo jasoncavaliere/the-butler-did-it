@@ -23,6 +23,7 @@ demo/demo.sh logs      # follow the API and Caddy logs (Ctrl+C to stop)
 demo/demo.sh logs --api   # API only
 demo/demo.sh logs -f azurite   # Azurite only
 demo/demo.sh down      # stop; data in demo/.data/azurite is kept
+demo/demo.sh reset     # delete the demo data, restart and re-seed the demo household
 demo/demo.sh share     # HTTPS URL + QR code for a tablet on your tailnet
 demo/demo.sh unshare   # stop sharing; localhost:8080 keeps working
 ```
@@ -36,6 +37,7 @@ pwsh demo/demo.ps1 logs
 pwsh demo/demo.ps1 logs --api
 pwsh demo/demo.ps1 logs -f azurite
 pwsh demo/demo.ps1 down
+pwsh demo/demo.ps1 reset
 pwsh demo/demo.ps1 share
 pwsh demo/demo.ps1 unshare
 ```
@@ -44,6 +46,7 @@ pwsh demo/demo.ps1 unshare
 | --- | --- |
 | `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and returns only when every service reports healthy. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
+| `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, runs `up`, signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`). Naming a compose service (`azurite`, `api` or `web`) shows only the services named: `logs -f azurite` follows Azurite alone, and the API and Caddy default applies only when no service is named. See [Logs](#logs). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
@@ -164,7 +167,9 @@ The demo flow:
    http://localhost:8080. The setup screen asks for the organizer PIN: type it
    on the PIN pad and tap Sign in. A wrong PIN says "That PIN is not right.";
    after 5 wrong PINs in a row every attempt is refused for 60 s.
-2. **Set up the household** (or seed the demo household) on the setup screens.
+2. **Set up the household** on the setup screens, or run `demo/demo.sh reset`
+   to start from the seeded demo household instead (see
+   [Reset the demo](#reset-the-demo)).
 3. **Pair the hub.** On the hub, tap "Pair this tablet". The tablet now
    reads and writes as the hub: name tiles, chores, completions, the grocery
    list. The hub stays paired across page reloads, including automatic ones
@@ -199,8 +204,9 @@ storage under `butler.hubPairing.v1`. To unpair it, do one of these:
   offline last-known week and the queue of unsent writes. Or, from the
   browser's developer console on the hub page, run
   `localStorage.removeItem('butler.hubPairing.v1')` and reload.
-- After "Wipe the demo data" below, the API no longer knows the device token,
-  so the hub unpairs itself on its next load and shows setup.
+- After `reset` (see [Reset the demo](#reset-the-demo)) or "Wipe the demo
+  data" below, the API no longer knows the device token, so the hub unpairs
+  itself on its next load and shows setup.
 
 ## URLs
 
@@ -440,10 +446,48 @@ docker compose -f demo/docker-compose.yml down
 Data survives `down` and the next `up`: it lives in `demo/.data/azurite`,
 which is git-ignored.
 
+## Reset the demo
+
+`demo/demo.sh reset` (or `pwsh demo/demo.ps1 reset`) puts the demo back to a
+known state between demos. It asks nothing, so it also runs from scripts and
+CI. In order, it:
+
+1. Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN, as `up` does, and stops
+   with the same message if it is not.
+2. Refuses to run, and exits non-zero without changing anything, unless the
+   target is the local demo stack: the Docker engine is local (a `unix://` or
+   `npipe://` endpoint, from `DOCKER_HOST` or the current Docker context), the
+   compose project is `butler-demo`, the API's storage connection string
+   points at the `azurite` service, and Azurite's data folder is
+   `demo/.data/azurite`. The message starts with `Refusing to reset:` and
+   names the check that failed.
+3. Stops the stack (`down`, never `-v`).
+4. Deletes everything in `demo/.data/azurite`, inside a one-off `azurite`
+   container (`find /data -mindepth 1 -delete`), so it needs no `sudo` on
+   Linux. The API log files in `demo/.data/logs` are kept.
+5. Runs `up`: builds the hub export if needed and waits until every service
+   is healthy.
+6. Signs in with `BUTLER_DEMO_PIN` (`POST /api/auth/pin/sign-in`), once, and
+   seeds the demo household (`POST /api/demo/seed`): "The Parker Household",
+   id `demo-household`, with Maria, Dan, Ava and Leo on the roster, chores,
+   this week's assignments and a fairness history.
+7. Checks that the dataset id changed and prints `Dataset: <old> -> <new>`.
+
+After a reset:
+
+- The organizer signs in with the PIN again: the restart dropped every
+  organizer session.
+- The tablet pairs again: the delete removed every hub-device token, so a
+  paired hub unpairs itself on its next load and shows setup.
+- The new dataset id tells the hub to drop its offline cache and its queue of
+  unsent writes (#100), so nothing from before the reset is replayed.
+- The hub does not open the seeded household by itself yet; that is #316.
+
 ## Wipe the demo data
 
-Stop the stack, then delete the data folder. Azurite writes it as root, so on
-Linux use sudo:
+To start from an empty store instead, use `reset` above for a seeded one, or
+wipe by hand. Stop the stack, then delete the data folder. Azurite writes it
+as root, so on Linux use sudo:
 
 ```bash
 docker compose -f demo/docker-compose.yml down
