@@ -202,13 +202,19 @@ unshare_ok() {
 
 check_hub() {
   local label="$1"
+  local body
   echo "-- $label: Caddy on :8080"
-  curl -fsS "$HUB_URL/" | grep -qi '<html' || fail "$label: $HUB_URL/ is not the hub"
-  curl -fsS "$HUB_URL/sw.js" | grep -qF 'butler-precache:begin' || fail "$label: sw.js is not served"
+  # Capture each body before grepping it (#265): under pipefail, a curl piped
+  # into grep -q fails when grep exits on its first match while curl still writes.
+  body="$(curl -fsS "$HUB_URL/")" || fail "$label: $HUB_URL/ did not respond"
+  grep -qi '<html' <<<"$body" || fail "$label: $HUB_URL/ is not the hub"
+  body="$(curl -fsS "$HUB_URL/sw.js")" || fail "$label: $HUB_URL/sw.js did not respond"
+  grep -qF 'butler-precache:begin' <<<"$body" || fail "$label: sw.js is not served"
   curl -fsS "$HUB_URL/api/health" | jq -e '.status == "ok"' > /dev/null || fail "$label: /api/health is not ok"
   # tailscale serve forwards requests for the ts.net name to :8080; the :8080
   # site matches any Host.
-  curl -fsS -H "Host: $NAME" "http://127.0.0.1:8080/" | grep -qi '<html' || fail "$label: :8080 does not serve the ts.net Host"
+  body="$(curl -fsS -H "Host: $NAME" "http://127.0.0.1:8080/")" || fail "$label: :8080 did not respond for the ts.net Host"
+  grep -qi '<html' <<<"$body" || fail "$label: :8080 does not serve the ts.net Host"
   local health
   health="$(docker compose -f "$REPO_ROOT/demo/docker-compose.yml" ps --format '{{.Service}} {{.Health}}')"
   echo "$health"
