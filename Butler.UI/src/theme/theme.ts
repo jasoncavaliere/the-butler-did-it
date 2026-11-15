@@ -21,10 +21,12 @@ import tokensJson from '../../design-tokens.json';
  * scale, radii and touch-target floors (the `export ... from '../layout/tokens'`
  * block below), so UI code reads those sizes from here like any other design
  * value. The exception is layout code under `src/layout/` (for example
- * `hubLayout.ts`): it may import sizes from `layout/tokens` directly, to avoid an
- * import cycle, because this module depends on the layout layer and importing
- * it back from there would make each depend on the other (#215, review advisory
- * F1 from #120).
+ * `hubLayout.ts`): it imports sizes from `layout/tokens` directly. This is a
+ * layering rule: this module sits above the layout layer and re-exports from
+ * it, so layout code must not depend upward on it. Importing this module from
+ * `hubLayout.ts` would not form a cycle today (hubLayout -> theme -> tokens),
+ * but it would invert the layering and would risk a cycle if this module ever
+ * imported layout code (#215, #284; review advisory F1 from #120).
  *
  * The hub's rendered palette stays in `src/components/Screen.tsx`; this module
  * does not re-skin it.

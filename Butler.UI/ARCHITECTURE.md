@@ -281,12 +281,15 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
   values from: the six claim colours (`claimColors`, token order, glyph plus light and dark variants),
   `onClaim`, the light and dark palettes (`themes`), and the spacing and touch-target sizes re-exported
   from `src/layout/tokens.ts`, which is the size layer. UI code reads design values from `theme.ts`,
-  except code under `src/layout/` (for example `hubLayout.ts`), which may import sizes from
-  `layout/tokens` directly to avoid an import cycle, since `theme.ts` itself re-exports from
-  `layout/tokens` (#215). Hub targets (name tiles, chore rows) are at least `hubTouchTarget` (48,
-  the `s8` step) square and sit at least `minTargetGap` (8, the `s2` step) apart; the compact
-  `groupGap` is therefore 8. `src/theme/contrast.test.ts` checks every claim colour with the WCAG 2.1
-  formula in `src/theme/contrast.ts`: each light variant >= 3:1 on the light bg and surface, each
+  except code under `src/layout/` (for example `hubLayout.ts`), which imports sizes from
+  `layout/tokens` directly. This is a layering rule: `theme.ts` sits above the size layer and
+  re-exports from it, so layout code must not depend upward on `theme.ts`. Importing it from
+  `hubLayout.ts` would not form a cycle today (`hubLayout -> theme -> tokens`), but it would invert
+  the layering and would risk a cycle if `theme.ts` ever imported layout code (#215, #284). Hub
+  targets (name tiles, chore rows) are at least `hubTouchTarget` (48, the `s8` step) square and sit
+  at least `minTargetGap` (8, the `s2` step) apart; the compact `groupGap` is therefore 8.
+  `src/theme/contrast.test.ts` checks every claim colour with the WCAG 2.1 formula in
+  `src/theme/contrast.ts`: each light variant >= 3:1 on the light bg and surface, each
   dark variant >= 3:1 on the dark bg and surface, and on-claim / on-claim-dark text >= 4.5:1 on its
   variant (ADR-0010). The hub's rendered palette still lives in `Screen.tsx`.
 - **Fit model.** `measureHubBoard(layout, { people, todayRowsByPerson, weekRowsByPerson }, windowHeight)`
