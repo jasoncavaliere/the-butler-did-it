@@ -6,7 +6,7 @@ tags: [hub, hardware, tablet, kiosk, device owner, byo-tablet, offline, research
 category: Product & Strategy
 lifecycle: Record
 owner: agent-managed
-related: [10-product-vision]
+related: [10-product-vision, 17-byo-tablet-setup-guidance]
 sources:
   - { id: issue-83, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/83, title: Spike - hub tablet and kiosk boot findings }
   - { id: xda-fire-unlock, resource: https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/, title: Fire tablet bootloader unlock status (XDA) }
@@ -115,7 +115,7 @@ These were written from the findings above and are tracked as their own issues:
 - [#163 Hub reference-device decision + ADR](https://github.com/jasoncavaliere/the-butler-did-it/issues/163) - ratify a reference validation device (F4) and record it, so #31-#34 and #16 have a named hardware target instead of "a tablet."
 - [#164 Kiosk provisioning runbook](https://github.com/jasoncavaliere/the-butler-did-it/issues/164) - turn F5 into a repeatable, tested runbook (kiosk app choice included; Fully is the reference but not the only option), covering the one-shot device-owner ordering trap.
 - [#165 Offline epic validation on real hardware](https://github.com/jasoncavaliere/the-butler-did-it/issues/165) - a hardware acceptance pass for #31-#34 on the reference device, since F2 says the emulator or desktop-Chrome result is not sufficient evidence.
-- [#166 BYO-tablet setup guidance for families](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) - what Butler tells a customer about mounting, charging (F6), and locking down the tablet they already own. Product surface, not just internal ops.
+- [#166 BYO-tablet setup guidance for families](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) - what Butler tells a customer about mounting, charging (F6), and locking down the tablet they already own. Product surface, not just internal ops. Answered for families in the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md).
 - **Native Android shell (F7): deferred.** Parked as an explicit deferred option; no issue is filed. Revisit only if the web-first v1 line in the vision changes.
 
 ## Sources
@@ -131,3 +131,4 @@ These were written from the findings above and are tracked as their own issues:
 ## Related
 
 - [Product Vision](10-product-vision.md) - the BYO-tablet hardware and offline decision these findings test and reinforce.
+- [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md) - the family-facing setup guidance (choosing, power, mounting, lockdown) built from F4, F5 and F6.

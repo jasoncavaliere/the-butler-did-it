@@ -16,6 +16,7 @@ okf_version: "0.2"
 * [14 Feedback Log Template](docs/14-feedback-log-template.md) - A copy-paste template for logging each post-demo customer conversation (date, household shape, quotes, objections, pricing answers, and follow-up), with filled entries kept out of this public repo.
 * [15 Pilot Success Criteria](docs/15-pilot-success-criteria.md) - Four pilot metrics read at week 4 from the organizer Insights screen, with carts from its API (weekly active households, top contributor's share, carts confirmed, distinct participants), each with a hypothesis threshold for build more, change course, or stop, derived from the Product Vision's month-3 target.
 * [16 Pilot One-Pager](docs/16-pilot-one-pager.md) - The one-page offer for pilot families: what a household gets, what we ask over the six-week pilot, the four numbers we read, how its data is kept, and what happens after (a proposal for the owner to ratify).
+* [17 BYO-Tablet Setup Guidance](docs/17-byo-tablet-setup-guidance.md) - How a family sets up the tablet it already owns as the Butler hub: choosing one, keeping its battery healthy on permanent power, mounting it, and locking it down (strongly recommended, with iPad Guided Access as the lighter path).
 
 # Architecture
 
