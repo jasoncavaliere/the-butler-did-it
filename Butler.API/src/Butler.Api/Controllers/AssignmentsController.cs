@@ -9,12 +9,13 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 namespace Butler.Api.Controllers;
 
 /// <summary>
-/// Thin controller for weekly chore assignments (C3, journey 6.3). Its one route
-/// generates - or idempotently regenerates - a household week's assignments by
-/// running the pure C2 engine over the household's active chores and people and
-/// persisting the result (Engineering Contract 7.6). It may be triggered by an
-/// organizer or by a paired hub device, but never a plain participant session
-/// (7.4). Work is handed to MediatR.
+/// Thin controller for weekly chore assignments (C3, journey 6.3). It reads a
+/// household week lazily (generating the current week on its first read, #110),
+/// generates - or idempotently regenerates - a week by running the pure C2 engine
+/// over the household's active chores and people and persisting the result
+/// (Engineering Contract 7.6), and completes or undoes one assignment (C4). The
+/// read and the generate may be triggered by an organizer or by a paired hub
+/// device, but never a plain participant session (7.4). Work is handed to MediatR.
 /// </summary>
 [ApiController]
 [Route("households/{householdId}/assignments")]
@@ -26,6 +27,39 @@ public sealed class AssignmentsController : ControllerBase
     public AssignmentsController(ISender sender)
     {
         _sender = sender;
+    }
+
+    /// <summary>
+    /// Reads the household's assignments for <paramref name="weekIso"/> (organizer
+    /// or paired hub device). When the week is the current one per the injected
+    /// clock and has no assignments yet, they are generated first and returned in
+    /// the same response; any other week is returned as stored and never
+    /// generated. The response carries the server's current week as
+    /// <c>currentWeekIso</c>. An unknown household is a <c>404</c>; a malformed week
+    /// is a <c>400</c>.
+    /// </summary>
+    [HttpGet("{weekIso}")]
+    [Authorize(Policy = OrganizerAuthorization.OrganizerOrHubDevicePolicyName)]
+    [ProducesResponseType(typeof(AssignmentSetResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AssignmentSetResponse>> Get(
+        string householdId,
+        string weekIso,
+        CancellationToken cancellationToken)
+    {
+        var result = await _sender.Send(
+            new GetWeekAssignmentsQuery(householdId, weekIso),
+            cancellationToken);
+
+        if (result is null)
+        {
+            return HouseholdNotFound(householdId);
+        }
+
+        return Ok(result);
     }
 
     /// <summary>
@@ -52,11 +86,7 @@ public sealed class AssignmentsController : ControllerBase
 
         if (result is null)
         {
-            return Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "Household not found.",
-                detail: $"No household with id '{householdId}' exists.",
-                type: $"https://httpstatuses.io/{StatusCodes.Status404NotFound}");
+            return HouseholdNotFound(householdId);
         }
 
         return Ok(result);
@@ -178,6 +208,14 @@ public sealed class AssignmentsController : ControllerBase
 
         return Ok(result);
     }
+
+    // The 404 the read and the generate share for an unknown household.
+    private ObjectResult HouseholdNotFound(string householdId) =>
+        Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "Household not found.",
+            detail: $"No household with id '{householdId}' exists.",
+            type: $"https://httpstatuses.io/{StatusCodes.Status404NotFound}");
 
     // The actor for a completion or its reversal: a participant session identifies
     // itself, so its own personId (the NameIdentifier claim) is authoritative. A hub

@@ -84,18 +84,42 @@ const refused: ApiResult<never> = {
 type ClientOpts = {
   assignments?: AssignmentView[];
   chores?: ChoreResponse[];
-  generate?: ApiResult<unknown>;
+  /** Overrides the assignments read (`GET .../assignments/{weekIso}`) outright. */
+  read?: ApiResult<unknown>;
+  /** The server's own week the read reports; defaults to the week asked for. */
+  serverWeek?: string;
   choresResult?: ApiResult<unknown>;
   complete?: (choreId: string) => ApiResult<unknown>;
   undo?: (choreId: string) => ApiResult<unknown>;
 };
 
+/** The board's assignments read, `GET .../assignments/{weekIso}` (#110). */
+const READ_PATH = /\/assignments\/(\d{4}-W\d{2})$/;
+
+/** The week a board read asked for, or undefined when `path` is not one. */
+const readWeekOf = (path: string): string | undefined => READ_PATH.exec(path)?.[1];
+
 /**
- * A client that answers the calls the board makes: the C3 generate (an update),
- * the open chores read (a get), the C4 complete (an update), and its undo (an
- * update). Each write is overridable so a test can force an empty set, a failure,
- * or a specific completion / reversal result. By default a complete confirms
- * `Done` and an undo confirms `Open`.
+ * What the real lazy read stores for `week` when the server is in `serverWeek`
+ * (#110): a week ahead of the server is never generated, so it comes back
+ * empty; the server's own week and any stored past week hold the set. ISO week
+ * strings sort in time order, so a plain string comparison is enough here.
+ */
+const storedFor = (week: string, serverWeek: string, set: AssignmentView[]): AssignmentView[] =>
+  week > serverWeek ? [] : set;
+
+/** How many assignments reads the board has made through `client`. */
+const readCalls = (client: ApiClient): number =>
+  (client.get as jest.Mock).mock.calls.filter(([path]) => readWeekOf(String(path)) !== undefined)
+    .length;
+
+/**
+ * A client that answers the calls the board makes: the lazy assignments read
+ * (a get, #110), the open chores read (a get), the C4 complete (an update), and
+ * its undo (an update). Each is overridable so a test can force an empty set, a
+ * failure, a server on another week, or a specific completion / reversal
+ * result. By default the read echoes the week it was asked for as both its week
+ * and the server's, a complete confirms `Done`, and an undo confirms `Open`.
  */
 function boardClient(opts: ClientOpts = {}): ApiClient {
   return {
@@ -104,15 +128,22 @@ function boardClient(opts: ClientOpts = {}): ApiClient {
       if (path.includes('/chores')) {
         return opts.choresResult ?? ok(opts.chores ?? chores);
       }
+      const pathWeek = readWeekOf(path);
+      if (pathWeek !== undefined) {
+        const serverWeek = opts.serverWeek ?? pathWeek;
+        return (
+          opts.read ??
+          ok({
+            weekIso: pathWeek,
+            currentWeekIso: serverWeek,
+            assignments: storedFor(pathWeek, serverWeek, opts.assignments ?? assignments),
+            unassigned: [],
+          })
+        );
+      }
       return ok([]);
     }) as unknown as ApiClient['get'],
     update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-      if (path.endsWith('/generate')) {
-        return (
-          opts.generate ??
-          ok({ weekIso: WEEK, assignments: opts.assignments ?? assignments, unassigned: [] })
-        );
-      }
       // An undo: `.../assignments/{week}/{choreId}/undo` (checked first so the
       // complete matcher below cannot swallow it).
       const undoChoreId = /assignments\/[^/]+\/([^/]+)\/undo$/.exec(path)?.[1];
@@ -173,6 +204,78 @@ afterEach(() => {
 });
 
 describe('ChoreBoard', () => {
+  it('loads the current week through GET .../assignments/{weekIso} and never posts generate', async () => {
+    const client = boardClient();
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    // The board reads the tablet's current week lazily (#110)...
+    expect(client.get).toHaveBeenCalledWith(`/households/hh-1/assignments/${currentWeekIso()}`);
+    expect(readCalls(client)).toBe(1);
+    // ...and loading it never regenerates the week.
+    const posted = (client.update as jest.Mock).mock.calls.map(([path]) => String(path));
+    expect(posted.filter((path) => path.endsWith('/generate'))).toEqual([]);
+    expect(client.update).not.toHaveBeenCalled();
+  });
+
+  it('is read-only while the server names another week, and a tap reloads instead of writing', async () => {
+    const client = boardClient({ serverWeek: '1999-W01' });
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    // The tablet's week is ahead of the server's, so the server never generated
+    // it and the first read is empty. The board re-reads the server's week and
+    // shows that rather than "no chores"...
+    expect(client.get).toHaveBeenCalledWith(`/households/hh-1/assignments/${currentWeekIso()}`);
+    expect(client.get).toHaveBeenCalledWith('/households/hh-1/assignments/1999-W01');
+    expect(readCalls(client)).toBe(2);
+    expect(screen.queryByTestId('chore-board-empty')).toBeNull();
+    // ...but no row is a control, because it is not the tablet's week.
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
+    // One disagreement is the ordinary boundary race, not worth a message.
+    expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('chore-item-c1'));
+    });
+
+    expect(client.update).not.toHaveBeenCalled();
+    expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('○');
+    // The refused tap reloads: the tablet's week, then the server's again.
+    await waitFor(() => expect(readCalls(client)).toBe(4));
+  });
+
+  it('stays read-only when the server turns the week between the read and the re-read', async () => {
+    // The first read names last year's week as the server's; by the re-read the
+    // server agrees with the tablet. The board holds the re-read (old) week, so
+    // it is still not the tablet's week and must not take taps.
+    const client = boardClient();
+    (client.get as jest.Mock).mockImplementation(async (path: string) => {
+      const pathWeek = readWeekOf(path);
+      if (pathWeek === undefined) {
+        return ok(chores);
+      }
+      const serverWeek = pathWeek === currentWeekIso() ? '1999-W01' : currentWeekIso();
+      return ok({ weekIso: pathWeek, currentWeekIso: serverWeek, assignments, unassigned: [] });
+    });
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    expect(client.get).toHaveBeenLastCalledWith('/households/hh-1/assignments/1999-W01');
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('treats a read without currentWeekIso as agreeing with the week it answered for', async () => {
+    const client = boardClient({
+      read: ok({ weekIso: currentWeekIso(), assignments, unassigned: [] }),
+    });
+    await renderBoard(client, { activePersonId: 'p1' });
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false);
+    expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
+  });
+
   it('render-grouped-board: assignments appear grouped by day and by person', async () => {
     await renderBoard(boardClient());
 
@@ -315,12 +418,7 @@ describe('ChoreBoard', () => {
     });
     const client: ApiClient = {
       ...boardClient(),
-      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-        if (path.endsWith('/generate')) {
-          return ok({ weekIso: WEEK, assignments, unassigned: [] });
-        }
-        return pending;
-      }) as unknown as ApiClient['update'],
+      update: jest.fn(async (): Promise<ApiResult<unknown>> => pending) as unknown as ApiClient['update'],
     };
     await renderBoard(client, { activePersonId: 'p1' });
 
@@ -382,12 +480,9 @@ describe('ChoreBoard', () => {
   it('treats an undefined completion result as a failure and reverts', async () => {
     const client: ApiClient = {
       ...boardClient(),
-      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-        if (path.endsWith('/generate')) {
-          return ok({ weekIso: WEEK, assignments, unassigned: [] });
-        }
-        return undefined as unknown as ApiResult<unknown>;
-      }) as unknown as ApiClient['update'],
+      update: jest.fn(
+        async (): Promise<ApiResult<unknown>> => undefined as unknown as ApiResult<unknown>,
+      ) as unknown as ApiClient['update'],
     };
     await renderBoard(client, { activePersonId: 'p1' });
 
@@ -476,12 +571,7 @@ describe('ChoreBoard', () => {
     });
     const client: ApiClient = {
       ...boardClient(),
-      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-        if (path.endsWith('/generate')) {
-          return ok({ weekIso: WEEK, assignments, unassigned: [] });
-        }
-        return pending;
-      }) as unknown as ApiClient['update'],
+      update: jest.fn(async (): Promise<ApiResult<unknown>> => pending) as unknown as ApiClient['update'],
     };
     await renderBoard(client, { activePersonId: 'p1' });
 
@@ -514,15 +604,17 @@ describe('ChoreBoard', () => {
     });
     const client: ApiClient = {
       baseUrl: 'http://api.test:1',
-      get: jest.fn(async () => ok(chores)) as unknown as ApiClient['get'],
-      update: jest.fn(async () => pending) as unknown as ApiClient['update'],
+      get: jest.fn(async (path: string) =>
+        readWeekOf(path) !== undefined ? pending : ok(chores),
+      ) as unknown as ApiClient['get'],
+      update: jest.fn() as unknown as ApiClient['update'],
     };
     await renderBoard(client, { activePersonId: 'p1' });
 
     expect(screen.getByTestId('chore-board-loading')).toBeOnTheScreen();
 
     await act(async () => {
-      resolveGen(ok({ weekIso: WEEK, assignments, unassigned: [] }));
+      resolveGen(ok({ weekIso: WEEK, currentWeekIso: WEEK, assignments, unassigned: [] }));
       await pending;
     });
 
@@ -537,8 +629,10 @@ describe('ChoreBoard', () => {
     });
     const client: ApiClient = {
       baseUrl: 'http://api.test:1',
-      get: jest.fn(async () => ok(chores)) as unknown as ApiClient['get'],
-      update: jest.fn(async () => pending) as unknown as ApiClient['update'],
+      get: jest.fn(async (path: string) =>
+        readWeekOf(path) !== undefined ? pending : ok(chores),
+      ) as unknown as ApiClient['get'],
+      update: jest.fn() as unknown as ApiClient['update'],
     };
     const view = await renderBoard(client, { activePersonId: 'p1' });
 
@@ -548,7 +642,7 @@ describe('ChoreBoard', () => {
 
     // The read resolving after unmount must not set state on the gone component.
     await act(async () => {
-      resolveGen(ok({ weekIso: WEEK, assignments, unassigned: [] }));
+      resolveGen(ok({ weekIso: WEEK, currentWeekIso: WEEK, assignments, unassigned: [] }));
       await pending;
     });
 
@@ -561,14 +655,14 @@ describe('ChoreBoard', () => {
     await waitFor(() => expect(screen.getByTestId('chore-board-empty')).toBeOnTheScreen());
   });
 
-  it('treats a generate response with no body as an empty board', async () => {
-    await renderBoard(boardClient({ generate: { ok: true, status: 200, data: undefined, etag: null } }));
+  it('treats an assignments read with no body as an empty board', async () => {
+    await renderBoard(boardClient({ read: { ok: true, status: 200, data: undefined, etag: null } }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-empty')).toBeOnTheScreen());
   });
 
   it('surfaces a calm error when the assignment read fails', async () => {
-    await renderBoard(boardClient({ generate: unreachable }));
+    await renderBoard(boardClient({ read: unreachable }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
     expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
@@ -576,9 +670,14 @@ describe('ChoreBoard', () => {
   });
 
   it('surfaces a calm error when the assignment read returns nothing', async () => {
+    const live = boardClient();
     const client: ApiClient = {
-      ...boardClient(),
-      update: jest.fn(async () => undefined as unknown as ApiResult<unknown>) as unknown as ApiClient['update'],
+      ...live,
+      get: jest.fn(async (path: string) =>
+        readWeekOf(path) !== undefined
+          ? (undefined as unknown as ApiResult<unknown>)
+          : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
     };
     await renderBoard(client);
 
@@ -593,9 +692,14 @@ describe('ChoreBoard', () => {
   });
 
   it('surfaces a calm error when the chores read returns nothing', async () => {
+    const live = boardClient();
     const client: ApiClient = {
-      ...boardClient(),
-      get: jest.fn(async () => undefined as unknown as ApiResult<unknown>) as unknown as ApiClient['get'],
+      ...live,
+      get: jest.fn(async (path: string) =>
+        path.includes('/chores')
+          ? (undefined as unknown as ApiResult<unknown>)
+          : live.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
     };
     await renderBoard(client);
 
@@ -979,7 +1083,7 @@ describe('ChoreBoard offline cache', () => {
   it('render-from-cache-when-offline: the assignment read being unreachable shows the last-known week', async () => {
     writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
     const onLastKnown = jest.fn();
-    const client = boardClient({ generate: unreachable });
+    const client = boardClient({ read: unreachable });
     useApiClientMock.mockReturnValue(client);
 
     await render(
@@ -1036,7 +1140,7 @@ describe('ChoreBoard offline cache', () => {
       ok: false,
       error: { kind: 'problem', status: 500, title: 'Server error', detail: 'The week could not be built.' },
     };
-    const client = boardClient({ generate: serverError });
+    const client = boardClient({ read: serverError });
     useApiClientMock.mockReturnValue(client);
 
     await render(
@@ -1061,7 +1165,7 @@ describe('ChoreBoard offline cache', () => {
       '2026-07-20T09:00:00.000Z',
     );
 
-    await renderBoard(boardClient({ generate: unreachable }));
+    await renderBoard(boardClient({ read: unreachable }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
   });
@@ -1088,7 +1192,7 @@ describe('ChoreBoard offline cache', () => {
       '2026-07-20T09:00:00.000Z',
     );
 
-    const onUnreachable = await renderReportingUnreachable(boardClient({ generate: unreachable }));
+    const onUnreachable = await renderReportingUnreachable(boardClient({ read: unreachable }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
     expect(onUnreachable).toHaveBeenLastCalledWith(true);
@@ -1097,7 +1201,7 @@ describe('ChoreBoard offline cache', () => {
   it('does not report unreachable when the board falls back to the cache (#239)', async () => {
     writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
 
-    const onUnreachable = await renderReportingUnreachable(boardClient({ generate: unreachable }));
+    const onUnreachable = await renderReportingUnreachable(boardClient({ read: unreachable }));
 
     await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
     expect(onUnreachable).toHaveBeenLastCalledWith(false);
@@ -1110,7 +1214,7 @@ describe('ChoreBoard offline cache', () => {
       error: { kind: 'problem', status: 500, title: 'Server error', detail: 'The week could not be built.' },
     };
 
-    const onUnreachable = await renderReportingUnreachable(boardClient({ generate: serverError }));
+    const onUnreachable = await renderReportingUnreachable(boardClient({ read: serverError }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
     expect(onUnreachable).toHaveBeenLastCalledWith(false);
@@ -1128,7 +1232,7 @@ describe('ChoreBoard offline cache', () => {
   it('does not serve another household from cache', async () => {
     writeGlance('hh-2', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
 
-    await renderBoard(boardClient({ generate: unreachable }));
+    await renderBoard(boardClient({ read: unreachable }));
 
     // hh-1 has no cache of its own, and hh-2's is never borrowed.
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
@@ -1147,7 +1251,7 @@ describe('ChoreBoard offline cache', () => {
       }),
     );
 
-    await renderBoard(boardClient({ generate: unreachable }));
+    await renderBoard(boardClient({ read: unreachable }));
 
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
     expect(screen.queryByTestId('chore-board')).toBeNull();
@@ -1267,7 +1371,7 @@ describe('ChoreBoard cached board across a week boundary', () => {
 
   it('stale-week-guard: a tap on the last-known board writes nothing', async () => {
     writeGlance('hh-1', { board: staleBoard }, undefined, '2026-07-20T09:00:00.000Z');
-    const client = boardClient({ generate: unreachable });
+    const client = boardClient({ read: unreachable });
 
     // A participant is active, so on a *live* board this tap would complete c1.
     await renderBoard(client, { activePersonId: 'p1' });
@@ -1289,7 +1393,7 @@ describe('ChoreBoard cached board across a week boundary', () => {
   it('marks every cached row inert, so it reads as a display and not a control', async () => {
     writeGlance('hh-1', { board: staleBoard }, undefined, '2026-07-20T09:00:00.000Z');
 
-    await renderBoard(boardClient({ generate: unreachable }), { activePersonId: 'p1' });
+    await renderBoard(boardClient({ read: unreachable }), { activePersonId: 'p1' });
 
     await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
     expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
@@ -1309,7 +1413,7 @@ describe('ChoreBoard cached board across a week boundary', () => {
       undefined,
       '2026-07-20T09:00:00.000Z',
     );
-    const client = boardClient({ generate: unreachable });
+    const client = boardClient({ read: unreachable });
 
     await renderBoard(client, { activePersonId: 'p1' });
     await waitFor(() => expect(screen.getByTestId('chore-item-c4')).toBeOnTheScreen());
@@ -1503,13 +1607,13 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
       return p.endsWith('/complete') || p.endsWith('/undo');
     });
 
-  const generateCalls = (client: ApiClient) =>
-    (client.update as jest.Mock).mock.calls.filter(([path]) => String(path).endsWith('/generate'))
-      .length;
-
-  /** A live client whose generate always names the week that is ending. */
-  const endingWeekClient = () =>
-    boardClient({ generate: ok({ weekIso: ENDED, assignments, unassigned: [] }) });
+  /**
+   * A live client whose server clock stays in the week that is ending: every
+   * read echoes the week the tablet asked for but names ENDED as the server's
+   * own week (#110), and a read of the new week, which this server never
+   * generates, comes back empty.
+   */
+  const endingWeekClient = () => boardClient({ serverWeek: ENDED });
 
   async function renderLiveBoard(client: ApiClient) {
     await renderBoard(client, { activePersonId: 'p1' });
@@ -1577,15 +1681,19 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
   it('live-rollover-reload: the board reloads the new week at the boundary and is tappable again', async () => {
     // A server that names whichever week it is when the request arrives.
     const client = boardClient();
-    (client.update as jest.Mock).mockImplementation(async (path: string) => {
-      if (path.endsWith('/generate')) {
-        return ok({ weekIso: currentWeekIso(), assignments, unassigned: [] });
+    (client.get as jest.Mock).mockImplementation(async (path: string) => {
+      const pathWeek = readWeekOf(path);
+      if (pathWeek !== undefined) {
+        return ok({ weekIso: pathWeek, currentWeekIso: currentWeekIso(), assignments, unassigned: [] });
       }
+      return ok(chores);
+    });
+    (client.update as jest.Mock).mockImplementation(async (path: string) => {
       const choreId = /assignments\/[^/]+\/([^/]+)\/complete$/.exec(path)?.[1] ?? '';
       return ok({ weekIso: currentWeekIso(), choreId, assignedPersonId: '', status: 'Done' });
     });
     await renderLiveBoard(client);
-    expect(generateCalls(client)).toBe(1);
+    expect(readCalls(client)).toBe(1);
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(61_000);
@@ -1593,7 +1701,7 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
 
     // One extra load at the boundary - a healthy hub is not left read-only every
     // Monday until someone reloads it - and only one.
-    await waitFor(() => expect(generateCalls(client)).toBe(2));
+    await waitFor(() => expect(readCalls(client)).toBe(2));
     await waitFor(() =>
       expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false),
     );
@@ -1609,7 +1717,7 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(generateCalls(client)).toBe(2);
+    expect(readCalls(client)).toBe(2);
   });
 
   it('live-rollover-drain: a tap queued just before the boundary is not replayed into the ended week', async () => {
@@ -1661,19 +1769,33 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
   });
 
   /**
-   * A live client whose server clock lags the tablet's: its generate names the
-   * ended week for the first `lagging` loads, then the new one. Completions
+   * A live client whose server clock lags the tablet's: its read names the
+   * ended week as the server's own for the first `lagging` loads, then the new
+   * one, while echoing whichever week the tablet asked for (#110). Completions
    * confirm `Done` for whatever week they were posted to.
    */
   function laggingServerClient(lagging: number) {
     const client = boardClient();
+    // Counts the board's loads (its read of the tablet's own week), not the
+    // follow-up read of the server's week a skewed load makes.
     let loads = 0;
-    (client.update as jest.Mock).mockImplementation(async (path: string) => {
-      if (path.endsWith('/generate')) {
-        loads += 1;
-        const week = loads <= lagging ? ENDED : NEXT;
-        return ok({ weekIso: week, assignments, unassigned: [] });
+    (client.get as jest.Mock).mockImplementation(async (path: string) => {
+      const pathWeek = readWeekOf(path);
+      if (pathWeek !== undefined) {
+        if (pathWeek === currentWeekIso()) {
+          loads += 1;
+        }
+        const serverWeek = loads <= lagging ? ENDED : NEXT;
+        return ok({
+          weekIso: pathWeek,
+          currentWeekIso: serverWeek,
+          assignments: storedFor(pathWeek, serverWeek, assignments),
+          unassigned: [],
+        });
       }
+      return ok(chores);
+    });
+    (client.update as jest.Mock).mockImplementation(async (path: string) => {
       const match = /assignments\/([^/]+)\/([^/]+)\/complete$/.exec(path);
       return ok({ weekIso: match?.[1] ?? '', choreId: match?.[2] ?? '', assignedPersonId: '', status: 'Done' });
     });
@@ -1688,11 +1810,16 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(61_000);
     });
-    await waitFor(() => expect(generateCalls(client)).toBe(2));
-    // The tablet has turned the week, the server has not: read-only for now...
+    // The boundary reload asks for the new week, which the server has not
+    // generated, so it re-reads the server's week: two reads.
+    await waitFor(() => expect(readCalls(client)).toBe(3));
+    expect(client.get).toHaveBeenLastCalledWith(`/households/hh-1/assignments/${ENDED}`);
+    // The tablet has turned the week, the server has not: the ended week's rows,
+    // not an empty board, read-only for now...
     await waitFor(() =>
       expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true),
     );
+    expect(screen.queryByTestId('chore-board-empty')).toBeNull();
     // ...and a single disagreement is the ordinary race, not worth a message.
     expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
 
@@ -1700,7 +1827,7 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[0]);
     });
-    await waitFor(() => expect(generateCalls(client)).toBe(3));
+    await waitFor(() => expect(readCalls(client)).toBe(4));
     await waitFor(() =>
       expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false),
     );
@@ -1714,7 +1841,7 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[LIVE_WEEK_RETRY_DELAYS_MS.length - 1] * 2);
     });
-    expect(generateCalls(client)).toBe(3);
+    expect(readCalls(client)).toBe(4);
     expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
   });
 
@@ -1724,7 +1851,8 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(61_000);
     });
-    await waitFor(() => expect(generateCalls(client)).toBe(2));
+    // The skewed boundary reload: the new week, then the server's.
+    await waitFor(() => expect(readCalls(client)).toBe(3));
     await waitFor(() =>
       expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true),
     );
@@ -1735,7 +1863,7 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
       fireEvent.press(screen.getByTestId('chore-item-c1'));
     });
     expect(writesFrom(client)).toHaveLength(0);
-    await waitFor(() => expect(generateCalls(client)).toBe(3));
+    await waitFor(() => expect(readCalls(client)).toBe(4));
     await waitFor(() =>
       expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(false),
     );
@@ -1743,11 +1871,16 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
 
   it('clock-notice: a tablet whose clock disagrees with the server says so instead of going silently inert', async () => {
     // The server is in a different week altogether: the tablet's clock is wrong.
-    const client = boardClient({ generate: ok({ weekIso: '2026-W40', assignments, unassigned: [] }) });
+    const client = boardClient({ serverWeek: '2026-W40' });
     await renderBoard(client, { activePersonId: 'p1' });
     await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
     expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
     expect(screen.queryByTestId('chore-board-clock-notice')).toBeNull();
+
+    // Each disagreeing load reads the tablet's week and then the server's, and
+    // shows the server's week.
+    const READS_PER_LOAD = 2;
+    expect(client.get).toHaveBeenLastCalledWith('/households/hh-1/assignments/2026-W40');
 
     // The retries keep disagreeing, so after the first one the board explains itself.
     let expectedLoads = 1;
@@ -1756,7 +1889,7 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
         await jest.advanceTimersByTimeAsync(delay);
       });
       expectedLoads += 1;
-      await waitFor(() => expect(generateCalls(client)).toBe(expectedLoads));
+      await waitFor(() => expect(readCalls(client)).toBe(expectedLoads * READS_PER_LOAD));
     }
     expect(expectedLoads).toBeGreaterThan(CLOCK_NOTICE_AFTER);
     expect(screen.getByTestId('chore-board-clock-notice')).toHaveTextContent(/clock/);
@@ -1767,16 +1900,37 @@ describe('ChoreBoard live board across a week boundary (#89)', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(cap - 1);
     });
-    expect(generateCalls(client)).toBe(expectedLoads);
+    expect(readCalls(client)).toBe(expectedLoads * READS_PER_LOAD);
     await act(async () => {
       await jest.advanceTimersByTimeAsync(1);
     });
-    await waitFor(() => expect(generateCalls(client)).toBe(expectedLoads + 1));
+    await waitFor(() => expect(readCalls(client)).toBe((expectedLoads + 1) * READS_PER_LOAD));
 
     // A tap is still refused and writes nothing.
     await act(async () => {
       fireEvent.press(screen.getByTestId('chore-item-c1'));
     });
+    expect(writesFrom(client)).toHaveLength(0);
+  });
+
+  it('clock-notice: a tablet ahead of the server shows the server week and the notice, never an empty board', async () => {
+    // The tablet has crossed into the new week; this server never does, so the
+    // tablet's week is one it never generates and reads back empty.
+    const client = endingWeekClient();
+    await renderLiveBoard(client);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(61_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(LIVE_WEEK_RETRY_DELAYS_MS[0]);
+    });
+
+    await waitFor(() => expect(screen.getByTestId('chore-board-clock-notice')).toBeOnTheScreen());
+    // The ended week's rows are still drawn, read-only, under the notice.
+    expect(screen.queryByTestId('chore-board-empty')).toBeNull();
+    expect(screen.getByTestId('chore-item-c1').props.accessibilityState.disabled).toBe(true);
+    expect(client.get).toHaveBeenCalledWith(`/households/hh-1/assignments/${NEXT}`);
+    expect(client.get).toHaveBeenLastCalledWith(`/households/hh-1/assignments/${ENDED}`);
     expect(writesFrom(client)).toHaveLength(0);
   });
 
@@ -2142,14 +2296,14 @@ describe('ChoreBoard offline write queue', () => {
 
   /**
    * A tiny stateful API for the sync-race tests (#88). It holds the server's own
-   * view of c1/c4, so a generate answers with whatever the server knew *when the
+   * view of c1/c4, so a read answers with whatever the server knew *when the
    * request was made* - which is what makes a stale snapshot possible at all.
    *
-   * - `holdFirstOnlineGenerate` parks the first online generate until
-   *   `releaseGenerate()`, so a drain can confirm before the load resolves.
-   *   `holdOnlineGenerate: n` parks the nth instead (the first is `1`); either
+   * - `holdFirstOnlineRead` parks the first online read until
+   *   `releaseRead()`, so a drain can confirm before the load resolves.
+   *   `holdOnlineRead: n` parks the nth instead (the first is `1`); either
    *   way the snapshot is still taken when the request is made.
-   *   `releaseGenerate(answer)` answers the parked generate with that failure
+   *   `releaseRead(answer)` answers the parked read with that failure
    *   instead (#154).
    * - `holdComplete` parks the first complete until `releaseComplete()`, and the
    *   server only records it on release, so the load can resolve first.
@@ -2164,12 +2318,12 @@ describe('ChoreBoard offline write queue', () => {
    *   instead and records nothing.
    *
    * A complete that is not held still lands a tick after it is sent (network
-   * latency), so a generate sent in the same effect flush sees the pre-sync week.
+   * latency), so a read sent in the same effect flush sees the pre-sync week.
    */
   function serverClient(
     opts: {
-      holdFirstOnlineGenerate?: boolean;
-      holdOnlineGenerate?: number;
+      holdFirstOnlineRead?: boolean;
+      holdOnlineRead?: number;
       holdComplete?: boolean;
       extra?: string[];
       holdLiveComplete?: string;
@@ -2184,10 +2338,10 @@ describe('ChoreBoard offline write queue', () => {
         c4: 'Done',
         ...Object.fromEntries(extra.map((choreId) => [choreId, 'Open'])),
       } as Record<string, 'Open' | 'Done'>,
-      onlineGenerates: 0,
+      onlineReads: 0,
     };
-    const holdGenerateAt = opts.holdOnlineGenerate ?? (opts.holdFirstOnlineGenerate ? 1 : 0);
-    let releaseGenerate: (override?: ApiResult<unknown>) => void = () => {};
+    const holdReadAt = opts.holdOnlineRead ?? (opts.holdFirstOnlineRead ? 1 : 0);
+    let releaseRead: (override?: ApiResult<unknown>) => void = () => {};
     let releaseComplete: () => void = () => {};
     let releaseLiveComplete: () => void = () => {};
     let completeHeld = false;
@@ -2196,6 +2350,7 @@ describe('ChoreBoard offline write queue', () => {
     const snapshot = (): ApiResult<unknown> =>
       ok({
         weekIso: thisWeek,
+        currentWeekIso: thisWeek,
         assignments: [
           { choreId: 'c1', assignedPersonId: 'p1', effort: 1, status: server.status.c1 },
           { choreId: 'c4', assignedPersonId: 'p1', effort: 3, status: server.status.c4 },
@@ -2211,25 +2366,25 @@ describe('ChoreBoard offline write queue', () => {
 
     const client: ApiClient = {
       baseUrl: 'http://api.test:1',
-      get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
+      get: jest.fn((path: string): Promise<ApiResult<unknown>> => {
         if (server.offline) {
-          return unreachable;
+          return Promise.resolve(unreachable);
         }
-        return path.includes('/chores') ? ok(chores) : ok([]);
+        if (readWeekOf(path) !== undefined) {
+          server.onlineReads += 1;
+          const answer = snapshot();
+          if (server.onlineReads === holdReadAt) {
+            return new Promise((resolve) => {
+              releaseRead = (override) => resolve(override ?? answer);
+            });
+          }
+          return Promise.resolve(answer);
+        }
+        return Promise.resolve(path.includes('/chores') ? ok(chores) : ok([]));
       }) as unknown as ApiClient['get'],
       update: jest.fn((path: string): Promise<ApiResult<unknown>> => {
         if (server.offline) {
           return Promise.resolve(unreachable);
-        }
-        if (path.endsWith('/generate')) {
-          server.onlineGenerates += 1;
-          const answer = snapshot();
-          if (server.onlineGenerates === holdGenerateAt) {
-            return new Promise((resolve) => {
-              releaseGenerate = (override) => resolve(override ?? answer);
-            });
-          }
-          return Promise.resolve(answer);
         }
         const live = /assignments\/[^/]+\/([^/]+)\/(complete|undo)$/.exec(path);
         if (live !== null && opts.holdLive?.includes(live[1])) {
@@ -2276,7 +2431,7 @@ describe('ChoreBoard offline write queue', () => {
     return {
       client,
       server,
-      releaseGenerate: (answer?: ApiResult<unknown>) => releaseGenerate(answer),
+      releaseRead: (answer?: ApiResult<unknown>) => releaseRead(answer),
       releaseComplete: () => releaseComplete(),
       releaseLiveComplete: () => releaseLiveComplete(),
       releaseLive: (index: number, answer?: ApiResult<unknown>) => parkedLive[index](answer),
@@ -2300,10 +2455,6 @@ describe('ChoreBoard offline write queue', () => {
     act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-
-  const generateCalls = (client: ApiClient) =>
-    (client.update as jest.Mock).mock.calls.filter(([path]) => String(path).endsWith('/generate'))
-      .length;
 
   /** Cached board, one queued c1 completion, offline mount, then the network returns. */
   async function goOnlineWithQueuedTap(
@@ -2334,9 +2485,9 @@ describe('ChoreBoard offline write queue', () => {
     ]);
 
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    await waitFor(() => expect(fake.server.onlineGenerates).toBe(2));
+    await waitFor(() => expect(fake.server.onlineReads).toBe(2));
     await flush();
-    expect(fake.server.onlineGenerates).toBe(2);
+    expect(fake.server.onlineReads).toBe(2);
 
     // The glance cache stores the raw server build, so this is the server's own
     // post-sync answer rather than the queue overlay.
@@ -2351,22 +2502,22 @@ describe('ChoreBoard offline write queue', () => {
   });
 
   it('sync-race: a write the drain confirms before the reconnect refetch resolves still reads as Done', async () => {
-    // #88: the reconnect generate snapshots c1 as Open, the drain then confirms the
+    // #88: the reconnect read snapshots c1 as Open, the drain then confirms the
     // completion (so the queue overlay is empty), and only then does the stale
     // snapshot resolve. Without a confirm-triggered refetch the live board would
     // draw the tap as Open and nothing would ever correct it.
-    const fake = serverClient({ holdFirstOnlineGenerate: true });
+    const fake = serverClient({ holdFirstOnlineRead: true });
     await goOnlineWithQueuedTap(fake);
 
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
     await act(async () => {
-      fake.releaseGenerate();
+      fake.releaseRead();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     await waitFor(() => expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓'));
     expect(screen.getByTestId('chore-item-c1').props.accessibilityState.checked).toBe(true);
-    expect(fake.server.onlineGenerates).toBe(2);
+    expect(fake.server.onlineReads).toBe(2);
   });
 
   it('sync-race: the fix holds whichever request the network answers first', async () => {
@@ -2378,7 +2529,7 @@ describe('ChoreBoard offline write queue', () => {
 
     await waitFor(() => expect(readGlance('hh-1')?.board?.items[0].status).toBe('Open'));
     expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
-    expect(fake.server.onlineGenerates).toBe(1);
+    expect(fake.server.onlineReads).toBe(1);
 
     await act(async () => {
       fake.releaseComplete();
@@ -2386,27 +2537,27 @@ describe('ChoreBoard offline write queue', () => {
     });
 
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    await waitFor(() => expect(fake.server.onlineGenerates).toBe(2));
+    await waitFor(() => expect(fake.server.onlineReads).toBe(2));
     await waitFor(() => expect(readGlance('hh-1')?.board?.items[0].status).toBe('Done'));
     expect(screen.getByTestId('chore-item-mark-c1')).toHaveTextContent('✓');
   });
 
   /**
    * Online with c2 on the live board, the drain confirmed, and the confirm
-   * refetch (the second online generate) parked with c2 still Open in its
+   * refetch (the second online read) parked with c2 still Open in its
    * snapshot - the window a live tap can land in (#147).
    */
   async function liveBoardWithParkedRefetch(fake: ReturnType<typeof serverClient>) {
     await goOnlineWithQueuedTap(fake);
     await waitFor(() => expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen());
-    await waitFor(() => expect(fake.server.onlineGenerates).toBe(1));
+    await waitFor(() => expect(fake.server.onlineReads).toBe(1));
 
     await act(async () => {
       fake.releaseComplete();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    await waitFor(() => expect(fake.server.onlineGenerates).toBe(2));
+    await waitFor(() => expect(fake.server.onlineReads).toBe(2));
   }
 
   it('live-tap-race: a live tap that settles while the confirm-triggered refetch is in flight still reads as done after it resolves', async () => {
@@ -2414,7 +2565,7 @@ describe('ChoreBoard offline write queue', () => {
     // board and the server records it, and only then does the stale snapshot
     // resolve. The tap never entered the queue, so the queue overlay cannot
     // cover it, and the live board would never refetch to correct it.
-    const fake = serverClient({ holdComplete: true, holdOnlineGenerate: 2, extra: ['c2'] });
+    const fake = serverClient({ holdComplete: true, holdOnlineRead: 2, extra: ['c2'] });
     await liveBoardWithParkedRefetch(fake);
 
     await act(async () => {
@@ -2425,13 +2576,13 @@ describe('ChoreBoard offline write queue', () => {
     expect(readWriteQueue('hh-1')).toEqual([]);
 
     await act(async () => {
-      fake.releaseGenerate();
+      fake.releaseRead();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent('✓');
     expect(screen.getByTestId('chore-item-c2').props.accessibilityState.checked).toBe(true);
-    expect(fake.server.onlineGenerates).toBe(2);
+    expect(fake.server.onlineReads).toBe(2);
   });
 
   it('live-tap-race: a live tap still in flight when the confirm-triggered refetch resolves keeps its tapped state', async () => {
@@ -2439,7 +2590,7 @@ describe('ChoreBoard offline write queue', () => {
     // POST is still on its way, then the POST lands.
     const fake = serverClient({
       holdComplete: true,
-      holdOnlineGenerate: 2,
+      holdOnlineRead: 2,
       extra: ['c2'],
       holdLiveComplete: 'c2',
     });
@@ -2451,7 +2602,7 @@ describe('ChoreBoard offline write queue', () => {
     expect(fake.server.status.c2).toBe('Open');
 
     await act(async () => {
-      fake.releaseGenerate();
+      fake.releaseRead();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent('✓');
@@ -2464,7 +2615,7 @@ describe('ChoreBoard offline write queue', () => {
     expect(screen.getByTestId('chore-item-mark-c2')).toHaveTextContent('✓');
     expect(fake.server.status.c2).toBe('Done');
     expect(readWriteQueue('hh-1')).toEqual([]);
-    expect(fake.server.onlineGenerates).toBe(2);
+    expect(fake.server.onlineReads).toBe(2);
   });
 
   /**
@@ -2474,7 +2625,7 @@ describe('ChoreBoard offline write queue', () => {
   async function liveBoardWithParkedTaps() {
     const fake = serverClient({
       holdComplete: true,
-      holdOnlineGenerate: 2,
+      holdOnlineRead: 2,
       extra: ['c2'],
       holdLive: ['c2'],
     });
@@ -2515,14 +2666,14 @@ describe('ChoreBoard offline write queue', () => {
     await settle(() => fake.releaseLive(0));
     expectC2('Open');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Open');
 
     await settle(() => fake.releaseLive(1));
     expectC2('Open');
     expect(fake.server.status.c2).toBe('Open');
     expect(readWriteQueue('hh-1')).toEqual([]);
-    expect(fake.server.onlineGenerates).toBe(2);
+    expect(fake.server.onlineReads).toBe(2);
   });
 
   it('live-tap-overlap: a later tap\'s in-flight record survives an earlier tap\'s successful response', async () => {
@@ -2538,7 +2689,7 @@ describe('ChoreBoard offline write queue', () => {
     await settle(() => fake.releaseLive(1));
     expectC2('Done');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Done');
 
     await settle(() => fake.releaseLive(2));
@@ -2561,7 +2712,7 @@ describe('ChoreBoard offline write queue', () => {
     await settle(() => fake.releaseLive(0, refused));
     expectC2('Done');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Done');
 
     await settle(() => fake.releaseLive(1));
@@ -2586,7 +2737,7 @@ describe('ChoreBoard offline write queue', () => {
     expect(readWriteQueue('hh-1')).toEqual([]);
     expectC2('Done');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Done');
 
     // The last complete succeeds, which discards the held undo; the first
@@ -2614,14 +2765,14 @@ describe('ChoreBoard offline write queue', () => {
     await settle(() => fake.releaseLive(1, refused));
     expectC2('Done');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Done');
 
     await settle(() => fake.releaseLive(0));
     expectC2('Done');
     expect(fake.server.status.c2).toBe('Done');
     expect(readWriteQueue('hh-1')).toEqual([]);
-    expect(fake.server.onlineGenerates).toBe(2);
+    expect(fake.server.onlineReads).toBe(2);
   });
 
   it('live-tap-overlap: an earlier tap that answered while overtaken is restored as settled when the newest tap is refused (#241)', async () => {
@@ -2639,7 +2790,7 @@ describe('ChoreBoard offline write queue', () => {
     await settle(() => fake.releaseLive(1, refused));
     expectC2('Done');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Done');
     expect(fake.server.status.c2).toBe('Done');
     expect(readWriteQueue('hh-1')).toEqual([]);
@@ -2661,7 +2812,7 @@ describe('ChoreBoard offline write queue', () => {
     await settle(() => fake.releaseLive(2, refused));
     expectC2('Done');
 
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expectC2('Done');
 
     await settle(() => fake.releaseLive(0));
@@ -2697,7 +2848,7 @@ describe('ChoreBoard offline write queue', () => {
     await flush();
     await flush();
     await releaseParkedFrom(fake, 2);
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
 
     expect(fake.server.status.c2).toBe('Open');
     expect(fake.parkedLiveCount()).toBe(2);
@@ -2746,7 +2897,7 @@ describe('ChoreBoard offline write queue', () => {
     await waitFor(() => expect(fake.parkedLiveCount()).toBe(3));
     await settle(() => fake.releaseLive(2));
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expect(fake.server.status.c2).toBe('Done');
     expectC2('Done');
   });
@@ -2776,7 +2927,7 @@ describe('ChoreBoard offline write queue', () => {
     await waitFor(() => expect(fake.parkedLiveCount()).toBe(4));
     await settle(() => fake.releaseLive(3));
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    await settle(() => fake.releaseGenerate());
+    await settle(() => fake.releaseRead());
     expect(fake.server.status.c2).toBe('Open');
     expectC2('Open');
   });
@@ -2791,7 +2942,7 @@ describe('ChoreBoard offline write queue', () => {
     await tapC2();
     expect(fake.parkedLiveCount()).toBe(1);
 
-    await settle(() => fake.releaseGenerate(unreachable));
+    await settle(() => fake.releaseRead(unreachable));
     expectC2('Done');
     expect(readWriteQueue('hh-1')).toEqual([]);
 
@@ -2808,14 +2959,14 @@ describe('ChoreBoard offline write queue', () => {
     // #154: the tap's POST lands after the confirm refetch was sent, so that
     // load's snapshot may not carry it. When the load falls back to the cached
     // week, the tap is kept, as it would be on a live load.
-    const fake = serverClient({ holdComplete: true, holdOnlineGenerate: 2, extra: ['c2'] });
+    const fake = serverClient({ holdComplete: true, holdOnlineRead: 2, extra: ['c2'] });
     await liveBoardWithParkedRefetch(fake);
 
     await tapC2();
     await flush();
     expect(fake.server.status.c2).toBe('Done');
 
-    await settle(() => fake.releaseGenerate(unreachable));
+    await settle(() => fake.releaseRead(unreachable));
     expectC2('Done');
 
     await screen.unmount();
@@ -2828,7 +2979,7 @@ describe('ChoreBoard offline write queue', () => {
     const fake = serverClient({ holdComplete: true, extra: ['c2'] });
     await goOnlineWithQueuedTap(fake);
     await waitFor(() => expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen());
-    await waitFor(() => expect(fake.server.onlineGenerates).toBe(1));
+    await waitFor(() => expect(fake.server.onlineReads).toBe(1));
     // The drain's c1 complete must be on the wire before releaseComplete can answer it.
     await waitFor(() =>
       expect(
@@ -2844,7 +2995,7 @@ describe('ChoreBoard offline write queue', () => {
     fake.server.offline = true;
     await settle(() => fake.releaseComplete());
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
-    await waitFor(() => expect(generateCalls(fake.client)).toBe(3));
+    await waitFor(() => expect(readCalls(fake.client)).toBe(3));
     await flush();
 
     // The cache was written by the reconnect load, before the tap, so it holds
@@ -2880,7 +3031,7 @@ describe('ChoreBoard offline write queue', () => {
     );
     await flush();
 
-    expect(generateCalls(client)).toBe(1);
+    expect(readCalls(client)).toBe(1);
   });
 
   it('sync-refetch: an offline tap whose drain confirms nothing does not refetch', async () => {
@@ -2889,7 +3040,7 @@ describe('ChoreBoard offline write queue', () => {
 
     await renderBoard(client, { activePersonId: 'p1' });
     await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
-    const generatesBefore = generateCalls(client);
+    const readsBefore = readCalls(client);
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('chore-item-c1'));
@@ -2897,7 +3048,7 @@ describe('ChoreBoard offline write queue', () => {
     await waitFor(() => expect(readWriteQueue('hh-1')).toHaveLength(1));
     await flush();
 
-    expect(generateCalls(client)).toBe(generatesBefore);
+    expect(readCalls(client)).toBe(readsBefore);
   });
 });
 
@@ -3090,7 +3241,9 @@ describe('ChoreBoard load states', () => {
     it('renders a skeleton while the week loads', async () => {
       const client: ApiClient = {
         baseUrl: 'http://api.test:1',
-        get: jest.fn(async () => ok(chores)) as unknown as ApiClient['get'],
+        get: jest.fn((path: string) =>
+          readWeekOf(path) !== undefined ? new Promise(() => {}) : Promise.resolve(ok(chores)),
+        ) as unknown as ApiClient['get'],
         update: jest.fn(() => new Promise(() => {})) as unknown as ApiClient['update'],
       };
       await renderBoard(client);
@@ -3118,9 +3271,9 @@ describe('ChoreBoard load states', () => {
     it('renders a friendly error, never the raw API text, when the load fails', async () => {
       const serverError: ApiResult<never> = {
         ok: false,
-        error: { kind: 'problem', status: 500, title: 'Server error', detail: 'Generate exploded.' },
+        error: { kind: 'problem', status: 500, title: 'Server error', detail: 'Read exploded.' },
       };
-      await renderBoard(boardClient({ generate: serverError }));
+      await renderBoard(boardClient({ read: serverError }));
 
       await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
       expect(screen.getByText('The board did not load just now. Tap Try again.')).toBeOnTheScreen();
@@ -3139,32 +3292,31 @@ describe('ChoreBoard load states', () => {
       const second = new Promise<ApiResult<unknown>>((resolve) => {
         resolveSecond = resolve;
       });
-      const generate = jest
+      const read = jest
         .fn()
         .mockResolvedValueOnce(serverError)
         .mockReturnValueOnce(second);
       const client: ApiClient = {
         baseUrl: 'http://api.test:1',
-        get: jest.fn(async () => ok(chores)) as unknown as ApiClient['get'],
-        update: generate as unknown as ApiClient['update'],
+        get: jest.fn((path: string) =>
+          readWeekOf(path) !== undefined ? read(path) : Promise.resolve(ok(chores)),
+        ) as unknown as ApiClient['get'],
+        update: jest.fn() as unknown as ApiClient['update'],
       };
       await renderBoard(client);
 
       await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
-      expect(generate).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(1);
 
       await act(async () => fireEvent.press(screen.getByTestId('chore-board-retry')));
 
       expect(screen.getByTestId('chore-board-loading')).toBeOnTheScreen();
-      expect(generate).toHaveBeenCalledTimes(2);
-      expect(generate).toHaveBeenLastCalledWith(
-        '/households/hh-1/assignments/generate',
-        {},
-        { method: 'POST' },
-      );
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(read).toHaveBeenLastCalledWith(`/households/hh-1/assignments/${currentWeekIso()}`);
+      expect(client.update).not.toHaveBeenCalled();
 
       await act(async () => {
-        resolveSecond(ok({ weekIso: WEEK, assignments, unassigned: [] }));
+        resolveSecond(ok({ weekIso: WEEK, currentWeekIso: WEEK, assignments, unassigned: [] }));
         await second;
       });
 
@@ -3175,7 +3327,6 @@ describe('ChoreBoard load states', () => {
 });
 
 describe('ChoreBoard automatic retry (#109)', () => {
-  const GENERATE_PATH = '/households/hh-1/assignments/generate';
   const serverError: ApiResult<never> = {
     ok: false,
     error: { kind: 'http', status: 500, title: 'Server error' },
@@ -3204,40 +3355,35 @@ describe('ChoreBoard automatic retry (#109)', () => {
     });
   }
 
-  /** How many times the board asked for the week. */
-  function generateCalls(client: ApiClient): number {
-    return (client.update as jest.Mock).mock.calls.filter(([path]) => path === GENERATE_PATH).length;
-  }
-
   it('re-requests a failed week on the backoff without the skeleton, then shows the board (AC4, AC5)', async () => {
-    const api: { generate: ApiResult<unknown> } = { generate: serverError };
+    const api: { read: ApiResult<unknown> } = { read: serverError };
     const client = boardClient();
-    const live = client.update as jest.Mock;
+    const live = client.get as jest.Mock;
     const original = live.getMockImplementation()!;
     live.mockImplementation(async (path: string, ...rest: unknown[]) =>
-      path === GENERATE_PATH && !api.generate.ok ? api.generate : original(path, ...rest),
+      readWeekOf(path) !== undefined && !api.read.ok ? api.read : original(path, ...rest),
     );
     await renderBoard(client);
     await advance(0);
     expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen();
-    expect(generateCalls(client)).toBe(1);
+    expect(readCalls(client)).toBe(1);
 
     // The first retry, 2s on, fails again: the error stays, no skeleton.
     await advance(2_000);
-    expect(generateCalls(client)).toBe(2);
+    expect(readCalls(client)).toBe(2);
     expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen();
     expect(screen.queryByTestId('chore-board-loading')).toBeNull();
 
     // The next waits 4s, and the API is back.
-    api.generate = ok({ weekIso: WEEK, assignments, unassigned: [] });
+    api.read = ok({ weekIso: WEEK, currentWeekIso: WEEK, assignments, unassigned: [] });
     await advance(3_999);
-    expect(generateCalls(client)).toBe(2);
+    expect(readCalls(client)).toBe(2);
     await advance(1);
-    expect(generateCalls(client)).toBe(3);
+    expect(readCalls(client)).toBe(3);
     expect(screen.getByTestId('chore-board')).toBeOnTheScreen();
 
     await advance(10 * 60_000);
-    expect(generateCalls(client)).toBe(3);
+    expect(readCalls(client)).toBe(3);
   });
 
   it('keeps a cached board on screen while it retries, and goes live when the API answers (AC5)', async () => {
@@ -3257,10 +3403,10 @@ describe('ChoreBoard automatic retry (#109)', () => {
     const onLastKnown = jest.fn();
     const api: { down: boolean } = { down: true };
     const client = boardClient();
-    const live = client.update as jest.Mock;
+    const live = client.get as jest.Mock;
     const original = live.getMockImplementation()!;
     live.mockImplementation(async (path: string, ...rest: unknown[]) =>
-      path === GENERATE_PATH && api.down ? unreachable : original(path, ...rest),
+      readWeekOf(path) !== undefined && api.down ? unreachable : original(path, ...rest),
     );
     useApiClientMock.mockReturnValue(client);
     await render(
@@ -3275,13 +3421,13 @@ describe('ChoreBoard automatic retry (#109)', () => {
 
     await advance(2_000);
     await advance(4_000);
-    expect(generateCalls(client)).toBe(3);
+    expect(readCalls(client)).toBe(3);
     expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen();
     expect(screen.queryByTestId('chore-board-loading')).toBeNull();
 
     api.down = false;
     await advance(8_000);
-    expect(generateCalls(client)).toBe(4);
+    expect(readCalls(client)).toBe(4);
     expect(onLastKnown).toHaveBeenLastCalledWith(null);
     expect(screen.getByTestId('chore-item-c3')).toBeOnTheScreen();
   });
@@ -3294,7 +3440,7 @@ describe('ChoreBoard automatic retry (#109)', () => {
 
     await advance(10 * 60_000);
 
-    expect(generateCalls(client)).toBe(1);
+    expect(readCalls(client)).toBe(1);
   });
 });
 

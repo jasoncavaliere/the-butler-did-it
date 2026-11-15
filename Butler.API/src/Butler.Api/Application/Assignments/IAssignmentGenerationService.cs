@@ -42,4 +42,38 @@ public interface IAssignmentGenerationService
         string householdId,
         string? weekIso,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads one household week's assignments, generating them first when the
+    /// week is the current one and has none yet (the board's lazy read, #110).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Lazy rule.</b> Only the current week per the injected clock is ever
+    /// generated, and only while it has no stored rows. A week that already has
+    /// rows, and any past or future week, is returned as stored with no writes.
+    /// Generation runs the same C2/C3 path as <see cref="GenerateAsync"/> under a
+    /// per-household lock that <see cref="GenerateAsync"/> also takes, and the
+    /// week is re-read inside the lock, so concurrent first reads persist one set.
+    /// </para>
+    /// <para>
+    /// <b>Stored projection.</b> <c>Done</c> rows are always returned; <c>Open</c>
+    /// rows only for chores that are still active. Unplaced chores are never
+    /// persisted, so a stored week has an empty unassigned list. A household with
+    /// no active chores or no eligible members reads as an empty week and nothing
+    /// is persisted.
+    /// </para>
+    /// </remarks>
+    /// <param name="householdId">The household whose week to read.</param>
+    /// <param name="weekIso">The ISO year-week to read; a malformed value is a client error (<c>400</c>).</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>
+    /// The week's assignment set (carrying the server's current week), or
+    /// <c>null</c> when no household with <paramref name="householdId"/> exists
+    /// (the controller maps that to a <c>404</c>).
+    /// </returns>
+    Task<AssignmentSetResponse?> GetOrGenerateAsync(
+        string householdId,
+        string weekIso,
+        CancellationToken cancellationToken = default);
 }

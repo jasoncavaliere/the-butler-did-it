@@ -196,16 +196,19 @@ export type UnassignedView = {
 };
 
 /**
- * The result of generating (or idempotently regenerating) one household week's
- * chore assignments, returned by the C3 endpoint
- * (`POST /households/{householdId}/assignments/generate`). It is the source the
- * hub chore board (C5) reads; a regenerate is deterministic and preserves `Done`,
- * so re-reading it to render the board is safe.
+ * One household week's chore assignments. The hub chore board (C5) reads it
+ * through the lazy `GET /households/{householdId}/assignments/{weekIso}` (#110),
+ * which generates the server's current week on its first read and otherwise
+ * returns what is stored (a stored week has an empty `unassigned`, since unplaced
+ * chores are never persisted). `POST .../assignments/generate` returns the same
+ * shape and is the organizer's regenerate.
  */
 export type AssignmentSetResponse = {
   weekIso: string;
   assignments: AssignmentView[];
   unassigned: UnassignedView[];
+  /** The server's own current ISO week (its injected clock), for skew detection. */
+  currentWeekIso: string;
 };
 
 /**

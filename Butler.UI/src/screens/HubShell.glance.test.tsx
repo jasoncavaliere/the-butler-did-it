@@ -52,13 +52,15 @@ function liveGet(path: string): ApiResult<unknown> {
       customItemCount: 0,
     });
   }
+  // The board's lazy week read (#110): an empty set for the week it asked for.
+  const week = /\/assignments\/(\d{4}-W\d{2})$/.exec(path)?.[1];
+  if (week !== undefined) {
+    return ok({ weekIso: week, currentWeekIso: week, assignments: [], unassigned: [] });
+  }
   return path.endsWith('/people') ? ok(roster) : ok({ householdId: 'hh-1', name: 'Home' });
 }
 
 function liveUpdate(path: string): ApiResult<unknown> {
-  if (path.endsWith('/generate')) {
-    return ok({ weekIso: '2026-W29', assignments: [], unassigned: [] });
-  }
   if (path === EVENTS_PATH) {
     return ok(undefined, 204);
   }

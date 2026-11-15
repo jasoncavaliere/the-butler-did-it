@@ -92,9 +92,11 @@ function routedFetch({ deviceRejected = false }: { deviceRejected?: boolean } = 
         },
       ]);
     }
-    if (path.endsWith('/assignments/generate')) {
+    // The board's lazy week read (#110), `GET .../assignments/{weekIso}`.
+    if (path.endsWith(`/assignments/${currentWeekIso()}`)) {
       return respond(200, {
         weekIso: currentWeekIso(),
+        currentWeekIso: currentWeekIso(),
         assignments: [{ choreId: 'c1', assignedPersonId: 'p1', effort: 1, status: 'Open' }],
         unassigned: [],
       });

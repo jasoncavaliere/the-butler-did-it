@@ -140,10 +140,15 @@ Six rules keep replay honest:
   writing or queuing the tap would land a completion in the wrong week. The board lists the current
   week in its load dependencies, so it reloads the new week once at the boundary and a healthy hub is
   tappable again on Monday without anyone touching it. The tablet and the API read different clocks,
-  so that reload can reach a server that has not turned the week yet; a live load whose week
-  disagrees with the tablet's is retried on a backoff (`LIVE_WEEK_RETRY_DELAYS_MS`: 5s, 15s, 60s,
-  then every 5 minutes), and a refused tap forces a reload, so a few milliseconds of skew cannot
-  leave the board read-only for the week. If the weeks still disagree after a retry
+  so that reload can reach a server that has not turned the week yet. The board reads the tablet's
+  week and the answer echoes it, so skew is detected from the response's `currentWeekIso` (the
+  server's own week, #110), not from the week it echoes. A tablet ahead of the server asks for a week
+  the server never generates (a future week reads back empty), so on a disagreement the board re-reads
+  the server's week and shows that, as it did before #110, rather than an empty board with no notice.
+  While the server's week or the board's week differs from the tablet's the mismatch counter
+  is non-zero, every row is read-only (and `toggle` refuses and forces a reload), and the load is
+  retried on a backoff (`LIVE_WEEK_RETRY_DELAYS_MS`: 5s, 15s, 60s, then every 5 minutes), so a few
+  milliseconds of skew cannot leave the board read-only for the week. If the weeks still disagree after a retry
   (`CLOCK_NOTICE_AFTER`), the tablet's clock is likely wrong and the board says so instead of going
   silently inert.
 - **A queued write whose week has ended is flagged, not replayed.** The drain reads the week back out
@@ -471,10 +476,17 @@ backoff without showing the skeleton (`useAutoRetrySignal`, #109; see "Staying a
 
 **The chore board** (`src/components/ChoreBoard.tsx`, Epic 40 C5) is the visible payoff of the wedge
 (journey 6.2): it fills `TodayPanel` with the current week's assignments and lets a tap mark one done.
-On mount it calls the C3 generate/regenerate endpoint (`POST /households/{householdId}/assignments/generate`
-with an empty body - a deterministic, `Done`-preserving regenerate, so re-reading it to render is safe)
-and joins each assignment against the open Chores read (H2) by `choreId` to get its title and cadence
-(the C3 projection carries no title). Items are grouped into two buckets - daily-cadence chores under
+On mount it reads the tablet's current week through the lazy
+`GET /households/{householdId}/assignments/{weekIso}` (#110, week from `currentWeekIso()`), which
+generates the server's current week on its first read and otherwise returns what is stored, so loading
+the board never rewrites a week (`POST .../assignments/generate` stays the organizer's regenerate, which
+no screen calls today, #110), and
+joins each assignment against the open Chores read (H2) by `choreId` to get its title and cadence
+(the C3 projection carries no title). Because a week with rows is returned as stored, a chore or person
+the organizer adds mid-week (`HouseholdEditor`, `RosterEditor`) does not reach the board until the next
+week is generated on its first read; a chore deactivated mid-week drops off at once (the stored read
+hides open rows of inactive chores). Regenerating the current week sooner is a direct
+`POST .../assignments/generate` call; there is no regenerate control in the UI. Items are grouped into two buckets - daily-cadence chores under
 "Today", weekly-cadence under "This week" - and within each bucket by person, in roster order. With an
 active participant (T3) the board *focuses*: it renders only that person's assignments (glowing in
 their claim colour), answering "what's mine right now"; with no active participant it falls back to

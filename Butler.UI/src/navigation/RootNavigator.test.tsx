@@ -15,12 +15,32 @@ jest.mock('../offline/useHubGlance', () => ({ useHubGlance: jest.fn() }));
 const useApiClientMock = useApiClient as jest.MockedFunction<typeof useApiClient>;
 
 /** A client whose `get` answers by path: /me, the household read, the roster, rooms, and chores. */
+/** The hub chore board's lazy week read (#110), `.../assignments/{weekIso}`. */
+const ASSIGNMENTS_READ = /\/assignments\/(\d{4}-W\d{2})$/;
+
+/** What a test hands the board when its week read must fail: no network. */
+const boardOffline: ApiResult<unknown> = {
+  ok: false,
+  error: { kind: 'network', status: 0, title: 'offline' },
+};
+
 function pathAwareClient(): ApiClient {
   return {
     baseUrl: 'http://api.test:1',
     get: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-      if (path.endsWith('/people') || path.endsWith('/rooms') || path.endsWith('/chores')) {
+      // `/chores` is the organizer editor's read; `/chores?active=true` the board's.
+      if (path.endsWith('/people') || path.endsWith('/rooms') || /\/chores(\?|$)/.test(path)) {
         return { ok: true, status: 200, data: [], etag: null };
+      }
+      // The board's week read: an empty set for the week it asked for.
+      const week = ASSIGNMENTS_READ.exec(path)?.[1];
+      if (week !== undefined) {
+        return {
+          ok: true,
+          status: 200,
+          data: { weekIso: week, currentWeekIso: week, assignments: [], unassigned: [] },
+          etag: null,
+        };
       }
       if (path.includes('/insights')) {
         return {
@@ -75,6 +95,10 @@ function rosterServerClient() {
       const person = people.find((p) => p.personId === id)!;
       return { ok: true, status: 200, data: { ...person, role: 'Participant', eTag: `W/"${id}"` }, etag: null };
     }
+    // The board's week read: nothing to show.
+    if (ASSIGNMENTS_READ.test(path)) {
+      return boardOffline;
+    }
     return base.get(path);
   });
   const update = jest.fn(
@@ -89,8 +113,8 @@ function rosterServerClient() {
         people = people.map((p) => (p.personId === id ? next : p));
         return { ok: true, status: 200, data: { ...next, role: 'Participant', eTag: `W/"${id}-2"` }, etag: null };
       }
-      // The board's generate: nothing to show.
-      return { ok: false, error: { kind: 'network', status: 0, title: 'offline' } };
+      // Any other write: unreachable.
+      return boardOffline;
     },
   );
   const client: ApiClient = {
@@ -293,8 +317,9 @@ describe('RootNavigator', () => {
 
   describe('household teardown (#168)', () => {
     /**
-     * The hub's reads from pathAwareClient; a DELETE of hh-77 succeeds (204) and
-     * every other write (the board's generate) fails as unreachable.
+     * The hub's reads from pathAwareClient, except the board's week read, which
+     * fails as unreachable; a DELETE of hh-77 succeeds (204) and every other
+     * write fails as unreachable too.
      */
     function teardownServerClient() {
       const base = pathAwareClient();
@@ -308,7 +333,9 @@ describe('RootNavigator', () => {
       );
       const client: ApiClient = {
         baseUrl: base.baseUrl,
-        get: base.get,
+        get: jest.fn(async (path: string) =>
+          ASSIGNMENTS_READ.test(path) ? boardOffline : base.get<unknown>(path),
+        ) as unknown as ApiClient['get'],
         update: update as unknown as ApiClient['update'],
       };
       return { client, update };

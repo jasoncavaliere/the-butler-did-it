@@ -65,6 +65,11 @@ function hubClient(api: { writesDown: boolean } = { writesDown: false }): ApiCli
       if (path.includes('/chores')) {
         return ok([]);
       }
+      // The board's lazy week read (#110): an empty set for the week it asked for.
+      const week = /\/assignments\/(\d{4}-W\d{2})$/.exec(path)?.[1];
+      if (week !== undefined) {
+        return ok({ weekIso: week, currentWeekIso: week, assignments: [], unassigned: [] });
+      }
       if (path.includes('/carts/')) {
         return ok({
           weekIso: '2026-W29',
@@ -94,7 +99,7 @@ function hubClient(api: { writesDown: boolean } = { writesDown: false }): ApiCli
         };
         return ok(session);
       }
-      return ok({ weekIso: '2026-W29', assignments: [], unassigned: [] });
+      return ok(null);
     }) as unknown as ApiClient['update'],
   };
 }
