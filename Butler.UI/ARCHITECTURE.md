@@ -356,6 +356,7 @@ src/
               client.ts     # typed fetch client (ApiClient) - the data-access seam; one credential per request: organizer bearer or X-Device-Token (T4, #105)
               useApiClient.ts # hook that binds the client to the base URL, the organizer token, the device token and clearSession
               models.ts     # typed request/response shapes for the H1-H4 endpoints
+              ping.ts       # pingApi: whether GET /api/system/ping answers, never throws (#131)
               errors.ts     # describeApiError: an ApiError -> one readable line; friendlyApiError: fixed friendly line, never server text (P8); isPreconditionFailed (412)
   auth/       OrganizerGate.tsx    # gates children behind an authenticated organizer (probes /me)
               authProvider.ts     # IAuthProvider seam: OrganizerIdentity/OrganizerSession (T4)
@@ -379,6 +380,7 @@ src/
               SyncIndicator.tsx # hub-header sync state: online/offline, pending count, synced, failed writes (O4)
               InsightsCharts.tsx # View-based BarChart, GroupedBarChart and Legend for the Insights screen; no chart library, all text >= 18px (#123)
               VersionInfo.tsx # hub and API build SHAs side by side (GET /api/system/version), flags a mismatch; no props (#126)
+              HiddenOrganizerMenu.tsx # hub maintenance menu behind a 3 s hold + PIN: API URL, ping, dataset id, versions, reload / clear cache / sign out (#131)
   navigation/ RootNavigator.tsx  # navigation graph
   screens/    HubShell.tsx  # the always-on hub shell (shown once a household is selected)
               HouseholdSetup.tsx       # organizer onboarding wizard (H5)
@@ -646,7 +648,26 @@ open. `VersionInfo` shows the hub's build SHA (`EXPO_PUBLIC_BUILD_SHA`, inlined 
 fails the API version is `unavailable` and no mismatch is claimed. Expo inlines `EXPO_PUBLIC_*` values
 while it transforms a module, and Metro's transform cache is not keyed on env values, so
 `metro.config.js` folds every `EXPO_PUBLIC_*` value into Metro's `cacheVersion`
-(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache. This is defense-in-depth only: the API enforces the
+(`scripts/metro-env-cache.js`); a changed SHA is never served from an earlier export's cache.
+
+The hub also has a hidden organizer menu (#131) for the kiosk tablet, where there is no browser chrome.
+The household-name `Text` sits inside a `Pressable` (`hub-household-name-hold`) whose `onLongPress`
+fires after `HIDDEN_MENU_HOLD_MS` (3 s). It is a long press rather than a press-in timer because
+react-native-web's `Text` has no press props, and its press responder only keeps a touch press alive
+through the browser's `contextmenu` event when `onLongPress` is set. The hold always shows a `PinPad`
+(`hub-hidden-menu-pin`), even with an organizer already signed in; a non-PIN provider runs its own
+`signIn()` instead. Only a successful sign-in opens `HiddenOrganizerMenu` (`hub-hidden-menu`), which shows
+`client.baseUrl`, whether `GET /api/system/ping` answers (`pingApi`), the live dataset id (falling back
+to the household's last-seen id, marked `(last seen)`; it never runs the dataset guard's check, which
+clears storage), and `VersionInfo`. Reload app (`location.reload()`, once), Clear local cache and Sign
+out organizer each ask for confirmation, and Cancel runs nothing. Clear local cache calls
+`forgetHouseholdOffline(householdId)` only (the hub pairing and the last-seen dataset id survive) and
+bumps a cache revision that is part of the hub body's key, so the body remounts: the write queue is held
+in React state and would otherwise keep showing the cleared writes. The menu shows only while an
+organizer is signed in, and a sign-out (from the menu or the bar) resets it to closed during render, so
+a later sign-in from the bar never reopens it without the hold and PIN.
+
+This is defense-in-depth only: the API enforces the
 `Organizer` policy server-side (F6, T5); a hidden affordance is convenience, not the security boundary.
 Organizer auth and the active tap-to-claim participant are independent - signing in or out never
 disturbs the other.

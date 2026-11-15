@@ -247,6 +247,12 @@ The demo flow:
    household's tiles and chores, and the sensitive actions (Confirm order,
    pairing) disappear. To sign in again, tap "Organizer sign in" and enter the
    PIN.
+5. **Open the hidden maintenance menu.** On the hub, press and hold the
+   household name for 3 s, then enter the PIN. The menu shows the API URL,
+   whether the API answers its ping, the dataset id, and the hub and API build
+   versions. From there you can reload the app, clear this household's local
+   cache (its last-known week and queued writes), or sign the organizer out,
+   each after a confirmation, without leaving kiosk mode.
 
 The organizer token also expires after 15 minutes without use. The hub has no
 idle timer of its own (#195), so it keeps showing the organizer bar until it

@@ -458,3 +458,10 @@ export type DatasetResponse = { datasetId: string };
  * unstamped).
  */
 export type VersionResponse = { sha: string; buildTime: string | null };
+
+/**
+ * Body of `GET /api/system/ping` (#131): the API's liveness answer. The hub's
+ * hidden organizer menu only checks that the route answers, so the fields are
+ * typed for completeness rather than read.
+ */
+export type PingResponse = { status: string; service: string; timestampUtc: string };

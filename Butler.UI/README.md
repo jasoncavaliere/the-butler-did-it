@@ -108,6 +108,11 @@ touching anything under `public/` or `scripts/`.
   enables Delete only when the household's name is typed exactly and the hub is online. On success
   the hub forgets the household (its offline cache and write queue, the hub-device token, and the
   organizer session), shows "Household deleted" for 3 s, and then opens the setup wizard.
+- The hub has a hidden organizer menu for the kiosk tablet (`HiddenOrganizerMenu`, #131): hold the
+  household name for 3 s, then enter the organizer PIN. It shows the API base URL, whether
+  `GET /api/system/ping` answers, the current dataset id, and the hub and API build versions, and
+  offers Reload app, Clear local cache (this household's last-known week and write queue only) and
+  Sign out organizer, each behind a confirmation.
 - `EXPO_PUBLIC_AUTH_PROVIDER` picks the organizer sign-in at bundle time: `dev` (the dev organizer, the
   default through `EXPO_PUBLIC_DISABLE_AUTH`), `entra`, or `pin` (#105, the demo stack). With `pin`,
   `OrganizerGate` and `OrganizerBar` show a PIN pad and the API returns a short-lived organizer token
