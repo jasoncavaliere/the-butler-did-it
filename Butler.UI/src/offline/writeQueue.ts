@@ -29,8 +29,9 @@
  *   that exhausts its retries is **flagged, kept, and stepped over** - bounded
  *   retries then flag-and-continue, so one poison write cannot block everything
  *   behind it forever, and O4 has something real to surface. The one exception
- *   is a queued `hub-glance` the API refuses on replay: it is dropped, as the
- *   online path drops it, and never shows as failed (#217).
+ *   is a queued `hub-glance`: one the API refuses on replay is dropped, as the
+ *   online path drops it, and never shows as failed (#217), and one an earlier
+ *   build already stored as failed is purged when the queue is read (#287).
  * - *Never replayed into an ended week.* An assignment write is addressed by the
  *   week it was tapped in, and the API resolves it by that week with no
  *   current-week check. A write whose week ended before it could sync would
@@ -66,14 +67,16 @@ export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * the pending count and the failed surface by it). It is descriptive only - the
  * replay itself is driven by the stored request triple - which is what lets a
  * new write type join the queue without teaching the drain about it. The one
- * kind the drain does read is {@link HUB_GLANCE_KIND}, to drop a refused glance
- * (#217).
+ * kind the queue does read is {@link HUB_GLANCE_KIND}, to drop a refused glance
+ * (#217) and to purge one an earlier build stored as failed (#287).
  */
 export type QueuedWriteKind = 'chore-complete' | 'chore-undo' | 'cart-add' | 'hub-glance';
 
 /**
- * The kind the drain drops instead of retrying when the API refuses it (#217).
- * A literal rather than an import from `./hubGlance`, which imports this module.
+ * The kind the drain drops instead of retrying when the API refuses it (#217),
+ * and that {@link readWriteQueue} purges when it finds one stored as failed
+ * (#287). A literal rather than an import from `./hubGlance`, which imports this
+ * module.
  */
 const HUB_GLANCE_KIND: QueuedWriteKind = 'hub-glance';
 
@@ -232,6 +235,20 @@ function parseWrite(value: unknown): QueuedWrite | null {
 }
 
 /**
+ * Whether an entry is a hub-glance stored as `failed` - one the queue retires on
+ * read rather than keeps (#287).
+ *
+ * Only an earlier build could flag one: before #217 a refused glance was retried
+ * like any write and flagged at {@link MAX_WRITE_ATTEMPTS}, where the drain now
+ * drops it instead. Kept, it would sit in the failed count forever - the drain
+ * steps over failed entries, and a glance's key is unique to its tap, so no later
+ * enqueue ever revives it. A glance is telemetry, so retiring it loses no tap.
+ */
+function isRetiredGlance(write: QueuedWrite): boolean {
+  return write.kind === HUB_GLANCE_KIND && write.status === 'failed';
+}
+
+/**
  * Read a household's queue, in enqueue order. Anything untrustworthy reads as an
  * empty queue: no entry, an unreadable or unparseable one, or a document that is
  * not an array. "No Web Storage" is *not* one of those - the default seam answers
@@ -244,6 +261,11 @@ function parseWrite(value: unknown): QueuedWrite | null {
  * since {@link enqueueWrite} maintains the invariant) keeps the earlier entry,
  * because that is the position the queue's order was built on and entries are
  * addressed by that key.
+ *
+ * A hub-glance stored as failed (only an earlier build could flag one) is dropped
+ * on read, and the cleaned queue is written back - persisting any malformed or
+ * duplicate drops at the same time - so it leaves storage, the queue, and the
+ * failed count for good (#287). Nothing is written when nothing was purged.
  */
 export function readWriteQueue(
   householdId: string,
@@ -271,13 +293,23 @@ export function readWriteQueue(
 
   const queue: QueuedWrite[] = [];
   const seen = new Set<string>();
+  let purged = false;
   for (const entry of parsed) {
     const write = parseWrite(entry);
     if (write === null || seen.has(write.dedupeKey)) {
       continue;
     }
+    if (isRetiredGlance(write)) {
+      // Its key is not claimed, so a later entry with the same key still reads.
+      purged = true;
+      continue;
+    }
     seen.add(write.dedupeKey);
     queue.push(write);
+  }
+  if (purged) {
+    // saveWriteQueue never throws, so a read still cannot fail on the way out.
+    saveWriteQueue(householdId, queue, storage);
   }
   return queue;
 }
@@ -313,8 +345,9 @@ export function saveWriteQueue(
 /**
  * Empty a household's queue (#100 D7).
  *
- * This is the only path that discards queued writes wholesale (the drain's
- * per-entry drop of a refused hub-glance, #217, is the one other discard), and
+ * This is the only path that discards queued writes wholesale (the per-entry
+ * hub-glance drops - a refused one on replay, #217, and one stored as failed on
+ * read, #287 - are the only other discards), and
  * only two flows call it, both via `forgetHouseholdOffline`: the dataset guard, once the API serves a
  * different dataset, and household teardown (#168), once the API has deleted the
  * household. Either way every queued write targets rows that no longer exist (or,
@@ -434,7 +467,9 @@ export type SendWrite = (write: QueuedWrite) => Promise<ApiResult<unknown>>;
  *   add) is not week-bound and replays as before.
  *
  * A `failed` entry is skipped on every later pass. Only a fresh tap on the same
- * target revives it, which {@link enqueueWrite} does by resetting the entry.
+ * target revives it, which {@link enqueueWrite} does by resetting the entry. A
+ * failed hub-glance never reaches the drain at all: {@link readWriteQueue}
+ * purges it (#287).
  *
  * `now` is read per entry rather than once per pass, because a long drain can
  * itself straddle the boundary. It is a parameter for the same reason the week

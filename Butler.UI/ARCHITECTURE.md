@@ -117,7 +117,9 @@ Six rules keep replay honest:
   blocking everything queued behind it. A flagged entry stays in storage - never dropped, never
   auto-cleared - which is what O4 surfaces; only a fresh tap on the same target revives it. The one
   exception is a queued `hub-glance`: a real error on replay drops it at once (no retry, no flag, not
-  counted as confirmed), the same as the online path, since a glance is telemetry (#217).
+  counted as confirmed), the same as the online path, since a glance is telemetry (#217). A glance
+  already stored as `failed` by an earlier build is purged when the queue is read, so it leaves the
+  sync indicator's failed count (#287).
 - **One write per target.** `enqueueWrite` keys by `(weekIso, choreId)`, not by direction: tapping
   done twice queues one write, and a complete-then-undo collapses to the single write the user
   actually meant, at its original queue position.
@@ -179,7 +181,8 @@ itself, so claiming a person on the hub posts no event of its own.
   write. While queued it counts in the sync indicator's pending count. Any other refusal (a `401` on an
   unpaired hub, `400`, `404`) is dropped, since retrying an answered request cannot succeed. The same
   holds on replay: if the queued glance is refused, the drain drops it and it never counts as a failed
-  write in the sync indicator (#217).
+  write in the sync indicator (#217). A glance already stored as `failed` by an earlier build is purged
+  when the queue is read, so it leaves the sync indicator's failed count too (#287).
 
 ### The sync indicator (O4)
 
