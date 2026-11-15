@@ -29,6 +29,7 @@ conventions.
 
 | id | title | status | date | tags |
 | --- | --- | --- | --- | --- |
+| [ADR-0012](0012-hub-reference-validation-tablet.md) | The Fire Kids tablet is the hub demo device, and current stable Chrome validates the offline epic | accepted | 2026-11-15 | hub, hardware, tablet, offline, validation, kiosk |
 | [ADR-0011](0011-knowledge-base-okf-format.md) | The knowledge base is an OKF v0.2 bundle with one concept per file | accepted | 2026-11-13 | knowledge-base, okf, token-cost, process |
 | [ADR-0010](0010-accessibility-baseline-wcag-aa.md) | WCAG 2.1 AA is the hard accessibility floor for every artifact | accepted | 2026-07-19 | accessibility, color, stack |
 | [ADR-0009](0009-fairness-balance-visualization.md) | Fairness is a calm balance bar, not a leaderboard | accepted | 2026-07-19 | state, brand, accessibility |
