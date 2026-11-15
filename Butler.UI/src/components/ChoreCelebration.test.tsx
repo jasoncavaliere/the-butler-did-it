@@ -10,7 +10,7 @@ import {
   ChoreCelebration,
 } from './ChoreCelebration';
 import { colors } from './Screen';
-import { lineHeightFor, motionDuration, typeScale } from '../layout/tokens';
+import { lineHeightFor, motionDuration, typeScale } from '../theme/theme';
 
 const ACCENT = '#B0206F';
 

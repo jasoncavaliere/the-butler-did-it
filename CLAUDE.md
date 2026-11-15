@@ -77,7 +77,7 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/insights/` | Pure helpers for the Insights screen: member colours, bar fractions, week/day/month labels (#123). |
 | `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
 | `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration, the idle-gated new-build update flow (`serviceWorkerUpdate`, `useServiceWorkerUpdate`, #108), the hub kiosk surface (`KioskSurface`, #130), the screen wake lock and error watchdog (`useScreenWakeLock`, `useHubWatchdog`, #109), and the PWA post-export step. |
-| `src/theme/` | Typed theme module over `design-tokens.json` (claim colours, light/dark palettes, spacing, touch targets) and the WCAG contrast helper (#120). |
+| `src/theme/` | Typed theme module over `design-tokens.json` (claim colours, light/dark palettes, and the sizes UI code uses: spacing, radii, touch targets, type scale, motion) and the WCAG contrast helper (#120). |
 | `design-tokens.json`, `design/` | Design tokens and the design decision record. |
 
 Tests sit next to the source (`*.test.tsx`), jest-expo preset. Design notes: `Butler.UI/ARCHITECTURE.md`.

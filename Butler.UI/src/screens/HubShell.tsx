@@ -31,7 +31,7 @@ import { UPDATE_NOTICE_MS, UpdateNotice } from '../components/UpdateNotice';
 import { VersionInfo } from '../components/VersionInfo';
 import { colors } from '../components/Screen';
 import { TILE_BORDER, useHubLayout, type HubLayout } from '../layout/hubLayout';
-import { nameTileMinWidth, radii, space } from '../layout/tokens';
+import { nameTileMinWidth, radii, space } from '../theme/theme';
 import type { DatasetCheck } from '../offline/datasetGuard';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';

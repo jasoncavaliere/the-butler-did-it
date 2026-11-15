@@ -25,6 +25,27 @@ module.exports = defineConfig([
     },
   },
   {
+    // Layering rule (#215, #284, #285): UI code reads sizes from src/theme/theme.ts, which
+    // re-exports them from the size layer. Only layout code (src/layout/) and theme.ts itself
+    // import layout/tokens directly.
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['src/layout/**', 'src/theme/theme.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/layout/tokens'],
+              message:
+                'Read sizes from src/theme/theme.ts; only src/layout/ may import layout/tokens directly (#215, #285).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     ignores: ['dist/*', 'node_modules/*'],
   },
 ]);

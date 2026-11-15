@@ -11,9 +11,8 @@ import type {
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
 import { DEFAULT_HUB_LAYOUT, type HubLayout } from '../layout/hubLayout';
-import { radii, space, typeScale } from '../layout/tokens';
 import { readGlance, writeGlance } from '../offline/glanceCache';
-import { hubTouchTarget } from '../theme/theme';
+import { hubTouchTarget, radii, space, typeScale } from '../theme/theme';
 import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';
 import { useCurrentWeekIso } from '../offline/useCurrentWeek';
 import { useReconnectSignal } from '../offline/useReconnect';

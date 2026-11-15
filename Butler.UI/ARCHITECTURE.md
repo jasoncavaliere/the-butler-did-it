@@ -279,10 +279,13 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
   mockup). Every layout keeps the 64px hub row (ADR-0008). The palette is unchanged.
 - **Theme module and hub targets (#120).** `src/theme/theme.ts` is the typed view UI code reads design
   values from: the six claim colours (`claimColors`, token order, glyph plus light and dark variants),
-  `onClaim`, the light and dark palettes (`themes`), and the spacing and touch-target sizes re-exported
-  from `src/layout/tokens.ts`, which is the size layer. UI code reads design values from `theme.ts`,
-  except code under `src/layout/` (for example `hubLayout.ts`), which imports sizes from
-  `layout/tokens` directly. This is a layering rule: `theme.ts` sits above the size layer and
+  `onClaim`, the light and dark palettes (`themes`), and the sizes re-exported from
+  `src/layout/tokens.ts`, which is the size layer: spacing, radii, touch targets, the type scale
+  (`typeScale`), `lineHeightFor`, the motion durations (`motionDuration`) and the name tile width
+  (`nameTileMinWidth`). UI code reads design values from `theme.ts`, except code under `src/layout/`
+  (for example `hubLayout.ts`), which imports sizes from `layout/tokens` directly. ESLint
+  `no-restricted-imports` enforces this: outside `src/layout/` and `theme.ts`, importing
+  `layout/tokens` is a lint error (#285). This is a layering rule: `theme.ts` sits above the size layer and
   re-exports from it, so layout code must not depend upward on `theme.ts`. Importing it from
   `hubLayout.ts` would not form a cycle today (`hubLayout -> theme -> tokens`), but it would invert
   the layering and would risk a cycle if `theme.ts` ever imported layout code (#215, #284). Hub

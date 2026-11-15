@@ -4,7 +4,7 @@ import { StyleSheet } from 'react-native';
 import { YOUR_DATA_COPY, YourDataScreen } from './YourDataScreen';
 import type { IAuthProvider } from '../auth/authProvider';
 import { OrganizerBar } from '../auth/OrganizerBar';
-import { typeScale } from '../layout/tokens';
+import { typeScale } from '../theme/theme';
 import { OrganizerProvider } from '../state/OrganizerContext';
 
 const organizerAuth: IAuthProvider = {
