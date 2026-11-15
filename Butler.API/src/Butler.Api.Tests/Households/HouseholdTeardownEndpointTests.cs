@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Azure.Data.Tables;
 using Butler.Api.Application.Auth;
+using Butler.Api.Infrastructure.People;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -22,6 +23,9 @@ namespace Butler.Api.Tests.Households;
 /// unknown household an RFC 7807 <c>404</c>, and a participant session or hub
 /// device a <c>403</c>; none of them delete anything. After teardown the
 /// household's hub-device and participant tokens authenticate nobody (<c>401</c>).
+/// Criteria (#223 AC1-AC3): a row written into an already-purged table mid-teardown
+/// is swept again, so the completed teardown leaves no row and the household is
+/// <c>404</c>.
 /// </summary>
 public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFactory>
 {
@@ -201,6 +205,26 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
         Assert.Empty(await fakes.ListAsync(householdId));
     }
 
+    [Fact]
+    public async Task A_write_landing_mid_teardown_leaves_no_row_and_the_household_is_404()
+    {
+        PeopleWriteInjector? injector = null;
+        using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IHouseholdPartitionPurger>(sp =>
+                    injector = new PeopleWriteInjector(sp.GetRequiredService<IEntityRepository<PersonEntity>>()))));
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+
+        using var response = await TearDownAsync(client, householdId);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.NotNull(injector);
+        Assert.True(injector.Fired);
+        Assert.Equal(HttpStatusCode.NotFound, await GetHouseholdStatusAsync(client, householdId));
+        Assert.All(await CountAllAsync(factory.Services, householdId), pair => Assert.Equal(0, pair.Value));
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"confirmName\":\"\"}")]
@@ -352,5 +376,31 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // Registered after the People purger, so it runs once People is already
+    // empty. On its first call only it writes a People row (a request committing
+    // between two purgers) and deletes nothing; one-shot, so the second sweep
+    // does not re-inject.
+    private sealed class PeopleWriteInjector : IHouseholdPartitionPurger
+    {
+        private readonly IEntityRepository<PersonEntity> _people;
+
+        public PeopleWriteInjector(IEntityRepository<PersonEntity> people) => _people = people;
+
+        public bool Fired { get; private set; }
+
+        public Type EntityType => typeof(PersonEntity);
+
+        public async Task<int> PurgeAsync(string householdId, CancellationToken cancellationToken = default)
+        {
+            if (!Fired)
+            {
+                Fired = true;
+                await _people.UpsertAsync(householdId, new PersonEntity { RowKey = "late" }, cancellationToken);
+            }
+
+            return 0;
+        }
     }
 }

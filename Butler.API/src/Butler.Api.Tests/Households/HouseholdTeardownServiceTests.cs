@@ -8,9 +8,11 @@ using NSubstitute;
 namespace Butler.Api.Tests.Households;
 
 /// <summary>
-/// Criteria (#124 AC1, AC3, AC4): teardown deletes nothing for an unknown
-/// household or an inexact (ordinal, case-sensitive, untrimmed) confirmation
-/// name; otherwise it runs every registered purger, the household row's last.
+/// Criteria (#124 AC1, AC3, AC4; #223 AC1, AC3, AC4): teardown deletes nothing
+/// for an unknown household or an inexact (ordinal, case-sensitive, untrimmed)
+/// confirmation name; otherwise it runs every registered purger, then the
+/// household row's, then every other purger again, so a write that lands in an
+/// already-purged table mid-teardown does not survive it.
 /// </summary>
 public sealed class HouseholdTeardownServiceTests
 {
@@ -80,7 +82,7 @@ public sealed class HouseholdTeardownServiceTests
     }
 
     [Fact]
-    public async Task Household_row_is_purged_last()
+    public async Task Household_row_is_purged_after_every_table_then_tables_are_swept_again()
     {
         var result = await CreateService().TeardownAsync(HouseholdId, "Home");
 
@@ -90,7 +92,69 @@ public sealed class HouseholdTeardownServiceTests
             _peoplePurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
             _roomsPurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
             _householdPurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
+            _peoplePurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
+            _roomsPurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
         });
+        await _householdPurger.Received(1).PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_write_into_an_already_purged_table_does_not_survive_teardown()
+    {
+        var householdRows = new InMemoryEntityRepository<HouseholdEntity>();
+        var people = new InMemoryEntityRepository<PersonEntity>();
+        var rooms = new InMemoryEntityRepository<RoomEntity>();
+        var households = new TableHouseholdRepository(householdRows);
+        await households.AddAsync(new HouseholdEntity { RowKey = HouseholdId, Name = "Home" });
+        await people.AddAsync(HouseholdId, new PersonEntity { RowKey = "organizer" });
+        await rooms.AddAsync(HouseholdId, new RoomEntity { RowKey = "kitchen" });
+
+        // People is purged before rooms, so the injected row lands in a table
+        // the first sweep has already emptied.
+        var injectingRooms = new WriteInjectingPurger(
+            new HouseholdPartitionPurger<RoomEntity>(rooms),
+            ct => people.AddAsync(HouseholdId, new PersonEntity { RowKey = "late" }, ct));
+        var service = new HouseholdTeardownService(
+            households,
+            [new HouseholdPartitionPurger<HouseholdEntity>(householdRows), new HouseholdPartitionPurger<PersonEntity>(people), injectingRooms]);
+
+        var result = await service.TeardownAsync(HouseholdId, "Home");
+
+        Assert.Equal(HouseholdTeardownResult.Deleted, result);
+        Assert.True(injectingRooms.Fired);
+        Assert.Empty(await householdRows.ListAsync(HouseholdId));
+        Assert.Empty(await people.ListAsync(HouseholdId));
+        Assert.Empty(await rooms.ListAsync(HouseholdId));
+    }
+
+    // Wraps a purger and, on its first call only, runs a write before delegating,
+    // simulating a request that commits between two purgers. One-shot, so the
+    // second sweep does not re-inject and the test cannot pass vacuously.
+    private sealed class WriteInjectingPurger : IHouseholdPartitionPurger
+    {
+        private readonly IHouseholdPartitionPurger _inner;
+        private readonly Func<CancellationToken, Task> _write;
+
+        public WriteInjectingPurger(IHouseholdPartitionPurger inner, Func<CancellationToken, Task> write)
+        {
+            _inner = inner;
+            _write = write;
+        }
+
+        public bool Fired { get; private set; }
+
+        public Type EntityType => _inner.EntityType;
+
+        public async Task<int> PurgeAsync(string householdId, CancellationToken cancellationToken = default)
+        {
+            if (!Fired)
+            {
+                Fired = true;
+                await _write(cancellationToken);
+            }
+
+            return await _inner.PurgeAsync(householdId, cancellationToken);
+        }
     }
 
     [Fact]
