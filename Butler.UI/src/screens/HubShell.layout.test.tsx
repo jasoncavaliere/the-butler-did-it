@@ -122,11 +122,14 @@ function hubClient({ fairnessOk = false }: { fairnessOk?: boolean } = {}): ApiCl
       if (path.endsWith('/people')) {
         return ok(roster);
       }
+      // The board's lazy week read (#110), answered for the week it asked for.
+      const week = /\/assignments\/(\d{4}-W\d{2})$/.exec(path)?.[1];
+      if (week !== undefined) {
+        return ok({ weekIso: week, currentWeekIso: week, assignments, unassigned: [] });
+      }
       return ok({ householdId: 'hh-1', name: 'The Rivera Home' });
     }) as unknown as ApiClient['get'],
-    update: jest.fn(async (): Promise<ApiResult<unknown>> =>
-      ok({ weekIso: WEEK, assignments, unassigned: [] }),
-    ) as unknown as ApiClient['update'],
+    update: jest.fn(async (): Promise<ApiResult<unknown>> => ok(null)) as unknown as ApiClient['update'],
   };
 }
 

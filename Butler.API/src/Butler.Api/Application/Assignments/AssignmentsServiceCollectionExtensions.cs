@@ -39,6 +39,11 @@ public static class AssignmentsServiceCollectionExtensions
         // orchestrates per-request repository work.
         services.TryAddScoped<IAssignmentGenerationService, AssignmentGenerationService>();
 
+        // #110: the per-household lock the lazy GET and POST generate share so two
+        // first reads of an empty week persist one set. A singleton so the lock is
+        // shared across requests; the service above stays scoped.
+        services.TryAddSingleton<AssignmentGenerationGate>();
+
         // C4: the tap-to-complete composition - append a ChoreCompletion and flip
         // the assignment to Done under optimistic concurrency. Scoped for the same
         // per-request reason; it reads the Chores table (H3) for the credited effort.

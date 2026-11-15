@@ -35,10 +35,11 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * and lets a tap mark one done.
  *
  * It sources the week from the F7 typed client:
- * - the assignment set from C3 (`POST .../assignments/generate` with an empty
- *   body) - the only surface that returns an {@link AssignmentSetResponse}, and
- *   a deterministic, `Done`-preserving regenerate, so re-reading it to render is
- *   safe;
+ * - the assignment set from the lazy read
+ *   (`GET .../assignments/{weekIso}` for the tablet's current week, #110): it
+ *   generates the server's current week on its first read and otherwise returns
+ *   what is stored, so loading the board never rewrites a week, and it names the
+ *   server's own week (`currentWeekIso`) for the clock-skew check;
  * - each assignment's title + cadence from the open Chores read (H2), joined by
  *   `choreId` (the C3 projection carries no title);
  * - the person display name + claim colour from the roster the shell already
@@ -108,9 +109,10 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   boundary ({@link useCurrentWeekIso}) it redraws its rows as read-only and
  *   reloads the new week, so a healthy hub is not left read-only every Monday.
  *   The tablet and the API each read their own clock, so that boundary reload
- *   can reach a server that has not turned the week yet and be handed the week
- *   that just ended. A live load whose week disagrees with the tablet's is
- *   therefore retried on a short backoff ({@link LIVE_WEEK_RETRY_DELAYS_MS}), and
+ *   can reach a server that has not turned the week yet. The read asks for the
+ *   tablet's week and the answer names the server's own week
+ *   (`currentWeekIso`, #110); while the two disagree every row is read-only, the
+ *   load is retried on a short backoff ({@link LIVE_WEEK_RETRY_DELAYS_MS}), and
  *   a refused tap forces a reload too, so the board is never left read-only for
  *   the rest of the week by a few milliseconds of clock skew. If the two still
  *   disagree after a retry, the tablet's clock is the likelier culprit, and the
@@ -179,11 +181,12 @@ const COPY = {
 /**
  * How long a live board waits before reloading when the server named a week
  * other than the tablet's (#89), indexed by how many live loads in a row have
- * disagreed; past the end the last delay repeats.
+ * disagreed; past the end the last delay repeats. The server's week is the
+ * `currentWeekIso` the lazy read returns (#110), not the week it echoes back.
  *
  * The usual cause is the boundary reload racing the server's clock: the tablet
- * turns the week a few milliseconds before the API does, so `generate` still
- * answers with the week that just ended. Nothing else would reload the board
+ * turns the week a few milliseconds before the API does, so the read still
+ * names the week that just ended as the server's current one. Nothing else would reload the board
  * for a week - it is healthy, so it is not listening for a reconnect, and with
  * every row read-only no tap confirms a write - so the board retries by itself.
  * The first retry is soon, because that race clears in well under a second; the
@@ -440,7 +443,8 @@ export function ChoreBoard({
   // effect's dependencies - it reloads the new week once when the week turns.
   const { currentWeek, recheck: recheckWeek } = useCurrentWeekIso();
 
-  // How many live loads in a row named a week other than the tablet's, and a
+  // How many live loads in a row found the server on a week other than the
+  // tablet's (the read's `currentWeekIso`, #110), and a
   // counter that forces a reload. The first arms the backoff retry below and
   // decides the clock notice; the second is bumped by that retry and by a
   // refused tap. Both exist because `currentWeek` alone cannot recover a board
@@ -521,13 +525,26 @@ export function ChoreBoard({
     // Taken now, before the requests are sent, so a tap that settles after this
     // point is known to be one this load's snapshot may not include.
     const load = ++loadSeqRef.current;
+    // The board reads the tablet's current week. The server generates it on the
+    // first read only if that is also the server's week; either way the answer
+    // names the server's week, which is what the skew check below compares.
+    const requestedWeek = currentWeekIso();
+    const readWeek = (week: string) =>
+      client.get<AssignmentSetResponse>(`/households/${householdId}/assignments/${week}`);
 
     Promise.all([
-      client.update<AssignmentSetResponse>(
-        `/households/${householdId}/assignments/generate`,
-        {},
-        { method: 'POST' },
-      ),
+      // When the server names another week, the tablet's week is one the server
+      // never generates (a future week is returned as stored, which is empty),
+      // so the board would read "no chores" and never reach the clock notice.
+      // It reads the server's week instead and shows that, read-only, exactly
+      // as it did before #110 when the board's answer was always the server's
+      // week: the mismatch counter below still keys off `currentWeekIso`.
+      readWeek(requestedWeek).then((first) => {
+        const serverWeek = first?.ok ? first.data?.currentWeekIso : undefined;
+        return serverWeek !== undefined && serverWeek !== requestedWeek
+          ? readWeek(serverWeek)
+          : first;
+      }),
       client.get<ChoreResponse[]>(`/households/${householdId}/chores?active=true`),
     ]).then(([assignments, chores]) => {
       if (!active) {
@@ -598,7 +615,12 @@ export function ChoreBoard({
           status: assignment.status === 'Done' ? 'Done' : 'Open',
         };
       });
-      const week = set?.weekIso ?? '';
+      const week = set?.weekIso ?? requestedWeek;
+      // The server's own week. A response without it (an older API) is taken
+      // to agree with the week it answered for. After a skewed first read this
+      // is the server's week the board re-read, so it differs from the
+      // tablet's and the board stays read-only.
+      const serverWeek = set?.currentWeekIso ?? week;
 
       setWeekIso(week);
       // Anything still queued (O3) is layered over the server's answer, because
@@ -627,14 +649,21 @@ export function ChoreBoard({
       // the rolled-over-week guard that could have made the board read-only).
       setFromCache(false);
       setPhase('ready');
-      // Does the server's week agree with the tablet's? The clock is re-read here
-      // rather than taken from `currentWeek`, and the render's copy is brought up
-      // to date with it, so a tablet whose clock was corrected (or whose boundary
-      // timer slept through Monday) draws against the right week. A disagreement
-      // arms the backoff retry below.
+      // Does the server's week agree with the tablet's? The read echoes the week
+      // the tablet asked for, so the server's own `currentWeekIso` is what is
+      // compared (#110). The clock is re-read here rather than taken from
+      // `currentWeek`, and the render's copy is brought up to date with it, so a
+      // tablet whose clock was corrected (or whose boundary timer slept through
+      // Monday) draws against the right week. A disagreement arms the backoff
+      // retry below and keeps every row read-only until it clears.
       const deviceWeek = currentWeekIso();
       recheckWeek();
-      setWeekMismatches((previous) => (week === deviceWeek ? 0 : previous + 1));
+      // The board's own week is checked too: after a skewed first read it holds
+      // the server's week, and if the server turned the week between the two
+      // reads only that comparison still sees the board is not the tablet's week.
+      setWeekMismatches((previous) =>
+        serverWeek === deviceWeek && week === deviceWeek ? 0 : previous + 1,
+      );
       // Refresh the cache (and its freshness stamp) on every successful load, so
       // the next outage falls back to this week rather than an older one.
       writeGlance(householdId, { board: { weekIso: week, items: built } });
@@ -697,11 +726,14 @@ export function ChoreBoard({
   // moment it was loaded, and the wall hub can hold it across Sunday midnight.
   // This is the *render*-time answer, which decides whether a row reads as a
   // control; `toggle` asks the same question again against the real clock at
-  // the moment of the tap, which is what actually guards the write.
-  const staleWeek = weekIso !== currentWeek;
+  // the moment of the tap, which is what actually guards the write. A live board
+  // whose last read found the server on another week is read-only as well: it
+  // holds the server's week (#110, re-read after the skewed first read), which
+  // is not the tablet's.
+  const staleWeek = weekIso !== currentWeek || weekMismatches > 0;
   // A live board that is read-only because the server and the tablet still
   // disagree about the week after a retry: say so, rather than go silently inert.
-  const clockLooksWrong = staleWeek && weekMismatches >= CLOCK_NOTICE_AFTER;
+  const clockLooksWrong = weekMismatches >= CLOCK_NOTICE_AFTER;
 
   // Tapping an item toggles its completion, attributed to the active participant
   // (T3): an `Open` item completes through C4, a `Done` item undoes that
@@ -738,13 +770,14 @@ export function ChoreBoard({
       if (activePersonId === null) {
         return;
       }
-      if (!isCurrentWeek(weekIso)) {
+      if (!isCurrentWeek(weekIso) || weekMismatches > 0) {
         // The week turned but the render has not caught up (a sleeping tablet can
-        // fire the boundary timer late), so bring it up to date: the row goes
-        // read-only and the new week reloads. The reload is forced as well,
-        // because the render may already hold the new week - the boundary reload
-        // came back with the ended one - and re-reading an unchanged week would
-        // not load anything.
+        // fire the boundary timer late), or the last read found the server on
+        // another week, so bring it up to date: the row goes read-only and the
+        // week reloads. The reload is forced as well, because the render may
+        // already hold the new week - the boundary reload reached the server
+        // before its week turned - and re-reading an unchanged week would not
+        // load anything.
         recheckWeek();
         setReloadRevision((previous) => previous + 1);
         return;
@@ -889,6 +922,7 @@ export function ChoreBoard({
       client,
       householdId,
       weekIso,
+      weekMismatches,
       activePersonId,
       items,
       fromCache,

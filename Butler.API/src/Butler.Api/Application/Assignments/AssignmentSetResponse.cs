@@ -2,19 +2,28 @@ namespace Butler.Api.Application.Assignments;
 
 /// <summary>
 /// The result of generating (or regenerating) one household week's chore
-/// assignments (C3). It carries the week it applies to, every chore that ended up
-/// placed with a person - the freshly-assigned <c>Open</c> ones plus any
-/// <c>Done</c> ones a regenerate preserved - and every chore the C2 engine could
-/// not place, each with its stable reason code (Engineering Contract 7.6). Both
-/// lists are ordered by <c>ChoreId</c> so the response is deterministic.
+/// assignments (C3), or of reading one week through the lazy GET (#110). It
+/// carries the week it applies to, every chore that ended up placed with a
+/// person - the freshly-assigned <c>Open</c> ones plus any <c>Done</c> ones a
+/// regenerate preserved - and every chore the C2 engine could not place, each
+/// with its stable reason code (Engineering Contract 7.6). Unplaced chores are
+/// never persisted, so a stored week read back has none. Both lists are ordered
+/// by <c>ChoreId</c> so the response is deterministic.
 /// </summary>
 /// <param name="WeekIso">The ISO-8601 year-week the assignments belong to (for example <c>2026-W29</c>).</param>
 /// <param name="Assignments">Every placed chore for the week, ordered by <c>ChoreId</c>.</param>
 /// <param name="Unassigned">Every chore the engine left unassigned, with its reason, ordered by <c>ChoreId</c>.</param>
+/// <param name="CurrentWeekIso">
+/// The ISO-8601 year-week the server's injected clock is in when it answered (for
+/// example <c>2026-W29</c>). The hub compares it with its own clock's week to
+/// detect boundary skew; it can differ from <paramref name="WeekIso"/> when the
+/// caller asked for another week.
+/// </param>
 public sealed record AssignmentSetResponse(
     string WeekIso,
     IReadOnlyList<AssignmentView> Assignments,
-    IReadOnlyList<UnassignedView> Unassigned);
+    IReadOnlyList<UnassignedView> Unassigned,
+    string CurrentWeekIso);
 
 /// <summary>
 /// One placed chore in an <see cref="AssignmentSetResponse"/>: who it went to,

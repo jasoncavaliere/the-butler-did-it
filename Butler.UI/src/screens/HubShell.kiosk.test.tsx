@@ -31,7 +31,6 @@ const okPeople = ok([
 ]);
 const okDataset = ok({ datasetId: 'ds-1' });
 const okChores = ok([]);
-const okAssignments = ok({ weekIso: '2026-W29', assignments: [], unassigned: [] });
 const okCart = ok({
   weekIso: '2026-W29',
   status: 'Building',
@@ -57,9 +56,14 @@ function clientWith({ holdDataset = false }: { holdDataset?: boolean } = {}): Ap
       if (path.includes('/carts/')) {
         return okCart;
       }
+      // The board's lazy week read (#110): an empty set for the week it asked for.
+      const week = /\/assignments\/(\d{4}-W\d{2})$/.exec(path)?.[1];
+      if (week !== undefined) {
+        return ok({ weekIso: week, currentWeekIso: week, assignments: [], unassigned: [] });
+      }
       return path.endsWith('/people') ? okPeople : okHousehold;
     }) as unknown as ApiClient['get'],
-    update: jest.fn(async (): Promise<ApiResult<unknown>> => okAssignments) as unknown as ApiClient['update'],
+    update: jest.fn(async (): Promise<ApiResult<unknown>> => ok(null)) as unknown as ApiClient['update'],
   };
 }
 

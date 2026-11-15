@@ -82,6 +82,19 @@ public sealed class AssignmentsServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddAssignmentsFeature_registers_one_generation_gate_shared_across_scopes()
+    {
+        // The lazy GET's lock only works if every request sees the same instance.
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        Assert.Same(
+            first.ServiceProvider.GetRequiredService<AssignmentGenerationGate>(),
+            second.ServiceProvider.GetRequiredService<AssignmentGenerationGate>());
+    }
+
+    [Fact]
     public void AddAssignmentsFeature_rejects_a_null_service_collection()
     {
         Assert.Throws<ArgumentNullException>(

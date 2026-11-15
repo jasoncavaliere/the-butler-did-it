@@ -95,7 +95,8 @@ public sealed class DemoSeederUnitTests
         DemoHousehold.Chores
             .Select(chore => new AssignmentView($"chore-{chore.Title}", "person-Maria", chore.Effort, "Open"))
             .ToList(),
-        []);
+        [],
+        weekIso);
 
     [Theory]
     [InlineData("Production")]

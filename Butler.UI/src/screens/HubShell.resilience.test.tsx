@@ -65,6 +65,11 @@ function hubClient(api: { household: ApiResult<unknown> | null; writesDown?: boo
       if (path.includes('/chores')) {
         return ok([]);
       }
+      // The board's lazy week read (#110): an empty set for the week it asked for.
+      const week = /\/assignments\/(\d{4}-W\d{2})$/.exec(path)?.[1];
+      if (week !== undefined) {
+        return ok({ weekIso: week, currentWeekIso: week, assignments: [], unassigned: [] });
+      }
       if (path.includes('/carts/')) {
         return ok({
           weekIso: '2026-W29',
@@ -86,12 +91,9 @@ function hubClient(api: { household: ApiResult<unknown> | null; writesDown?: boo
         shares: [],
       });
     }) as unknown as ApiClient['get'],
-    update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-      if (path.endsWith('/generate')) {
-        return ok({ weekIso: currentWeekIso(), assignments: [], unassigned: [] });
-      }
-      return api.writesDown ? unreachable : ok(null);
-    }) as unknown as ApiClient['update'],
+    update: jest.fn(async (): Promise<ApiResult<unknown>> =>
+      api.writesDown ? unreachable : ok(null),
+    ) as unknown as ApiClient['update'],
   };
 }
 

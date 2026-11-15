@@ -30,6 +30,7 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
     private readonly IAssignmentRepository _assignments;
     private readonly IFairAssignmentEngine _engine;
     private readonly TimeProvider _clock;
+    private readonly AssignmentGenerationGate _gate;
 
     public AssignmentGenerationService(
         IHouseholdRepository households,
@@ -38,7 +39,8 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         IChoreCompletionRepository completions,
         IAssignmentRepository assignments,
         IFairAssignmentEngine engine,
-        TimeProvider clock)
+        TimeProvider clock,
+        AssignmentGenerationGate gate)
     {
         ArgumentNullException.ThrowIfNull(households);
         ArgumentNullException.ThrowIfNull(chores);
@@ -47,6 +49,7 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         ArgumentNullException.ThrowIfNull(assignments);
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(gate);
         _households = households;
         _chores = chores;
         _people = people;
@@ -54,6 +57,7 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         _assignments = assignments;
         _engine = engine;
         _clock = clock;
+        _gate = gate;
     }
 
     /// <inheritdoc />
@@ -72,7 +76,81 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         }
 
         var targetWeek = ResolveWeek(weekIso);
+        var currentWeek = WeekIso.For(_clock.GetUtcNow());
 
+        // The read-compute-persist runs under the household's lock, which the lazy
+        // GET shares, so a regenerate never interleaves with a lazy generate.
+        var gate = await _gate.EnterAsync(householdId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await GenerateWeekAsync(householdId, targetWeek, currentWeek, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<AssignmentSetResponse?> GetOrGenerateAsync(
+        string householdId,
+        string weekIso,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
+
+        // Unknown household is a 404, not an empty read.
+        var household = await _households.GetAsync(householdId, cancellationToken).ConfigureAwait(false);
+        if (household is null)
+        {
+            return null;
+        }
+
+        var week = ValidateWeek(weekIso);
+        var currentWeek = WeekIso.For(_clock.GetUtcNow());
+
+        // A week with rows, and any week other than the current one, is read as
+        // stored: no lock and no writes. Only an empty current week generates.
+        var stored = await ListWeekAsync(householdId, week, cancellationToken).ConfigureAwait(false);
+        if (stored.Count > 0 || !string.Equals(week, currentWeek, StringComparison.Ordinal))
+        {
+            return await BuildStoredResponseAsync(householdId, week, currentWeek, stored, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // Check-then-act under the household's lock: re-read inside it, because a
+        // concurrent first read may have generated the week while this one waited.
+        // The lock is not re-entrant, so this calls GenerateWeekAsync directly and
+        // never GenerateAsync.
+        var gate = await _gate.EnterAsync(householdId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            stored = await ListWeekAsync(householdId, week, cancellationToken).ConfigureAwait(false);
+            if (stored.Count > 0)
+            {
+                return await BuildStoredResponseAsync(householdId, week, currentWeek, stored, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return await GenerateWeekAsync(householdId, week, currentWeek, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    // The C2/C3 body shared by POST generate and the lazy GET: fetch the active
+    // chores, members, and the week's rows, run the engine, persist, and respond.
+    // The caller holds the household's lock.
+    private async Task<AssignmentSetResponse> GenerateWeekAsync(
+        string householdId,
+        string targetWeek,
+        string currentWeek,
+        CancellationToken cancellationToken)
+    {
         // The active chores are the only assignment candidates (H3); deactivated
         // chores are retained but never assigned.
         var activeChores = (await _chores.ListAsync(householdId, cancellationToken).ConfigureAwait(false))
@@ -131,20 +209,20 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         await PersistAsync(householdId, targetWeek, dueDateUtc, result, openByChoreId, cancellationToken)
             .ConfigureAwait(false);
 
-        return BuildResponse(targetWeek, result, doneAssignments, activeChores);
+        return BuildResponse(targetWeek, currentWeek, result, doneAssignments, activeChores);
     }
 
     // A supplied week is validated (a malformed value is a client 400 via the
     // FormatException the parser throws); an omitted one comes from the clock.
-    private string ResolveWeek(string? weekIso)
-    {
-        if (string.IsNullOrWhiteSpace(weekIso))
-        {
-            return WeekIso.For(_clock.GetUtcNow());
-        }
+    private string ResolveWeek(string? weekIso) =>
+        string.IsNullOrWhiteSpace(weekIso)
+            ? WeekIso.For(_clock.GetUtcNow())
+            : ValidateWeek(weekIso);
 
-        // Parse to validate the shape; a malformed value is a client error (400),
-        // not the 500 a raw FormatException would map to.
+    // Parse to validate the shape; a malformed value is a client error (400),
+    // not the 500 a raw FormatException would map to.
+    private static string ValidateWeek(string weekIso)
+    {
         try
         {
             _ = WeekIso.StartOfWeekUtc(weekIso);
@@ -155,6 +233,44 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         }
 
         return weekIso;
+    }
+
+    // The household's stored rows for one week.
+    private async Task<List<AssignmentEntity>> ListWeekAsync(
+        string householdId,
+        string week,
+        CancellationToken cancellationToken) =>
+        (await _assignments.ListAsync(householdId, cancellationToken).ConfigureAwait(false))
+            .Where(assignment => string.Equals(assignment.WeekIso, week, StringComparison.Ordinal))
+            .ToList();
+
+    // A stored week read back with no writes. Done rows are always shown; Open
+    // rows only for chores that are still active (matching what a regenerate
+    // returns). Effort comes from the chore, or 0 when it no longer exists.
+    // Unplaced chores are never persisted, so the unassigned list is empty.
+    private async Task<AssignmentSetResponse> BuildStoredResponseAsync(
+        string householdId,
+        string week,
+        string currentWeek,
+        IReadOnlyList<AssignmentEntity> stored,
+        CancellationToken cancellationToken)
+    {
+        var choresById = (await _chores.ListAsync(householdId, cancellationToken).ConfigureAwait(false))
+            .ToDictionary(chore => chore.RowKey, StringComparer.Ordinal);
+
+        var assignments = stored
+            .Where(row =>
+                string.Equals(row.Status, AssignmentStatus.Done, StringComparison.Ordinal) ||
+                (choresById.TryGetValue(ChoreIdOf(row), out var chore) && chore.Active))
+            .Select(row => new AssignmentView(
+                ChoreIdOf(row),
+                row.AssignedPersonId,
+                choresById.TryGetValue(ChoreIdOf(row), out var chore) ? chore.Effort : 0,
+                row.Status))
+            .OrderBy(view => view.ChoreId, StringComparer.Ordinal)
+            .ToList();
+
+        return new AssignmentSetResponse(week, assignments, [], currentWeek);
     }
 
     // Each person's trailing load is the sum of their completion effort over the
@@ -244,6 +360,7 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
     // chore id for a deterministic payload.
     private static AssignmentSetResponse BuildResponse(
         string targetWeek,
+        string currentWeek,
         FairAssignmentResult result,
         IReadOnlyList<AssignmentEntity> doneAssignments,
         IReadOnlyList<ChoreEntity> activeChores)
@@ -272,7 +389,7 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
             .OrderBy(view => view.ChoreId, StringComparer.Ordinal)
             .ToList();
 
-        return new AssignmentSetResponse(targetWeek, placed, unassigned);
+        return new AssignmentSetResponse(targetWeek, placed, unassigned, currentWeek);
     }
 
     // Assignment row keys are the {weekIso}_{choreId} composite (Contract 7.3).

@@ -58,15 +58,35 @@ const unreachable: ApiResult<unknown> = {
 };
 
 // The chore board (C5) the today panel now renders reads the active chores and
-// the C3 assignment set; these keep those reads calm and empty so the shell
-// tests below stay focused on the shell itself.
+// the week's assignment set (the lazy `GET .../assignments/{weekIso}`, #110);
+// these keep those reads calm and empty so the shell tests below stay focused on
+// the shell itself.
 const okChores: ApiResult<unknown> = { ok: true, status: 200, data: [], etag: null };
 const okAssignments: ApiResult<unknown> = {
   ok: true,
   status: 200,
-  data: { weekIso: '2026-W29', assignments: [], unassigned: [] },
+  data: { weekIso: '2026-W29', currentWeekIso: '2026-W29', assignments: [], unassigned: [] },
   etag: null,
 };
+
+/** The board's assignments read path, `.../assignments/{weekIso}`. */
+const ASSIGNMENTS_READ = /\/assignments\/(\d{4}-W\d{2})$/;
+
+/**
+ * The board's lazy week read answered with an empty set for the week it asked
+ * for (so server and tablet agree), or undefined when `path` is not that read.
+ */
+function assignmentsRead(path: string): ApiResult<unknown> | undefined {
+  const week = ASSIGNMENTS_READ.exec(path)?.[1];
+  return week === undefined
+    ? undefined
+    : {
+        ok: true,
+        status: 200,
+        data: { weekIso: week, currentWeekIso: week, assignments: [], unassigned: [] },
+        etag: null,
+      };
+}
 
 // The grocery region (G5) reads the week's building cart on mount; an empty cart
 // keeps that read calm too.
@@ -100,9 +120,14 @@ function clientWith(responses: Responses): ApiClient {
       if (path.includes('/carts/')) {
         return okCart;
       }
+      const read = assignmentsRead(path);
+      if (read) {
+        return read;
+      }
       return path.endsWith('/people') ? responses.people : responses.household;
     }) as unknown as ApiClient['get'],
-    // The only write the shell tests exercise is the board's C3 generate.
+    // The shell tests exercise no write of their own; the board reads its week
+    // through get (#110), so this only answers a stray write calmly.
     update: jest.fn(async (): Promise<ApiResult<unknown>> => okAssignments) as unknown as ApiClient['update'],
   };
 }
@@ -147,16 +172,16 @@ function interactiveClient(claimResult?: ApiResult<unknown>): ApiClient {
       if (path.includes('/carts/')) {
         return okCart;
       }
+      const read = assignmentsRead(path);
+      if (read) {
+        return read;
+      }
       return path.endsWith('/people')
         ? { ok: true, status: 200, data: roster, etag: null }
         : okHousehold('Home');
     }) as unknown as ApiClient['get'],
     update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-      // The board's C3 generate always succeeds with an empty set; claimResult
-      // (when supplied) only forces the claim to fail.
-      if (path.endsWith('/generate')) {
-        return okAssignments;
-      }
+      // claimResult (when supplied) only forces the claim to fail.
       if (claimResult) {
         return claimResult;
       }
@@ -303,14 +328,15 @@ describe('HubShell', () => {
         if (path.includes('/carts/')) {
           return okCart;
         }
+        const read = assignmentsRead(path);
+        if (read) {
+          return read;
+        }
         return path.endsWith('/people')
           ? { ok: true, status: 200, data: [person], etag: null }
           : okHousehold('Home');
       }) as unknown as ApiClient['get'],
-      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> => {
-        if (path.endsWith('/generate')) {
-          return okAssignments;
-        }
+      update: jest.fn(async (): Promise<ApiResult<unknown>> => {
         const session: ParticipantSessionResponse = {
           householdId: 'hh-1',
           ...person,
@@ -733,8 +759,8 @@ describe('HubShell', () => {
 
       await pressTile('p1');
 
-      // Exactly one claim went out (the board's C3 generate also uses update, so
-      // filter to the claim call rather than counting every write).
+      // Exactly one claim went out (filtered to the claim call rather than
+      // counting every write, so no other write can be miscounted as one).
       const claimCalls = (client.update as jest.Mock).mock.calls.filter(
         ([path]) => typeof path === 'string' && path.endsWith('/claim'),
       );
@@ -1568,7 +1594,7 @@ describe('HubShell', () => {
        * The interactive client, but with a cart that has lines to confirm: the
        * cart read answers Building until the confirm lands and 409 after it,
        * and the confirm POST answers the confirmed cart. Everything else (the
-       * roster, claims, the board's generate) falls through to the base client.
+       * roster, claims, the board's week read) falls through to the base client.
        */
       function receiptClient(): ApiClient {
         const base = interactiveClient();
@@ -1850,14 +1876,17 @@ describe('HubShell offline cache', () => {
 
   it('marks the hub last-known when only the board fell back', async () => {
     writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
-    // The shell's reads succeed; the board's C3 generate is the one that cannot
-    // reach the API.
+    // The shell's reads succeed; the board's assignments read is the one that
+    // cannot reach the API.
+    const base = clientWith({
+      household: okHousehold('Home'),
+      people: { ok: true, status: 200, data: cachedPeople, etag: null },
+    });
     const client: ApiClient = {
-      ...clientWith({
-        household: okHousehold('Home'),
-        people: { ok: true, status: 200, data: cachedPeople, etag: null },
-      }),
-      update: jest.fn(async () => unreachable) as unknown as ApiClient['update'],
+      ...base,
+      get: jest.fn(async (path: string) =>
+        ASSIGNMENTS_READ.test(path) ? unreachable : base.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
     };
     useApiClientMock.mockReturnValue(client);
 
@@ -2247,20 +2276,22 @@ describe('HubShell sync indicator', () => {
   });
 
   /**
-   * A live shell whose board's C3 generate answers with `board` (#239). The
-   * shell's own reads succeed, so only the board can fail; its live load writes
-   * just the household half of the glance cache, so the board has nothing cached
-   * to fall back on.
+   * A live shell whose board's assignments read answers with `board` (#239),
+   * or with the normal empty week once `board` is a success. The shell's own
+   * reads succeed, so only the board can fail; its live load writes just the
+   * household half of the glance cache, so the board has nothing cached to fall
+   * back on.
    */
   function boardFailureClient(holder: { board: ApiResult<unknown> }): ApiClient {
+    const base = clientWith({
+      household: okHousehold('Home'),
+      people: { ok: true, status: 200, data: roster, etag: null },
+    });
     return {
-      ...clientWith({
-        household: okHousehold('Home'),
-        people: { ok: true, status: 200, data: roster, etag: null },
-      }),
-      update: jest.fn(async (path: string): Promise<ApiResult<unknown>> =>
-        path.endsWith('/generate') ? holder.board : okAssignments,
-      ) as unknown as ApiClient['update'],
+      ...base,
+      get: jest.fn(async (path: string): Promise<ApiResult<unknown>> =>
+        ASSIGNMENTS_READ.test(path) && !holder.board.ok ? holder.board : base.get<unknown>(path),
+      ) as unknown as ApiClient['get'],
     };
   }
 
