@@ -11,6 +11,7 @@ import type {
   StoreProductView,
 } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';
 import { useOrganizer } from '../state/OrganizerContext';
 import { useSpeechCapture } from '../voice/useSpeechCapture';
 import { colors } from './Screen';
@@ -181,6 +182,10 @@ export function GroceryCart({
 
   // Bumped by "Try again"; listed in the load effect's deps so a bump re-reads.
   const [loadRevision, setLoadRevision] = useState(0);
+  // Bumped on a capped backoff while the read is in error (#109), so the cart
+  // recovers without a tap; the error card stays up meanwhile. A confirmed week
+  // (409) is an answer, not an error, and is not retried.
+  const autoRetrySignal = useAutoRetrySignal(state.phase === 'error');
 
   useEffect(() => {
     let active = true;
@@ -192,7 +197,7 @@ export function GroceryCart({
     return () => {
       active = false;
     };
-  }, [readCart, loadRevision]);
+  }, [readCart, loadRevision, autoRetrySignal]);
 
   // Loading is set here, in the event handler, never synchronously in the effect.
   const retryLoad = useCallback(() => {

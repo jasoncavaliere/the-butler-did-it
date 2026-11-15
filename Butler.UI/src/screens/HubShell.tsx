@@ -35,12 +35,16 @@ import { TILE_BORDER, useHubLayout, type HubLayout } from '../layout/hubLayout';
 import { nameTileMinWidth, radii, space } from '../layout/tokens';
 import type { DatasetCheck } from '../offline/datasetGuard';
 import { readGlance, writeGlance } from '../offline/glanceCache';
+import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';
+import { useBrowserOnline } from '../offline/useBrowserOnline';
 import { useDatasetGuard } from '../offline/useDatasetGuard';
 import { useHubGlance } from '../offline/useHubGlance';
 import { useReconnectSignal } from '../offline/useReconnect';
 import { useWriteQueueContext, WriteQueueProvider } from '../offline/WriteQueueContext';
 import { KioskSurface } from '../pwa/KioskSurface';
 import { clearUpdateNotice, readUpdateNotice } from '../pwa/serviceWorkerUpdate';
+import { useHubWatchdog } from '../pwa/useHubWatchdog';
+import { useScreenWakeLock } from '../pwa/useScreenWakeLock';
 import { useServiceWorkerUpdate } from '../pwa/useServiceWorkerUpdate';
 import { useHousehold } from '../state/HouseholdContext';
 import { useHubDevice } from '../state/HubDeviceContext';
@@ -187,6 +191,18 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * then reloads once onto the new build, and the reloaded hub shows an
  * {@link UpdateNotice} with the build it is now running for
  * {@link UPDATE_NOTICE_MS}, then hides it.
+ *
+ * And it stays awake and recovers by itself (#109). The shell asks for a screen
+ * wake lock on mount and again whenever the page becomes visible
+ * ({@link useScreenWakeLock}), so the wall tablet does not dim; where the API is
+ * missing or refuses, the hub carries on silently. A failed hub read - the
+ * household and roster here, and the board, balance and cart in their own
+ * widgets - is retried on a capped backoff ({@link useAutoRetrySignal}) without
+ * showing the loading state, so the last-known glance stays on screen while it
+ * retries. As a last resort a watchdog ({@link useHubWatchdog}) reloads the page
+ * once the shell has been in error, or on its last-known cache, for five
+ * continuous minutes while the browser is online and no write is waiting to
+ * sync; with a write queued it never reloads.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -299,6 +315,10 @@ export function HubShell({
   const layout = useHubLayout();
   const styles = useMemo(() => makeHubStyles(layout), [layout]);
 
+  // Keep the wall tablet's screen on (#109). Up here, above the guard, so a
+  // dataset remount of the body does not ask for the lock again.
+  useScreenWakeLock();
+
   // The "Updated to build ..." line (#108), shown once after the reload onto a
   // new build. The marker is read purely here (an initializer may run twice)
   // and cleared on mount, so a later manual reload shows nothing. It lives
@@ -400,6 +420,10 @@ function HubShellBody({
   const shellDegraded =
     state.phase === 'error' || (state.phase === 'ready' && state.cachedAtIso !== null);
   const reconnectSignal = useReconnectSignal(shellDegraded);
+  // And it retries by itself on a capped backoff while degraded (#109), without
+  // showing the loading state, so the cached glance (or the error) stays up
+  // while the hub retries behind it.
+  const autoRetrySignal = useAutoRetrySignal(householdId !== null && shellDegraded);
   // The same revival when a queued write gets through instead (an API-only
   // outage, where no `online` event ever fires). Bumped only while degraded, so
   // a live hub does no extra reads after a sync.
@@ -407,7 +431,8 @@ function HubShellBody({
   const handleQueueConfirmed = useCallback(() => setQueueSignal((previous) => previous + 1), []);
   // "Try again" on the today panel's error state (P8): show the skeleton, then
   // bump the signal the load effect lists so the shell re-reads the household
-  // and roster. Manual only; automatic retry is #109.
+  // and roster. The automatic retry above (#109) re-reads without the skeleton;
+  // this tap is the one path that shows it.
   const [retrySignal, setRetrySignal] = useState(0);
   const handleRetry = useCallback(() => {
     setState({ phase: 'loading' });
@@ -465,9 +490,19 @@ function HubShellBody({
     // `reconnectSignal` bumps when the network returns while degraded, and
     // `queueSignal` when a queued write is confirmed while degraded - either is
     // what makes the hub reload itself rather than sitting on last-known data;
-    // `retrySignal` bumps when the today panel's "Try again" is tapped, and
+    // `retrySignal` bumps when the today panel's "Try again" is tapped,
+    // `autoRetrySignal` on the backoff schedule while degraded (#109), and
     // `refreshSignal` when the hub regains focus after another route (#167).
-  }, [client, householdId, reconnectSignal, queueSignal, retrySignal, refreshSignal, rejectDevice]);
+  }, [
+    client,
+    householdId,
+    reconnectSignal,
+    queueSignal,
+    retrySignal,
+    autoRetrySignal,
+    refreshSignal,
+    rejectDevice,
+  ]);
 
   // Tapping a name claims that person through T1 and makes them active. There is
   // no password/PIN step: a successful claim sets the session, a switch (tapping
@@ -569,6 +604,19 @@ function HubShellBody({
   // The cache stamp covers an outage served from cache; the network flag covers
   // one with nothing cached. An error from a reachable API stays Online (#151).
   const apiUnreachable = lastKnownAtIso !== null || (view.phase === 'error' && view.networkFailure);
+
+  // The last-resort watchdog (#109): five continuous minutes in error - the
+  // shell's error state, or any region on its last-known cache - while the
+  // browser reports a network and no write is waiting reloads the page. The
+  // browser's own online flag, not `apiUnreachable`: an unreachable API on a
+  // live network is exactly what a reload may clear. An unknown queue (`null`)
+  // counts as not empty. Balance and cart errors do not count.
+  const browserOnline = useBrowserOnline();
+  useHubWatchdog({
+    inError: householdId !== null && (state.phase === 'error' || lastKnownAtIso !== null),
+    online: browserOnline,
+    queueEmpty: queuePending === 0,
+  });
 
   const ready = view.phase === 'ready' && householdId !== null;
 

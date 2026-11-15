@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { FairnessResponse, PersonShare } from '../api/models';
 import { useApiClient } from '../api/useApiClient';
+import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';
 import { colors } from './Screen';
 import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
 
@@ -18,7 +19,9 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  * deliberate state inside the same headed region (P8, ADR-0007): a skeleton while
  * loading, a designed "nothing to weigh yet" empty state, or a friendly error
  * (fixed copy, never the raw API text) with a "Try again" that re-requests the
- * balance. A person's claim colour accents their bar when supplied via
+ * balance. While in error it also re-requests by itself on a capped backoff
+ * (#109), keeping the error card up (no skeleton) until a read succeeds. A
+ * person's claim colour accents their bar when supplied via
  * {@link people}; otherwise the neutral brass accent is used, and the top
  * contributor is always emphasised regardless of colour.
  */
@@ -54,6 +57,9 @@ export function FairnessView({
   const [balance, setBalance] = useState<FairnessResponse | null>(null);
   // Bumped by "Try again"; listed in the load effect's deps so a bump re-reads.
   const [reloadRevision, setReloadRevision] = useState(0);
+  // Bumped on a capped backoff while in error (#109); the effect never sets
+  // loading, so the error card stays up while it retries.
+  const autoRetrySignal = useAutoRetrySignal(phase === 'error');
 
   useEffect(() => {
     let active = true;
@@ -76,7 +82,7 @@ export function FairnessView({
     return () => {
       active = false;
     };
-  }, [client, householdId, windowWeeks, reloadRevision]);
+  }, [client, householdId, windowWeeks, reloadRevision, autoRetrySignal]);
 
   // Loading is set here, in the event handler, never synchronously in the effect.
   const retry = useCallback(() => {

@@ -321,7 +321,8 @@ export function HouseholdSetup() {
   }
 
   // "Try again" re-sends whatever failed, with the form fields as they stand now.
-  // Manual only; automatic retry is #109.
+  // Manual only: setup is a write, and the hub's automatic read retry (#109)
+  // does not cover it.
   async function retry() {
     switch (flow.step) {
       case 'household':
