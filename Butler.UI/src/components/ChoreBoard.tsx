@@ -143,7 +143,9 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   record and the row belong to the newest tap on the chore: each tap carries
  *   a token, and a response from a tap that has since been overtaken leaves
  *   both alone, so the last answer cannot undo what the family last meant
- *   (#153).
+ *   (#153). A refused newest tap hands the record back to the tap it overtook,
+ *   so that tap's answer still settles the row and a load that lands in between
+ *   cannot redraw the state from before either tap (#241).
  */
 
 /** A rendered board item: an assignment joined to its chore and lifecycle state. */
@@ -259,8 +261,19 @@ export function applyQueuedWrites(
  * the same chore replaces it, and only the tap whose token is still on the
  * record may settle it, so an earlier tap's response that answers late cannot
  * overwrite or delete a newer tap's record.
+ *
+ * `overtook` is the record this tap replaced, carried only while this tap's
+ * POST is in flight (#241): if the server refuses this tap, the record goes
+ * back to the one it overtook rather than being dropped, so an earlier tap
+ * still in flight keeps its overlay and its own response can settle the row.
+ * Settled records never carry it.
  */
-export type LiveTap = { status: 'Open' | 'Done'; settledAtLoad: number | null; tap: number };
+export type LiveTap = {
+  status: 'Open' | 'Done';
+  settledAtLoad: number | null;
+  tap: number;
+  overtook?: LiveTap;
+};
 
 /**
  * Forget the live taps that load number `load` already reflects (#147).
@@ -302,6 +315,34 @@ export function applyLiveTaps(
     }
     return { ...item, status: tap.status };
   });
+}
+
+/**
+ * Hand an overtaken tap's outcome to the chain under `record` (#241).
+ *
+ * `record` is the chore's current live-tap record; the taps it overtook hang
+ * off its `overtook` links. The link whose token is `tap` is replaced by what
+ * `replace` returns for it: a settled record when that tap's POST succeeded,
+ * the link's own `overtook` to splice a refused tap out, or `undefined` to cut
+ * the chain where the queue has taken over. `record` itself is never matched,
+ * since only an overtaken tap's response comes here. Returns the same record
+ * when no link carries the token; otherwise a new record. The input is not
+ * changed.
+ */
+export function replaceOvertakenTap(
+  record: LiveTap,
+  tap: number,
+  replace: (overtaken: LiveTap) => LiveTap | undefined,
+): LiveTap {
+  const overtaken = record.overtook;
+  if (overtaken === undefined) {
+    return record;
+  }
+  if (overtaken.tap === tap) {
+    return { ...record, overtook: replace(overtaken) };
+  }
+  const inner = replaceOvertakenTap(overtaken, tap, replace);
+  return inner === overtaken ? record : { ...record, overtook: inner };
 }
 
 export function ChoreBoard({
@@ -726,40 +767,67 @@ export function ChoreBoard({
       // Remember the tap while its POST is in flight, so a load that resolves
       // meanwhile cannot redraw it (#147). The record and the row belong to the
       // newest tap on the chore: this tap's token replaces any earlier tap's, and
-      // a response for a tap that has since been overtaken leaves both alone
-      // (#153).
+      // a response for a tap that has since been overtaken leaves the row alone
+      // (#153). The record it replaces is kept on it as `overtook`, so a refusal
+      // can hand the record back instead of dropping it (#241).
       const tapKey = assignmentDedupeKey(weekIso, choreId);
       const tap = ++tapSeqRef.current;
-      liveTapsRef.current.set(tapKey, { status: optimistic, settledAtLoad: null, tap });
+      const overtook = liveTapsRef.current.get(tapKey);
+      liveTapsRef.current.set(tapKey, { status: optimistic, settledAtLoad: null, tap, overtook });
 
       const result = await client.update<CompleteChoreResponse | UndoChoreResponse>(path, body, {
         method: 'POST',
       });
 
-      // Read fresh after the await: every load replaces the map. A record is never
-      // pruned while its POST is in flight, so a missing one means a later tap
-      // has settled since (and dropped it, or a load pruned it): this tap is
+      // Read fresh after the await: every load replaces the map, and an
+      // overtaken tap may have rewritten the chain. A record is never pruned
+      // while its POST is in flight, so a missing one means a later tap has
+      // settled since (and dropped it, or a load pruned it): this tap is
       // overtaken as well.
-      const latest = liveTapsRef.current.get(tapKey)?.tap === tap;
+      const current = liveTapsRef.current.get(tapKey);
+      const latest = current?.tap === tap;
+      // An overtaken tap leaves the row and its celebration to the newer tap,
+      // but records its outcome in the chain under the newer tap's record, so a
+      // later refusal of that tap restores what this one left (#241).
+      const recordOvertaken = (replace: (overtaken: LiveTap) => LiveTap | undefined) => {
+        if (!latest && current !== undefined) {
+          liveTapsRef.current.set(tapKey, replaceOvertakenTap(current, tap, replace));
+        }
+      };
 
       if (!result || !result.ok) {
         if (result && result.error.kind === 'network') {
           // The queue overlay takes over from here. An overtaken tap is still
-          // queued, as any unreachable tap is, but leaves the newer tap's record.
+          // queued, as any unreachable tap is, but leaves the newer tap's record;
+          // the chain is cut at this tap, since the queue now owns it and
+          // anything older.
           if (latest) {
             liveTapsRef.current.delete(tapKey);
           }
+          recordOvertaken(() => undefined);
           queueWrite();
           return;
         }
         if (!latest) {
           // The row and its celebration already show a newer tap; reverting to
           // this tap's `previous` would redraw a state the family moved past.
+          // The refused tap drops out of the chain.
+          recordOvertaken((overtaken) => overtaken.overtook);
           return;
         }
-        liveTapsRef.current.delete(tapKey);
+        // The newest tap was refused: hand the record back to the tap it
+        // overtook, so that tap's overlay holds against a racing load and its
+        // own response can still settle the row (#241). With nothing to hand
+        // back, the record goes, as before.
+        const restored = current?.overtook;
+        if (restored !== undefined) {
+          liveTapsRef.current.set(tapKey, restored);
+        } else {
+          liveTapsRef.current.delete(tapKey);
+        }
+        const reverted = restored?.status ?? previous;
         setItems((prev) =>
-          prev.map((item) => (item.choreId === choreId ? { ...item, status: previous } : item)),
+          prev.map((item) => (item.choreId === choreId ? { ...item, status: reverted } : item)),
         );
         if (action === 'complete') {
           stopCelebration(choreId);
@@ -767,18 +835,17 @@ export function ChoreBoard({
         return;
       }
 
-      if (!latest) {
-        // A newer tap owns the record and the row; its own response settles them.
-        return;
-      }
       const reconciled: 'Open' | 'Done' = result.data?.status === 'Done' ? 'Done' : 'Open';
       // Kept until a load that started after this point has landed: one already
-      // in flight may have been sent before the server recorded the tap.
-      liveTapsRef.current.set(tapKey, {
-        status: reconciled,
-        settledAtLoad: loadSeqRef.current,
-        tap,
-      });
+      // in flight may have been sent before the server recorded the tap. A
+      // settled record carries no chain.
+      const settled: LiveTap = { status: reconciled, settledAtLoad: loadSeqRef.current, tap };
+      if (!latest) {
+        // A newer tap owns the record and the row; its own response settles them.
+        recordOvertaken(() => settled);
+        return;
+      }
+      liveTapsRef.current.set(tapKey, settled);
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: reconciled } : item)),
       );

@@ -10,6 +10,7 @@ import {
   applyQueuedWrites,
   describeFailure,
   pruneLiveTaps,
+  replaceOvertakenTap,
   type BoardItem,
   type LiveTap,
 } from './ChoreBoard';
@@ -2602,6 +2603,76 @@ describe('ChoreBoard offline write queue', () => {
     expect(fake.server.status.c2).toBe('Done');
   });
 
+  it('live-tap-overlap: a refused newest tap hands the record back to the earlier in-flight tap, so a racing load and that tap\'s success leave the row settled (#241)', async () => {
+    // #241: complete then undo on c2, both POSTs in flight. The undo is refused,
+    // so the row reverts to Done and the record goes back to the complete, which
+    // is still in flight: the stale refetch (c2 Open) must not redraw the row,
+    // and the complete's success must still settle it.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    expectC2('Open');
+
+    await settle(() => fake.releaseLive(1, refused));
+    expectC2('Done');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(0));
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+    expect(fake.server.onlineGenerates).toBe(2);
+  });
+
+  it('live-tap-overlap: an earlier tap that answered while overtaken is restored as settled when the newest tap is refused (#241)', async () => {
+    // #241: the complete answers while the undo still owns the row, so the row
+    // stays Open. When the undo is then refused, the complete's settled record
+    // comes back, and the stale refetch cannot redraw c2 Open over it.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(0));
+    expectC2('Open');
+
+    await settle(() => fake.releaseLive(1, refused));
+    expectC2('Done');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
+  it('live-tap-overlap: a refused middle tap is skipped, so a refused newest tap restores the first tap\'s record (#241)', async () => {
+    // #241: complete, undo, complete. The undo is refused while overtaken, so it
+    // drops out of the chain; when the last complete is refused too, the record
+    // goes back to the first complete, which is still in flight.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await tapC2();
+    await tapC2();
+
+    await settle(() => fake.releaseLive(1, refused));
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(2, refused));
+    expectC2('Done');
+
+    await settle(() => fake.releaseGenerate());
+    expectC2('Done');
+
+    await settle(() => fake.releaseLive(0));
+    expectC2('Done');
+    expect(fake.server.status.c2).toBe('Done');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+  });
+
   it('live-tap-cache-fallback: a live tap still in flight when a load falls back to the cached week keeps its tapped state', async () => {
     // #154: c2 is tapped on the live board and its POST is still on its way when
     // the parked confirm refetch finds the network gone. The load falls back to
@@ -2830,6 +2901,79 @@ describe('pruneLiveTaps', () => {
 
     expect(pruned).not.toBe(input);
     expect(input.size).toBe(4);
+  });
+});
+
+describe('replaceOvertakenTap', () => {
+  // Tap 3 overtook tap 2, which overtook tap 1: all three still in flight.
+  const chain = (): LiveTap => ({
+    status: 'Done',
+    settledAtLoad: null,
+    tap: 3,
+    overtook: {
+      status: 'Open',
+      settledAtLoad: null,
+      tap: 2,
+      overtook: { status: 'Done', settledAtLoad: null, tap: 1 },
+    },
+  });
+  const settledAt = (tap: number): LiveTap => ({ status: 'Done', settledAtLoad: 7, tap });
+
+  it('returns the same record when no overtaken link carries the token', () => {
+    const record = chain();
+    const lone: LiveTap = { status: 'Done', settledAtLoad: null, tap: 1 };
+
+    expect(replaceOvertakenTap(record, 9, () => settledAt(9))).toBe(record);
+    expect(replaceOvertakenTap(record, 3, () => settledAt(3))).toBe(record);
+    expect(replaceOvertakenTap(lone, 1, () => settledAt(1))).toBe(lone);
+  });
+
+  it('replaces the link the record overtook directly', () => {
+    expect(replaceOvertakenTap(chain(), 2, () => settledAt(2))).toEqual({
+      status: 'Done',
+      settledAtLoad: null,
+      tap: 3,
+      overtook: settledAt(2),
+    });
+  });
+
+  it('replaces a deeper link and keeps every outer field', () => {
+    const replaced = replaceOvertakenTap(chain(), 1, () => settledAt(1));
+
+    expect(replaced).toEqual({
+      status: 'Done',
+      settledAtLoad: null,
+      tap: 3,
+      overtook: { status: 'Open', settledAtLoad: null, tap: 2, overtook: settledAt(1) },
+    });
+  });
+
+  it('cuts the chain at the link when the replacement is undefined', () => {
+    expect(replaceOvertakenTap(chain(), 2, () => undefined)).toEqual({
+      status: 'Done',
+      settledAtLoad: null,
+      tap: 3,
+      overtook: undefined,
+    });
+  });
+
+  it('splices a link out when the replacement is what that link overtook', () => {
+    expect(replaceOvertakenTap(chain(), 2, (overtaken) => overtaken.overtook)).toEqual({
+      status: 'Done',
+      settledAtLoad: null,
+      tap: 3,
+      overtook: { status: 'Done', settledAtLoad: null, tap: 1 },
+    });
+  });
+
+  it('leaves its input unchanged', () => {
+    const record = chain();
+    const before = chain();
+
+    const replaced = replaceOvertakenTap(record, 1, () => settledAt(1));
+
+    expect(replaced).not.toBe(record);
+    expect(record).toEqual(before);
   });
 });
 
