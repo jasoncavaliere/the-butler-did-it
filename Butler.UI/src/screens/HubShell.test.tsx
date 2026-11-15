@@ -442,7 +442,7 @@ describe('HubShell', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
     // The shell frame (header + today panel) still renders - never a blank screen.
     expect(screen.getByTestId('hub-shell')).toBeOnTheScreen();
     expect(screen.getByTestId('today-panel')).toBeOnTheScreen();
@@ -455,7 +455,7 @@ describe('HubShell', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
   });
 
   it('shows a no-household state when no household is selected', async () => {
@@ -521,6 +521,59 @@ describe('HubShell', () => {
     expect(peopleReads()).toBeGreaterThan(before.people);
     expect(screen.queryByTestId('today-panel-error')).toBeNull();
     expect(screen.getByText('Alex')).toBeOnTheScreen();
+  });
+
+  it.each<[string, ApiResult<unknown>, RegExp]>([
+    ['http 500', { ok: false, error: { kind: 'http', status: 500, title: 'Internal Server Error' } }, /Internal Server Error/],
+    ['http 503 with an empty title', { ok: false, error: { kind: 'http', status: 503, title: '' } }, /Request failed/],
+    [
+      'problem 403 with a detail',
+      { ok: false, error: { kind: 'problem', status: 403, title: 'Forbidden', detail: 'Not your household.' } },
+      /Forbidden|Not your household/,
+    ],
+    [
+      'parse',
+      { ok: false, error: { kind: 'parse', status: 200, title: 'The API response was not valid JSON.' } },
+      /not valid JSON|unexpected response/,
+    ],
+    ['network with no cache', unreachable, /unreachable|household service/],
+  ])(
+    'tile row shows a friendly line, never raw server text, when the shell load fails with no cache (#208): %s',
+    async (_label, failure, raw) => {
+      useApiClientMock.mockReturnValue(clientWith({ household: failure, people: failure }));
+
+      await renderHub();
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hub-tiles-waiting')).toHaveTextContent(
+          'Names will appear here once the hub loads.',
+          { exact: true },
+        ),
+      );
+      expect(screen.getByTestId('hub-name-tiles')).not.toHaveTextContent(raw);
+      expect(screen.getByTestId('hub-shell')).not.toHaveTextContent(raw);
+      expect(screen.getByTestId('hub-shell')).not.toHaveTextContent(/Request failed/);
+    },
+  );
+
+  it.each<[string, Responses]>([
+    ['the household read fails', { household: unreachable, people: { ok: true, status: 200, data: roster, etag: null } }],
+    [
+      'the roster read fails',
+      {
+        household: okHousehold('Home'),
+        people: { ok: false, error: { kind: 'http', status: 500, title: 'Internal Server Error' } },
+      },
+    ],
+  ])('the tile row and the Today panel do not both show an error for one failed load (#208): %s', async (_label, responses) => {
+    useApiClientMock.mockReturnValue(clientWith(responses));
+
+    await renderHub();
+
+    await waitFor(() => expect(screen.getByTestId('today-panel-error')).toBeOnTheScreen());
+    expect(screen.queryByTestId('hub-error')).toBeNull();
+    expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen();
+    expect(within(screen.getByTestId('hub-name-tiles')).queryByText(/Try again|did not load/)).toBeNull();
   });
 
   it('shows the loading state until the reads resolve', async () => {
@@ -1148,7 +1201,7 @@ describe('HubShell', () => {
         expect(screen.queryByTestId('hub-error')).toBeNull();
       });
 
-      it('a 403 without viaDeviceToken does not reject the device and shows the error', async () => {
+      it('a 403 without viaDeviceToken does not reject the device and shows the friendly error', async () => {
         useApiClientMock.mockReturnValue(
           clientWith({
             household: forbidden(),
@@ -1159,7 +1212,9 @@ describe('HubShell', () => {
 
         await renderPairedHub(onDeviceRejected);
 
-        await waitFor(() => expect(screen.getByTestId('hub-error')).toHaveTextContent('Not your household.'));
+        await waitFor(() => expect(screen.getByTestId('today-panel-error')).toBeOnTheScreen());
+        expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen();
+        expect(screen.queryByText(/Not your household/)).toBeNull();
         expect(onDeviceRejected).not.toHaveBeenCalled();
         expect(screen.getByTestId('pairing')).toHaveTextContent('hh-1/dev-1');
       });
@@ -1419,7 +1474,7 @@ describe('HubShell', () => {
         useApiClientMock.mockReturnValue(client);
 
         await renderHubWithOrganizer(fakeProvider());
-        await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
         await signIn();
 
         expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
@@ -1878,7 +1933,7 @@ describe('HubShell offline cache', () => {
     await renderHub();
 
     // Nothing cached, so the outage is the plain error state.
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
 
     state.offline = false;
     await act(async () => {
@@ -1888,7 +1943,7 @@ describe('HubShell offline cache', () => {
     // The wall comes back by itself rather than holding an error until someone
     // notices and reloads it.
     await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
-    expect(screen.queryByTestId('hub-error')).toBeNull();
+    expect(screen.queryByTestId('hub-tiles-waiting')).toBeNull();
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
   });
 
@@ -1979,8 +2034,9 @@ describe('HubShell offline cache', () => {
     await renderHub();
 
     // A real answer from a reachable service is not something the cache hides.
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
-    expect(screen.getByTestId('hub-error')).toHaveTextContent('Not your household.');
+    await waitFor(() => expect(screen.getByTestId('today-panel-error')).toBeOnTheScreen());
+    expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen();
+    expect(screen.queryByText(/Not your household/)).toBeNull();
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
   });
 
@@ -1989,7 +2045,7 @@ describe('HubShell offline cache', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
   });
 
@@ -2006,7 +2062,7 @@ describe('HubShell offline cache', () => {
 
     // hh-1 is the active household and has no cache of its own; hh-2's is never
     // borrowed, no matter that it is the only thing stored.
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
     expect(screen.queryByText('Lake House')).toBeNull();
     expect(screen.queryByTestId('name-tile-p1')).toBeNull();
   });
@@ -2136,7 +2192,7 @@ describe('HubShell sync indicator', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
     expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
   });
@@ -2147,7 +2203,7 @@ describe('HubShell sync indicator', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
     expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Offline/);
 
     responses.household = okHousehold('Home');
@@ -2155,7 +2211,7 @@ describe('HubShell sync indicator', () => {
     await act(async () => fireEvent.press(screen.getByTestId('today-panel-retry')));
 
     await waitFor(() => expect(screen.getByTestId('hub-household-name')).toHaveTextContent('Home'));
-    expect(screen.queryByTestId('hub-error')).toBeNull();
+    expect(screen.queryByTestId('hub-tiles-waiting')).toBeNull();
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
     expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
   });
@@ -2182,7 +2238,7 @@ describe('HubShell sync indicator', () => {
 
     await renderHub();
 
-    await waitFor(() => expect(screen.getByTestId('hub-error')).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByTestId('hub-tiles-waiting')).toBeOnTheScreen());
     expect(screen.queryByTestId('last-known-banner')).toBeNull();
     expect(screen.getByTestId('sync-indicator-connection')).toHaveTextContent(/Online/);
   });

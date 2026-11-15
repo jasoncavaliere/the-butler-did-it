@@ -203,8 +203,8 @@ alone (ADR-0010), and a polite live region for screen readers.
   load failed with a `network`-kind error and nothing was cached (#151). So "wifi up, API down" reads
   `Offline` once a drain fails, a region is served from cache, or a first load gets no response, and
   stays there until a drain or a reload actually gets through. A shell failure from an API that did
-  answer (`http`, `problem`, `parse`) stays `Online`: the API is reachable, and the shell shows its
-  own error.
+  answer (`http`, `problem`, `parse`) stays `Online`: the API is reachable, and the Today panel shows
+  its friendly error (#208).
   That outage never fires the
   browser's `online` event, so a drain that confirms a queued write is what revives the hub: the board
   refetches on `confirmedRevision`, and while the shell is degraded it reloads on it too (HubShell's
@@ -428,7 +428,11 @@ a bounded, dumb container - it renders whatever children it is given and, given 
 `ChoreBoard` (Epic 40 C5) once a household is ready. The shell also hands it a `state` (its own load
 phase, or `ready` when no household is selected) and an `onRetry`: `loading` renders a calm skeleton,
 `error` a friendly line with a `Try again` that re-reads the household and roster, and `ready` with no
-children a designed empty state ("Ready when you are.").
+children a designed empty state ("Ready when you are."). A failed shell load with nothing cached shows
+only that Today panel error: the tile row shows the neutral line "Names will appear here once the hub
+loads." (`hub-tiles-waiting`) and never echoes server text, so one failed load never shows two error
+messages (#208). The tile row's `hub-error` line is kept for the derived no-household state, where the
+Today panel shows its empty state instead.
 
 **Widget load states (P8, #117).** `TodayPanel`, `ChoreBoard`, `FairnessView` and `GroceryCart` render
 their load states through the shared `src/components/WidgetState.tsx` (ADR-0007): `WidgetSkeleton`
