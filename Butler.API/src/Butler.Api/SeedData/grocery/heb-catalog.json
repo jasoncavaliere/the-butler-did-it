@@ -211,13 +211,13 @@
   },
   {
     "productId": "heb-0022",
-    "displayName": "Fresh Raspberries",
-    "size": "6",
-    "unit": "oz",
-    "indicativePrice": "$3.49",
+    "displayName": "Fresh Cherries",
+    "size": "1",
+    "unit": "lb",
+    "indicativePrice": "$4.99",
     "category": "produce",
     "iconId": "produce",
-    "synonyms": ["raspberry", "berries"]
+    "synonyms": ["cherry"]
   },
   {
     "productId": "heb-0023",
@@ -1847,7 +1847,7 @@
     "indicativePrice": "$9.99",
     "category": "kids",
     "iconId": "kids",
-    "synonyms": ["diapers", "nappies"]
+    "synonyms": ["diapers", "nappy"]
   },
   {
     "productId": "heb-0186",
