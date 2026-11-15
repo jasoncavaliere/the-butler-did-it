@@ -20,9 +20,11 @@ import type {
 import { useApiClient } from '../api/useApiClient';
 import { HubPairing } from '../auth/HubPairing';
 import { OrganizerBar } from '../auth/OrganizerBar';
+import { PinPad } from '../auth/PinPad';
 import { ChoreBoard } from '../components/ChoreBoard';
 import { FairnessView } from '../components/FairnessView';
 import { GroceryCart } from '../components/GroceryCart';
+import { HIDDEN_MENU_HOLD_MS, HiddenOrganizerMenu } from '../components/HiddenOrganizerMenu';
 import { LastKnownBanner } from '../components/LastKnownBanner';
 import { OrderReceipt } from '../components/OrderReceipt';
 import { SyncIndicator } from '../components/SyncIndicator';
@@ -33,6 +35,7 @@ import { colors } from '../components/Screen';
 import { TILE_BORDER, useHubLayout, type HubLayout } from '../layout/hubLayout';
 import { nameTileMinWidth, radii, space } from '../theme/theme';
 import type { DatasetCheck } from '../offline/datasetGuard';
+import { forgetHouseholdOffline } from '../offline/forgetHousehold';
 import { readGlance, writeGlance } from '../offline/glanceCache';
 import { useAutoRetrySignal } from '../offline/useAutoRetrySignal';
 import { useBrowserOnline } from '../offline/useBrowserOnline';
@@ -217,6 +220,20 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * once the shell has been in error, or on its last-known cache, for five
  * continuous minutes while the browser is online and no write is waiting to
  * sync; with a write queued it never reloads.
+ *
+ * The kiosk tablet has no browser chrome, so its maintenance lives behind a
+ * hidden organizer menu (#131). Holding the household name for
+ * {@link HIDDEN_MENU_HOLD_MS} shows the organizer PIN pad (#105), every time,
+ * even with an organizer already signed in; a non-PIN provider runs its own
+ * sign-in instead. Only a successful sign-in opens the
+ * {@link HiddenOrganizerMenu}: the API URL, whether ping answers, the dataset
+ * id, the build versions, and Reload app, Clear local cache and Sign out
+ * organizer, each behind a confirmation. The menu shows only while an organizer
+ * is signed in, and signing out from anywhere closes it for good, so a later
+ * sign-in from the organizer bar never reopens it without the hold and PIN.
+ * Clear local cache forgets the household's offline state
+ * ({@link forgetHouseholdOffline}) and remounts the body, the same way a
+ * changed dataset does, because the write queue is held in React state.
  */
 type LoadState =
   | { phase: 'loading' }
@@ -348,13 +365,31 @@ export function HubShell({
     return () => clearTimeout(timer);
   }, [showUpdateNotice]);
 
+  // Clear local cache in the hidden organizer menu (#131): forget the
+  // household's offline state, then remount the body (it is keyed on this too),
+  // because the write queue lives in React state and would otherwise keep
+  // showing the writes that were just cleared. The remount reloads every
+  // household read and closes the menu.
+  const [cacheRevision, setCacheRevision] = useState(0);
+  // With no household there is nothing to clear, and the menu offers no option.
+  const handleClearLocalCache = useMemo(
+    () =>
+      householdId === null
+        ? undefined
+        : () => {
+            forgetHouseholdOffline(householdId);
+            setCacheRevision((previous) => previous + 1);
+          },
+    [householdId],
+  );
+
   // Hold everything - the board, the cached glance, the queue's mount drain -
   // until the startup dataset check has settled, so nothing from a replaced
   // dataset is shown or replayed first.
   //
   // Otherwise the body is keyed on the guard's revision: a changed dataset
   // remounts the whole body, which reloads every household read and re-hydrates
-  // the emptied queue.
+  // the emptied queue. A cleared local cache bumps the key the same way.
   const inner = guard.checking ? (
     <View style={styles.hub} testID="hub-dataset-check">
       <View style={styles.centeredRow} testID="hub-loading">
@@ -364,9 +399,10 @@ export function HubShell({
     </View>
   ) : (
     <HubShellBody
-      key={guard.revision}
+      key={`${guard.revision}:${cacheRevision}`}
       idleTimeoutMs={idleTimeoutMs}
       verifyDataset={householdId === null ? undefined : guard.verify}
+      onClearLocalCache={handleClearLocalCache}
       onEditHousehold={onEditHousehold}
       onEditRoster={onEditRoster}
       onHouseholdTeardown={onHouseholdTeardown}
@@ -386,6 +422,7 @@ export function HubShell({
 function HubShellBody({
   idleTimeoutMs,
   verifyDataset,
+  onClearLocalCache,
   onEditHousehold,
   onEditRoster,
   onHouseholdTeardown,
@@ -396,6 +433,8 @@ function HubShellBody({
 }: {
   idleTimeoutMs: number;
   verifyDataset: (() => Promise<DatasetCheck>) | undefined;
+  /** Clear local cache in the hidden organizer menu (#131); `undefined` with no household. */
+  onClearLocalCache: (() => void) | undefined;
   onEditHousehold: (() => void) | undefined;
   onEditRoster: (() => void) | undefined;
   onHouseholdTeardown: (() => void) | undefined;
@@ -590,7 +629,7 @@ function HubShellBody({
   // The organizer's Version panel (#126): hub-internal state, not a route. It
   // is shown only while an organizer is signed in, so signing out closes it, and
   // VersionInfo mounts (and reads the API version) only while it is open.
-  const { organizer } = useOrganizer();
+  const { organizer, signIn, providerKind } = useOrganizer();
   const [showVersion, setShowVersion] = useState(false);
   const handleShowVersion = useCallback(() => setShowVersion((open) => !open), []);
   const handleCloseVersion = useCallback(() => setShowVersion(false), []);
@@ -606,6 +645,44 @@ function HubShellBody({
         >
           <Text style={styles.closeButtonText}>Close</Text>
         </Pressable>
+      </View>
+    ) : null;
+
+  // The hidden organizer menu (#131): hub-internal state, like the Version
+  // panel. A hold on the household name always asks for the PIN first; with a
+  // non-PIN provider its own sign-in stands in for the pad. A refused PIN leaves
+  // the pad up, so only a sign-in opens the menu.
+  const [hiddenMenu, setHiddenMenu] = useState<'closed' | 'pin' | 'open'>('closed');
+  const handleHiddenMenuHold = useCallback(() => {
+    if (providerKind === 'pin') {
+      setHiddenMenu('pin');
+      return;
+    }
+    signIn().then(
+      () => setHiddenMenu('open'),
+      () => setHiddenMenu('closed'),
+    );
+  }, [providerKind, signIn]);
+  const handleHiddenMenuOpen = useCallback(() => setHiddenMenu('open'), []);
+  const handleHiddenMenuClose = useCallback(() => setHiddenMenu('closed'), []);
+  // Signing out (here or from the bar) closes the menu for good. This resets
+  // during render rather than in an effect, and to 'closed' rather than only
+  // hiding, so the next sign-in from the bar does not reopen it without the PIN.
+  if (hiddenMenu === 'open' && organizer === null) {
+    setHiddenMenu('closed');
+  }
+  const hiddenMenuPanel =
+    hiddenMenu === 'pin' ? (
+      <View style={styles.panel} testID="hub-hidden-menu-pin">
+        <PinPad onSignedIn={handleHiddenMenuOpen} onCancel={handleHiddenMenuClose} />
+      </View>
+    ) : hiddenMenu === 'open' && organizer !== null ? (
+      <View style={styles.panel} testID="hub-hidden-menu">
+        <HiddenOrganizerMenu
+          householdId={householdId}
+          onClose={handleHiddenMenuClose}
+          onClearLocalCache={onClearLocalCache}
+        />
       </View>
     ) : null;
 
@@ -712,15 +789,27 @@ function HubShellBody({
       </View>
       {/* A sibling after the chrome, never inside it: the chrome's height is fixed. */}
       {versionPanel}
+      {hiddenMenuPanel}
       <View style={styles.header} testID="hub-header">
-        <Text
-          style={styles.householdName}
-          accessibilityRole="header"
-          numberOfLines={1}
-          testID="hub-household-name"
+        {/* The hidden organizer menu's hold (#131). A long press, not a
+            press-in timer: react-native-web keeps a touch press alive through
+            the browser's contextmenu event only when onLongPress is set. */}
+        <Pressable
+          testID="hub-household-name-hold"
+          accessible={false}
+          style={styles.householdNameHold}
+          onLongPress={handleHiddenMenuHold}
+          delayLongPress={HIDDEN_MENU_HOLD_MS}
         >
-          {householdName}
-        </Text>
+          <Text
+            style={styles.householdName}
+            accessibilityRole="header"
+            numberOfLines={1}
+            testID="hub-household-name"
+          >
+            {householdName}
+          </Text>
+        </Pressable>
         <View style={styles.headerStatus}>
           <Text style={styles.date} numberOfLines={1} testID="hub-date">
             {todayLabel()}
@@ -975,6 +1064,8 @@ function makeHubStyles(layout: HubLayout) {
       gap: layout.headerGap,
       minHeight: layout.headerHeight,
     },
+    // The household name's hold target (#131): it shrinks like the name does.
+    householdNameHold: { flexShrink: 1 },
     householdName: {
       color: colors.ink,
       fontSize: layout.nameSize,
