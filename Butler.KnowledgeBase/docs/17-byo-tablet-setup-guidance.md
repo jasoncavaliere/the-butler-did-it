@@ -6,7 +6,7 @@ tags: [byo-tablet, hub, tablet, battery, charge cap, mounting, kiosk, guided acc
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 11-hub-hardware-findings]
+related: [10-product-vision, 11-hub-hardware-findings, 40-hub-tablet-kiosk-setup]
 sources:
   - { id: issue-166, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/166, title: Spike - BYO-tablet setup guidance for families }
   - { id: hub-hardware-findings, resource: 11-hub-hardware-findings.md, title: Hub Hardware Findings - F4, F5 and F6 }
@@ -22,7 +22,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T09:44:48Z }
 
 > **In one line:** Pick an LCD tablet with a side USB-C port, cap its charging, mount it where the family walks past, and lock it to Butler.
 
-Butler runs on a tablet your family already owns (the [BYO-tablet](90-glossary.md#byo-tablet) decision). This guide says how to set that tablet up as the [hub](90-glossary.md#the-hub). It was written for [issue #247](https://github.com/jasoncavaliere/the-butler-did-it/issues/247), from the decision in [issue #166](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) and the research in the [Hub Hardware Findings](11-hub-hardware-findings.md). The step-by-step kiosk runbook is a separate piece of work, issue #127, and is not written yet.
+Butler runs on a tablet your family already owns (the [BYO-tablet](90-glossary.md#byo-tablet) decision). This guide says how to set that tablet up as the [hub](90-glossary.md#the-hub). It was written for [issue #247](https://github.com/jasoncavaliere/the-butler-did-it/issues/247), from the decision in [issue #166](https://github.com/jasoncavaliere/the-butler-did-it/issues/166) and the research in the [Hub Hardware Findings](11-hub-hardware-findings.md). The step-by-step kiosk runbook is the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md).
 
 ## Choosing a tablet
 
@@ -80,7 +80,7 @@ The hub has no passwords for family members. Each person taps their name to use 
 
 ### Android: kiosk app plus device owner
 
-This is the full lockdown. It is a summary of finding [F5](11-hub-hardware-findings.md#f5-the-mechanism-device-owner-kiosk-mode). The step-by-step runbook is issue #127.
+This is the full lockdown. It is a summary of finding [F5](11-hub-hardware-findings.md#f5-the-mechanism-device-owner-kiosk-mode). The step-by-step runbook is the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md#stock-android-path).
 
 1. Set up the tablet with **no Google account**, on Wi-Fi only.
 2. Install a kiosk browser app from the maker's website (sideload it), not from the Play Store. The Play Store adds a Google account, and that blocks step 3.
@@ -100,7 +100,7 @@ Guided Access keeps the iPad in one app until someone enters a passcode ([Apple:
 ## What this guidance does not cover
 
 - Showing this guidance inside the app ([#248](https://github.com/jasoncavaliere/the-butler-did-it/issues/248)) or linking it from the landing page ([#249](https://github.com/jasoncavaliere/the-butler-did-it/issues/249)).
-- The step-by-step kiosk setup runbook (issue #127).
+- The step-by-step kiosk setup, which is the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) runbook.
 - The reference tablet Butler tests on, which is its own decision ([#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163)).
 
 ## Sources
@@ -117,3 +117,4 @@ Guided Access keeps the iPad in one app until someone enters a passcode ([Apple:
 
 - [Product Vision](10-product-vision.md) - the BYO-tablet hardware decision and the tap-to-claim trust trade-off this guidance serves.
 - [Hub Hardware Findings](11-hub-hardware-findings.md) - the research (F4, F5, F6) this guidance is built from.
+- [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) - the step-by-step runbook for the lockdown, connection, charge cap, and recovery.

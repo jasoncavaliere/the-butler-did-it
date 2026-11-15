@@ -22,6 +22,10 @@ okf_version: "0.2"
 
 * [20 Architecture Overview](docs/20-architecture-overview.md) - How v1 is built: a map of each locked architecture decision, linked to the binding Engineering Contract clause.
 
+# Operations
+
+* [40 Hub Tablet Kiosk Setup](docs/40-hub-tablet-kiosk-setup.md) - How to turn a tablet into the Butler hub, step by step: stock Android with Fully Kiosk EMM as device owner, a reclaimed Fire tablet, or an iPad with Guided Access, plus connecting it to the demo desktop, keeping it awake, capping its charge, and getting back out.
+
 # Reference
 
 * [90 Glossary](docs/90-glossary.md) - Every Butler term defined once: hub, tap-to-claim, store connector, organizer, participant, and the rest.
