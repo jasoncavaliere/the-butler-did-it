@@ -11,14 +11,14 @@
 // block is parsed with readPrecache from Butler.UI/scripts/pwa-export.js, so the
 // format lives in one place, and the bundle rule matches its verifyServiceWorker.
 //
-// Prints {source, version, urls, bundles} and exits 0 when the list is real;
-// lists the problems on stderr and exits 1 otherwise; exits 2 on bad usage.
+// Prints {source, version, urls, bundles} and exits 0 when the list is real.
+// Exits 1 only when it lists problems on stderr (a rejection). Exits 2 on bad
+// usage or any error (unreadable file, failed or non-2xx fetch, failed require,
+// thrown error), so callers can tell a rejection from a crash (#259).
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
-
-const { readPrecache } = require(path.join(__dirname, '..', '..', 'Butler.UI', 'scripts', 'pwa-export.js'));
 
 const BUILD_ID = /^[0-9a-f]{12}$/;
 const APP_SHELL_URL = '/index.html';
@@ -63,6 +63,8 @@ async function main() {
     process.exit(2);
   }
 
+  // Required here, not at the top, so a failed require exits 2 via .catch (#259).
+  const { readPrecache } = require(path.join(__dirname, '..', '..', 'Butler.UI', 'scripts', 'pwa-export.js'));
   const precache = readPrecache(await readSource(source));
   const problems = findProblems(precache);
   if (problems.length > 0) {
@@ -87,5 +89,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(`check-precache: ${err && err.message ? err.message : err}`);
-  process.exit(1);
+  process.exit(2);
 });

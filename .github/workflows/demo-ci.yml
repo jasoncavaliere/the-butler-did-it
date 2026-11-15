@@ -48,7 +48,8 @@
 #            through both scripts, while a writable one prints nothing extra.
 #   stack  - boots the real stack (Azurite + API + Caddy), checks the hub and
 #            its service worker on :8080 (with the precache list build:web
-#            injects, demo/ci/check-precache.cjs, #178), the single origin
+#            injects, demo/ci/check-precache.cjs, #178; its exit codes
+#            checked by demo/ci/check-precache-exit.sh, #259), the single origin
 #            (SPA fallback, cache headers, /api proxy, #96), a household created and read back
 #            through the hub UI with every API call same-origin (#96), the
 #            API's table provisioning, and that a household survives `down` +
@@ -438,15 +439,15 @@ jobs:
       # carries the precache list build:web injects (12-hex build id, app shell,
       # an /_expo/**.js bundle), not just the marker, and the checker rejects
       # the placeholder worker a bare expo export copies from public/sw.js.
+      # #259: only exit 1 with the rejection message counts as a rejection;
+      # demo/ci/check-precache-exit.sh also checks that a usage error, a
+      # missing file, a bad require or a crash exits 2 (or fails the guard)
+      # instead.
       - name: Hub served on :8080
         run: |
           curl -fsS "$HUB_URL/" | grep -qi '<html'
           node demo/ci/check-precache.cjs "$HUB_URL/sw.js"
-          if node demo/ci/check-precache.cjs Butler.UI/public/sw.js; then
-            echo "check-precache accepted the bare-export worker (Butler.UI/public/sw.js)" >&2
-            exit 1
-          fi
-          echo "rejects the bare-export worker: ok"
+          bash demo/ci/check-precache-exit.sh
           curl -fsS "$HUB_URL/manifest.json" > /dev/null
 
       # #96: one origin on :8080 - SPA fallback, cache headers and the /api
