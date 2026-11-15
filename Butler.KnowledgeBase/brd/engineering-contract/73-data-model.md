@@ -4,7 +4,7 @@ title: Engineering Contract 7.3 - Data model (Azure Table Storage - partition ke
 description: Every Azure Table Storage table, its PartitionKey (householdId, except the one deployment-wide Datasets row at _system) and RowKey, and the fields each row carries.
 tags: [engineering-contract, binding]
 contract: ../07-engineering-contract.md
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T21:43:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T11:20:36Z }
 ---
 
 # 7.3 Data model (Azure Table Storage - partition key is `householdId`, with one deployment-wide exception)
@@ -24,6 +24,7 @@ Tables (PartitionKey / RowKey), all in one storage account. Every table is parti
 | `Carts` | `householdId` | `{weekIso}` | Status (`Building`/`Confirmed`), ConfirmedByPersonId, ConfirmedUtc |
 | `CartItems` | `householdId` | `{cartWeekIso}_{itemId}` | ProductId, DisplayName, Quantity, AddedByPersonId, SourceConnector |
 | `HubDevices` | `householdId` | `deviceId` | DeviceName, PairedUtc, LastSeenUtc |
+| `Events` | `householdId` | `{occurredUtcTicks:D19}_{eventGuid}` | Type (an `EventTypes` value, for example `chore-completed`/`hub-glanced`), OccurredUtc, PersonId, ChoreId, WeekIso, ItemId (each nullable); append-only, ids only, never free text |
 | `Datasets` | `_system` (fixed, deployment-wide; see the exception below) | `dataset` (fixed; the only row) | DatasetId (GUID, "N" format), CreatedUtc |
 
 Rules:
