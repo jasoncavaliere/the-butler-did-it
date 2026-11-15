@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentRef, type Ref } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef, type Ref } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ApiError } from '../api/client';
@@ -56,7 +56,8 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   or `webkitSpeechRecognition`), a Speak button sits beside Add; where it does
  *   not, the button is absent, not disabled. One tap listens for one utterance
  *   (the region says `Listening...` until recognition ends), shows what it heard,
- *   and posts that transcript to `/capture/voice` with no confirm tap. The answer
+ *   and, once that line is on screen, posts that transcript to `/capture/voice`
+ *   exactly once with no confirm tap (#206). The answer
  *   is handled exactly as a typed add's is (added, suggestions, or the custom-item
  *   offer). A recognition error or an empty result posts nothing and says so, and
  *   the cart stays usable.
@@ -164,6 +165,9 @@ export function GroceryCart({
   const [busy, setBusy] = useState(false);
   // The last transcript the mic heard (#116), shown above the notice.
   const [heard, setHeard] = useState<string | null>(null);
+  // The cart the on-screen transcript should be sent against: set when the mic
+  // hears something and cleared on send, so each transcript posts once (#206).
+  const pendingVoiceCartRef = useRef<CartResponse | null>(null);
   const voice = useSpeechCapture();
 
   // The single read the region ever does. It is also what an add reconciles
@@ -284,8 +288,8 @@ export function GroceryCart({
     setCustomOffer(null);
   }, []);
 
-  // Adding by voice (#116): listen for one utterance, show it, and send it with
-  // no confirm tap. A miss (an error, nothing heard) never calls the API and
+  // Adding by voice (#116): listen for one utterance and show it; the effect below
+  // sends it with no confirm tap once that line has rendered (#206). A miss (an error, nothing heard) never calls the API and
   // never blocks the cart - it says so and the mic and the field stay ready.
   const listen = useCallback(
     (cart: CartResponse) => {
@@ -299,14 +303,27 @@ export function GroceryCart({
       setNotice('');
       voice.start({
         onTranscript: (transcript) => {
+          pendingVoiceCartRef.current = cart;
           setHeard(transcript);
-          void submitCapture('voice', transcript, cart);
         },
         onFailure: () => setNotice(COPY.voiceMissed),
       });
     },
-    [activePersonId, submitCapture, voice],
+    [activePersonId, voice],
   );
+
+  // Sending what the mic heard (#206). Effects run after commit, so the Heard
+  // line is already on screen when the capture goes out, and the post carries
+  // exactly the text shown. Clearing the pending cart first keeps it to one send
+  // even when the effect re-runs because `submitCapture` changed identity.
+  useEffect(() => {
+    const cart = pendingVoiceCartRef.current;
+    if (heard === null || cart === null) {
+      return;
+    }
+    pendingVoiceCartRef.current = null;
+    void submitCapture('voice', heard, cart);
+  }, [heard, submitCapture]);
 
   // Adding the no-match term as a custom line (#113): no product and no price,
   // attributed to whoever made the capture, then the cart is re-read so the list
