@@ -125,6 +125,22 @@ public sealed class StorageServiceCollectionExtensionsTests
         Assert.Equal(TimeSpan.FromSeconds(5), options.ResolveProvisioningTimeout());
     }
 
+    [Fact]
+    public void AddStorage_clamps_a_bare_number_ProvisioningTimeout()
+    {
+        // #256: the binder reads a bare number as days, so "30" is 30 days.
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["Storage:ProvisioningTimeout"] = "30",
+        });
+
+        var options = provider.GetRequiredService<IOptions<StorageOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromDays(30), options.ProvisioningTimeout);
+        Assert.True(options.IsProvisioningTimeoutClamped());
+        Assert.Equal(StorageOptions.MaxProvisioningTimeout, options.ResolveProvisioningTimeout());
+    }
+
     private static ServiceProvider BuildProvider(IDictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder()

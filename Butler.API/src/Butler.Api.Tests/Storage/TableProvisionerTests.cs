@@ -20,6 +20,7 @@ namespace Butler.Api.Tests.Storage;
 /// mode, and is safe to run again against tables that already exist. #174 AC2:
 /// a create that never completes fails the pass with a
 /// <see cref="TimeoutException"/> after the configured bound, logging the table.
+/// #256 AC1: a bound above the ceiling is clamped and logged as a warning.
 /// The <see cref="TableClient"/>s are substituted, so no Azurite is needed.
 /// </summary>
 public sealed class TableProvisionerTests
@@ -73,6 +74,35 @@ public sealed class TableProvisionerTests
         var success = Assert.Single(_logger.Entries, entry => entry.EventId.Id == 9101);
         Assert.Equal(LogLevel.Information, success.Level);
         Assert.Contains("Households, People", success.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_logs_a_warning_when_the_timeout_is_clamped()
+    {
+        var provisioner = CreateProvisioner(
+            new StorageOptions { ConnectionString = Connection, ProvisioningTimeout = TimeSpan.FromDays(30) },
+            "Households");
+
+        await provisioner.ProvisionAsync();
+
+        var warning = Assert.Single(_logger.Entries, entry => entry.EventId.Id == 9105);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains("30.00:00:00", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("00:03:00", warning.Message, StringComparison.Ordinal);
+        Assert.Single(_logger.Entries, entry => entry.EventId.Id == 9101);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_does_not_warn_when_the_timeout_is_in_range()
+    {
+        var provisioner = CreateProvisioner(
+            new StorageOptions { ConnectionString = Connection, ProvisioningTimeout = TimeSpan.FromSeconds(45) },
+            "Households");
+
+        await provisioner.ProvisionAsync();
+
+        Assert.DoesNotContain(_logger.Entries, entry => entry.EventId.Id == 9105);
+        Assert.Single(_logger.Entries, entry => entry.EventId.Id == 9101);
     }
 
     [Fact]
