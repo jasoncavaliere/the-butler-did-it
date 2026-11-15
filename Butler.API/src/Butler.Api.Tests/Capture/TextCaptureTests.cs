@@ -68,6 +68,30 @@ public sealed class TextCaptureTests : IClassFixture<ButlerApiFactory>
     }
 
     [Fact]
+    public async Task Add_pb_auto_adds_peanut_butter()
+    {
+        // #202: "pb" must resolve to a single product and auto-add, not come
+        // back ambiguous with an unrelated substring hit.
+        using var client = _factory.CreateClient();
+        var householdId = await CaptureTestHelper.CreateHouseholdAsync(client);
+        const string week = "2026-W31";
+
+        var captured = await CaptureTestHelper.CaptureAsync(
+            client,
+            CaptureTestHelper.TextRoute(householdId),
+            new { utterance = "add pb", personId = "person-1", weekIso = week });
+
+        Assert.Equal(nameof(CaptureOutcome.Added), captured.GetProperty("outcome").GetString());
+        Assert.Equal("pb", captured.GetProperty("resolvedTerm").GetString());
+        Assert.Empty(captured.GetProperty("suggestions").EnumerateArray());
+        Assert.Equal("heb-0010", captured.GetProperty("item").GetProperty("productId").GetString());
+
+        var cart = await CaptureTestHelper.GetCartAsync(client, householdId, week);
+        var line = Assert.Single(cart.GetProperty("items").EnumerateArray().ToArray());
+        Assert.Equal("heb-0010", line.GetProperty("productId").GetString());
+    }
+
+    [Fact]
     public async Task An_utterance_with_no_week_adds_to_the_current_weeks_cart()
     {
         using var client = _factory.CreateClient();

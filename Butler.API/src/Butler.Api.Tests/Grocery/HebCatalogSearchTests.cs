@@ -11,7 +11,8 @@ namespace Butler.Api.Tests.Grocery;
 /// network call and return identical results across independent loads (AC10,
 /// BRD decision D-4). The anchor-phrase guards pin the phrases the capture,
 /// cart, and demo integration tests rely on, so growing the catalog can never
-/// quietly make one of them ambiguous.
+/// quietly make one of them ambiguous. The short-phrase collision anchors (#202)
+/// pin that "pie" never resolves to diapers and "pb" auto-adds only peanut butter.
 /// </summary>
 /// <remarks>
 /// The no-network guard scans the shipped IL of every type in the grocery
@@ -55,7 +56,7 @@ public sealed class HebCatalogSearchTests
     [InlineData("toilet paper", "heb-0161")]
     [InlineData("garbage bags", "heb-0167")]
     [InlineData("kitty litter", "heb-0183")]
-    [InlineData("nappies", "heb-0185")]
+    [InlineData("nappy", "heb-0185")]
     public async Task A_synonym_returns_the_intended_product(string synonym, string expectedProductId)
     {
         var connector = RealConnector.Value;
@@ -200,6 +201,28 @@ public sealed class HebCatalogSearchTests
         var results = await RealConnector.Value.SearchProductsAsync("milk", CancellationToken.None);
 
         Assert.True(results.Count >= 2, $"Expected several milk candidates but got {results.Count}.");
+    }
+
+    [Fact]
+    public async Task Pie_does_not_resolve_to_diapers()
+    {
+        // #202: "pie" once matched the diapers synonym "nappies" by substring.
+        // DoesNotContain, not Empty, so a future real pie product cannot break it.
+        var results = await RealConnector.Value.SearchProductsAsync("pie", CancellationToken.None);
+
+        Assert.DoesNotContain(results, product => product.ProductId == "heb-0185");
+    }
+
+    [Fact]
+    public async Task Pb_resolves_to_peanut_butter_only()
+    {
+        // #202: "pb" once also matched "Fresh Raspberries" by substring, so it
+        // came back ambiguous instead of auto-adding peanut butter.
+        var results = await RealConnector.Value.SearchProductsAsync("pb", CancellationToken.None);
+
+        var match = Assert.Single(results);
+        Assert.Equal("heb-0010", match.ProductId);
+        Assert.DoesNotContain(results, product => product.ProductId == "heb-0022");
     }
 
     [Theory]
