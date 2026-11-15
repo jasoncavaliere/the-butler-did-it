@@ -369,7 +369,8 @@ the default forwarding scheme routes a request carrying `X-Device-Token` to the 
 authenticates as that device, but is `403 Forbidden` at any organizer-only endpoint), ahead of the
 participant-session and organizer fallbacks. A successful authenticate refreshes the device's
 `LastSeenUtc` from the clock seam; a token whose device row no longer exists (unpaired) authenticates
-nobody. The token is intentionally opaque and unsigned, mirroring the participant session - its blast
+nobody. The refresh is a conditional replace that never inserts, so a request racing household teardown
+cannot re-create the deleted row (#222). The token is intentionally opaque and unsigned, mirroring the participant session - its blast
 radius is reads and completion writes for the single household it is scoped to, and no money moves in
 v1 (Decision D-8).
 

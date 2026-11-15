@@ -2,6 +2,7 @@ using Butler.Api.Application.Auth;
 using Butler.Api.Application.HubDevices;
 using Butler.Api.Infrastructure.HubDevices;
 using Butler.Api.Infrastructure.Storage;
+using Butler.Api.Tests.TestSupport;
 using NSubstitute;
 
 namespace Butler.Api.Tests.HubDevices;
@@ -12,7 +13,8 @@ namespace Butler.Api.Tests.HubDevices;
 /// clock. They pin the T5 orchestration: pairing writes a household-scoped row
 /// stamped from the clock and returns a token scoped to exactly
 /// <c>(householdId, deviceId)</c>, and touching refreshes <c>LastSeenUtc</c> only
-/// for a device that is still paired.
+/// for a device that is still paired, including when the row is deleted (for
+/// example by household teardown) between the touch's read and its write (#222).
 /// </summary>
 public sealed class HubDeviceServiceTests
 {
@@ -84,6 +86,28 @@ public sealed class HubDeviceServiceTests
         var touched = await service.TouchAsync("house-1", "never-paired", CancellationToken.None);
 
         Assert.False(touched);
+    }
+
+    [Fact]
+    public async Task TouchAsync_does_not_recreate_a_device_row_deleted_between_read_and_write()
+    {
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(PairedAt, SeenAt);
+        var entities = new InMemoryEntityRepository<HubDeviceEntity>();
+        var racing = new RacingHubDeviceRepository(new TableHubDeviceRepository(entities), entities);
+        var service = new HubDeviceService(racing, clock);
+        var paired = await service.PairAsync("house-1", "Kitchen hub", CancellationToken.None);
+
+        // Teardown purges the row after the touch read it but before it writes back.
+        racing.DeleteAfterNextRead = true;
+        var touched = await service.TouchAsync("house-1", paired.DeviceId, CancellationToken.None);
+
+        // The touch reports not found and the purged row stays gone.
+        Assert.False(touched);
+        Assert.Null(await entities.GetAsync("house-1", paired.DeviceId, CancellationToken.None));
+
+        // A later touch with the same token still finds nothing.
+        Assert.False(await service.TouchAsync("house-1", paired.DeviceId, CancellationToken.None));
     }
 
     [Fact]
