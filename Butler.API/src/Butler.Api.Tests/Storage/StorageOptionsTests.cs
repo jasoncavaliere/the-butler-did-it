@@ -8,7 +8,9 @@ namespace Butler.Api.Tests.Storage;
 /// override when set, otherwise in-memory exactly when no storage connection is
 /// configured (so local runs and tests need no Azurite). #174:
 /// <see cref="StorageOptions.ResolveProvisioningTimeout"/> applies the 30-second
-/// default when the bound is unset or not positive.
+/// default when the bound is unset or not positive. #256: a bound above
+/// <see cref="StorageOptions.MaxProvisioningTimeout"/> (such as a bare <c>30</c>,
+/// which binds as 30 days) is clamped to that ceiling.
 /// </summary>
 public sealed class StorageOptionsTests
 {
@@ -71,6 +73,7 @@ public sealed class StorageOptionsTests
         Assert.Null(options.ProvisioningTimeout);
         Assert.Equal(TimeSpan.FromSeconds(30), StorageOptions.DefaultProvisioningTimeout);
         Assert.Equal(StorageOptions.DefaultProvisioningTimeout, options.ResolveProvisioningTimeout());
+        Assert.False(options.IsProvisioningTimeoutClamped());
     }
 
     [Fact]
@@ -89,5 +92,41 @@ public sealed class StorageOptionsTests
         var options = new StorageOptions { ProvisioningTimeout = TimeSpan.FromSeconds(seconds) };
 
         Assert.Equal(StorageOptions.DefaultProvisioningTimeout, options.ResolveProvisioningTimeout());
+        Assert.False(options.IsProvisioningTimeoutClamped());
+    }
+
+    [Fact]
+    public void ProvisioningTimeout_above_the_ceiling_resolves_to_the_ceiling()
+    {
+        // A bare "30" in configuration binds as 30 days (#256).
+        var options = new StorageOptions { ProvisioningTimeout = TimeSpan.FromDays(30) };
+
+        Assert.Equal(TimeSpan.FromMinutes(3), StorageOptions.MaxProvisioningTimeout);
+        Assert.Equal(StorageOptions.MaxProvisioningTimeout, options.ResolveProvisioningTimeout());
+        Assert.True(options.IsProvisioningTimeoutClamped());
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(45)]
+    [InlineData(180)]
+    public void ProvisioningTimeout_within_the_ceiling_is_unchanged(int seconds)
+    {
+        var options = new StorageOptions { ProvisioningTimeout = TimeSpan.FromSeconds(seconds) };
+
+        Assert.Equal(TimeSpan.FromSeconds(seconds), options.ResolveProvisioningTimeout());
+        Assert.False(options.IsProvisioningTimeoutClamped());
+    }
+
+    [Fact]
+    public void ProvisioningTimeout_one_tick_over_the_ceiling_is_clamped()
+    {
+        var options = new StorageOptions
+        {
+            ProvisioningTimeout = StorageOptions.MaxProvisioningTimeout + TimeSpan.FromTicks(1),
+        };
+
+        Assert.Equal(StorageOptions.MaxProvisioningTimeout, options.ResolveProvisioningTimeout());
+        Assert.True(options.IsProvisioningTimeoutClamped());
     }
 }

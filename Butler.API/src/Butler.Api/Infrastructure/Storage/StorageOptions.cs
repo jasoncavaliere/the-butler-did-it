@@ -9,7 +9,8 @@ namespace Butler.Api.Infrastructure.Storage;
 /// <see cref="UseInMemoryStore"/> forces the choice either way - the API falls
 /// back to the in-memory seed store so local runs and tests need no Azurite
 /// (Engineering Contract 7.3). <see cref="ProvisioningTimeout"/> bounds how long
-/// startup waits to create the tables (#174).
+/// startup waits to create the tables (#174), capped at
+/// <see cref="MaxProvisioningTimeout"/> (#256).
 /// </summary>
 public sealed class StorageOptions
 {
@@ -23,6 +24,14 @@ public sealed class StorageOptions
     /// Service's 230-second startup limit.
     /// </summary>
     public static readonly TimeSpan DefaultProvisioningTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// The ceiling on <see cref="ProvisioningTimeout"/>: 3 minutes, still under
+    /// App Service's 230-second startup limit. A larger value is clamped to this
+    /// (#256), because configuration binds a bare number such as <c>30</c> as
+    /// that many days, which would otherwise disable the bound.
+    /// </summary>
+    public static readonly TimeSpan MaxProvisioningTimeout = TimeSpan.FromMinutes(3);
 
     /// <summary>
     /// Table Storage connection string. Locally this is Azurite's
@@ -66,17 +75,36 @@ public sealed class StorageOptions
     /// key <c>Storage:ProvisioningTimeout</c>, a TimeSpan such as
     /// <c>00:00:30</c>). When it expires, the table in flight is logged and
     /// startup fails. <c>null</c> or a non-positive value means
-    /// <see cref="DefaultProvisioningTimeout"/> - see
+    /// <see cref="DefaultProvisioningTimeout"/>; a value above
+    /// <see cref="MaxProvisioningTimeout"/> is clamped to it. Use hh:mm:ss: a
+    /// bare number such as <c>30</c> binds as days - see
     /// <see cref="ResolveProvisioningTimeout"/>.
     /// </summary>
     public TimeSpan? ProvisioningTimeout { get; set; }
 
     /// <summary>
-    /// The effective provisioning bound: <see cref="ProvisioningTimeout"/> when it
-    /// is set and positive, otherwise <see cref="DefaultProvisioningTimeout"/>.
+    /// The effective provisioning bound: <see cref="MaxProvisioningTimeout"/>
+    /// when <see cref="IsProvisioningTimeoutClamped"/>, otherwise
+    /// <see cref="ProvisioningTimeout"/> when it is set and positive, otherwise
+    /// <see cref="DefaultProvisioningTimeout"/>.
     /// </summary>
-    public TimeSpan ResolveProvisioningTimeout() =>
-        ProvisioningTimeout is { } timeout && timeout > TimeSpan.Zero ? timeout : DefaultProvisioningTimeout;
+    public TimeSpan ResolveProvisioningTimeout()
+    {
+        if (IsProvisioningTimeoutClamped())
+        {
+            return MaxProvisioningTimeout;
+        }
+
+        return ProvisioningTimeout is { } timeout && timeout > TimeSpan.Zero ? timeout : DefaultProvisioningTimeout;
+    }
+
+    /// <summary>
+    /// Whether the configured <see cref="ProvisioningTimeout"/> exceeds
+    /// <see cref="MaxProvisioningTimeout"/> and so resolves to the ceiling
+    /// (#256). A value exactly at the ceiling is not clamped.
+    /// </summary>
+    public bool IsProvisioningTimeoutClamped() =>
+        ProvisioningTimeout is { } timeout && timeout > MaxProvisioningTimeout;
 
     /// <summary>Whether any real-storage connection detail is configured.</summary>
     public bool IsStorageConfigured() =>

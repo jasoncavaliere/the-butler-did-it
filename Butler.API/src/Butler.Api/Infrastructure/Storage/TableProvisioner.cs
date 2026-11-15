@@ -18,6 +18,8 @@ namespace Butler.Api.Infrastructure.Storage;
 /// injected <see cref="TimeProvider"/>): when it expires, the table in flight is
 /// logged by name and a <see cref="TimeoutException"/> fails startup instead of
 /// waiting out the Azure SDK retry window against an unreachable endpoint (#174).
+/// A configured bound above <see cref="StorageOptions.MaxProvisioningTimeout"/>
+/// is clamped and logged as a warning (#256).
 /// </summary>
 public sealed partial class TableProvisioner
 {
@@ -57,7 +59,8 @@ public sealed partial class TableProvisioner
     /// <summary>
     /// Creates each of <see cref="TableNames"/> if it does not exist yet. Does
     /// nothing in in-memory mode. Safe to call more than once. The whole pass must
-    /// finish within <see cref="StorageOptions.ResolveProvisioningTimeout"/>.
+    /// finish within <see cref="StorageOptions.ResolveProvisioningTimeout"/>;
+    /// a warning is logged when that bound was clamped to the ceiling.
     /// </summary>
     /// <param name="cancellationToken">Cancels the provisioning.</param>
     /// <exception cref="TimeoutException">
@@ -81,6 +84,11 @@ public sealed partial class TableProvisioner
         // (which would otherwise keep retrying); WaitAsync abandons a call that
         // ignores its token.
         var timeout = _options.ResolveProvisioningTimeout();
+        if (_options.ProvisioningTimeout is { } configured && _options.IsProvisioningTimeoutClamped())
+        {
+            LogProvisioningTimeoutClamped(_logger, configured, timeout);
+        }
+
         using var deadline = new CancellationTokenSource(timeout, _timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         foreach (var tableName in TableNames)
@@ -133,4 +141,10 @@ public sealed partial class TableProvisioner
         Level = LogLevel.Error,
         Message = "Timed out after {Timeout} creating Table Storage table {TableName}")]
     private static partial void LogTableCreationTimedOut(ILogger logger, Exception exception, TimeSpan timeout, string tableName);
+
+    [LoggerMessage(
+        EventId = 9105,
+        Level = LogLevel.Warning,
+        Message = "Clamped Storage:ProvisioningTimeout {ConfiguredTimeout} to the {MaxTimeout} ceiling; a bare number is read as days, use hh:mm:ss")]
+    private static partial void LogProvisioningTimeoutClamped(ILogger logger, TimeSpan configuredTimeout, TimeSpan maxTimeout);
 }
