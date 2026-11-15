@@ -13,6 +13,10 @@
       up      Build the hub export if needed, start the stack and wait until
               every service is healthy.
       down    Stop the stack. The Azurite data in demo/.data/azurite is kept.
+      reset   Delete the demo data in demo/.data/azurite, start the stack
+              again, sign in with BUTLER_DEMO_PIN and seed the demo
+              household, which also changes the dataset id. Asks nothing,
+              and refuses to run against anything but the local demo stack.
       status  Show each container's state and health, the hub URL and the
               dataset id.
       logs    Follow the API and Caddy (web) logs, last 100 lines each.
@@ -31,6 +35,8 @@
 
 .EXAMPLE
     pwsh demo/demo.ps1 up
+.EXAMPLE
+    pwsh demo/demo.ps1 reset
 .EXAMPLE
     ./demo/demo.ps1 logs --api
 .EXAMPLE
@@ -68,6 +74,9 @@ $EnvFile = Join-Path $PSScriptRoot '.env'
 
 $HubUrl = 'http://localhost:8080'
 $DatasetUrl = "$HubUrl/api/api/system/dataset"
+# reset (#98) signs the organizer in with the PIN, then seeds the demo household.
+$PinSignInUrl = "$HubUrl/api/auth/pin/sign-in"
+$SeedUrl = "$HubUrl/api/demo/seed"
 $WaitTimeout = '300'
 
 # Subcommand registry, in usage order.
@@ -77,6 +86,7 @@ $WaitTimeout = '300'
 $Commands = [ordered]@{
     up      = 'Build the hub export if needed, start the stack and wait until it is healthy'
     down    = 'Stop the stack (data in demo/.data/azurite is kept)'
+    reset   = 'Delete the demo data, restart the stack, re-seed the demo household and change the dataset id'
     status  = 'Show container health, the hub URL and the dataset id'
     logs    = 'Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)'
     share   = 'Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code'
@@ -332,6 +342,147 @@ function Invoke-DemoDown {
     Write-Out 'Demo stack stopped.'
 }
 
+# Returns the API's current dataset id, or '' when the API is not there.
+function Get-DatasetId {
+    $dataset = ''
+    try {
+        $response = Invoke-RestMethod -Uri $DatasetUrl -TimeoutSec 3
+        if ($response -and $response.PSObject.Properties['datasetId'] -and $response.datasetId) {
+            $dataset = [string]$response.datasetId
+        }
+    }
+    catch {
+        $dataset = ''
+    }
+    return $dataset
+}
+
+# reset (#98) deletes data, so it runs only against the local demo stack:
+# a local Docker engine, the butler-demo compose project, an api that stores
+# its data in the azurite service, and Azurite's data in demo/.data/azurite.
+# Writes why to stderr and returns $false otherwise. Same checks and text as
+# check_local_target in demo.sh.
+function Test-LocalTarget {
+    $reason = ''
+    $endpoint = [string]$env:DOCKER_HOST
+    if (-not $endpoint) {
+        # Captured on purpose: the endpoint is checked below.
+        try {
+            $out = & docker context inspect --format '{{.Endpoints.docker.Host}}' 2>$null
+            $endpoint = if ($LASTEXITCODE -eq 0 -and $out) { (@($out) -join "`n").Trim() } else { '' }
+        }
+        catch {
+            $endpoint = ''
+        }
+    }
+    if (-not ($endpoint.StartsWith('unix://', [StringComparison]::Ordinal) -or
+            $endpoint.StartsWith('npipe://', [StringComparison]::Ordinal))) {
+        $shown = if ($endpoint) { $endpoint } else { 'unknown' }
+        $reason = "the Docker engine is not local ($shown)"
+    }
+    if (-not $reason) {
+        # Captured on purpose, and never printed: the rendered config holds
+        # BUTLER_DEMO_PIN from demo/.env.
+        $config = @()
+        $rc = 1
+        try {
+            $config = @(& docker compose -f $ComposeFile config 2>$null)
+            $rc = $LASTEXITCODE
+        }
+        catch {
+            $rc = 1
+        }
+        $lines = @($config | ForEach-Object { ([string]$_) -replace "`r", '' })
+        if ($rc -ne 0) {
+            $reason = 'demo/docker-compose.yml could not be rendered'
+        }
+        elseif (@($lines -ceq 'name: butler-demo').Count -eq 0) {
+            $reason = 'the compose project is not butler-demo'
+        }
+        elseif (@($lines -cmatch '^ +Storage__ConnectionString: .*;TableEndpoint=http://azurite:10002/devstoreaccount1;').Count -eq 0) {
+            $reason = 'the api does not use the azurite service for storage'
+        }
+        elseif (@($lines -cmatch '^ +source: .*[/\\]demo[/\\]\.data[/\\]azurite$').Count -eq 0) {
+            $reason = 'the Azurite data folder is not demo/.data/azurite'
+        }
+    }
+    if ($reason) {
+        Write-Err "Refusing to reset: $reason. reset only runs against the local demo stack."
+        $script:ExitCode = 1
+        return $false
+    }
+    return $true
+}
+
+# reset (#98): stop the stack, delete the Azurite data, start it again, sign
+# in with the PIN and seed the demo household, which also changes the dataset
+# id. Asks nothing. Takes no arguments and, like up and down, ignores extras.
+function Invoke-DemoReset {
+    if (-not (Test-DemoPin)) { return }
+    if (-not (Test-LocalTarget)) { return }
+    $old = Get-DatasetId
+    if (-not $old) { $old = 'unavailable' }
+
+    Write-Out 'Stopping the demo stack ...'
+    # Never -v. Azurite saves its store on SIGINT, so delete only after down.
+    Invoke-Compose @('down')
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Could not stop the demo stack. Nothing was deleted.'
+        return
+    }
+    # Delete inside the azurite container: on Linux the files are root-owned,
+    # and demo/.data/logs must survive.
+    Write-Out 'Deleting the demo data in demo/.data/azurite ...'
+    Invoke-Compose @('run', '--rm', '--no-deps', '-T', '--entrypoint', 'find', 'azurite', '/data', '-mindepth', '1', '-delete')
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Could not delete the demo data in demo/.data/azurite.'
+        return
+    }
+
+    Invoke-DemoUp
+    if ($script:ExitCode -ne 0) { return }
+
+    # Sign in once, after up (a restart drops PIN tokens), with no retry: five
+    # wrong PINs lock sign-in.
+    Write-Out 'Signing in with the demo PIN ...'
+    $token = ''
+    try {
+        $body = @{ pin = [string](Get-DemoPin) } | ConvertTo-Json -Compress
+        $response = Invoke-RestMethod -Method Post -Uri $PinSignInUrl -ContentType 'application/json' -Body $body -TimeoutSec 30
+        if ($response -and $response.PSObject.Properties['token'] -and $response.token) {
+            $token = [string]$response.token
+        }
+    }
+    catch {
+        $token = ''
+    }
+    if (-not $token) {
+        Write-Err 'PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run reset again.'
+        $script:ExitCode = 1
+        return
+    }
+
+    Write-Out 'Seeding the demo household ...'
+    try {
+        $null = Invoke-RestMethod -Method Post -Uri $SeedUrl -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 120
+    }
+    catch {
+        Write-Err 'Seeding the demo household failed. Run the logs command to see why.'
+        $script:ExitCode = 1
+        return
+    }
+
+    $new = Get-DatasetId
+    if (-not $new -or $new -ceq $old) {
+        Write-Err 'The dataset id did not change after the reset. Run the logs command to see why.'
+        $script:ExitCode = 1
+        return
+    }
+    Write-Out "Dataset: $old -> $new"
+    Write-Out "Demo reset complete: the demo household is seeded at $HubUrl"
+    Write-Out 'Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings.'
+}
+
 function Invoke-DemoStatus {
     # The rows are captured on purpose: they are reformatted below.
     $rows = @(& docker compose -f $ComposeFile ps --all --format "{{.Service}}`t{{.State}}`t{{.Health}}")
@@ -351,16 +502,7 @@ function Invoke-DemoStatus {
     }
     Write-Out ''
     Write-Out "Hub:     $HubUrl"
-    $dataset = ''
-    try {
-        $response = Invoke-RestMethod -Uri $DatasetUrl -TimeoutSec 3
-        if ($response -and $response.PSObject.Properties['datasetId'] -and $response.datasetId) {
-            $dataset = [string]$response.datasetId
-        }
-    }
-    catch {
-        $dataset = ''
-    }
+    $dataset = Get-DatasetId
     if (-not $dataset) { $dataset = 'unavailable' }
     Write-Out "Dataset: $dataset"
 }
@@ -531,6 +673,7 @@ function Invoke-Main([object[]]$Arguments) {
     switch -CaseSensitive ($name) {
         'up' { Invoke-DemoUp }
         'down' { Invoke-DemoDown }
+        'reset' { Invoke-DemoReset }
         'status' { Invoke-DemoStatus }
         'logs' { Invoke-DemoLogs -LogArgs $rest }
         'share' { Invoke-DemoShare }

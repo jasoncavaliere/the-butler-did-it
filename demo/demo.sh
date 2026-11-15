@@ -39,6 +39,9 @@ ENV_FILE="$DEMO_DIR/.env"
 
 HUB_URL="http://localhost:8080"
 DATASET_URL="$HUB_URL/api/api/system/dataset"
+# reset (#98) signs the organizer in with the PIN, then seeds the demo household.
+PIN_SIGN_IN_URL="$HUB_URL/api/auth/pin/sign-in"
+SEED_URL="$HUB_URL/api/demo/seed"
 WAIT_TIMEOUT=300
 
 # Subcommand registry, in usage order: one "name|description" per line.
@@ -46,6 +49,7 @@ WAIT_TIMEOUT=300
 # the same entry and handler in demo.ps1, plus a row in demo/README.md).
 COMMANDS="up|Build the hub export if needed, start the stack and wait until it is healthy
 down|Stop the stack (data in demo/.data/azurite is kept)
+reset|Delete the demo data, restart the stack, re-seed the demo household and change the dataset id
 status|Show container health, the hub URL and the dataset id
 logs|Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)
 share|Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code
@@ -260,6 +264,114 @@ cmd_down() {
   echo "Demo stack stopped."
 }
 
+# Prints the API's current dataset id, or nothing when the API (or curl) is
+# not there. No jq: sed picks the one field out of {"datasetId":"..."}.
+dataset_id() {
+  local dataset=""
+  if command -v curl >/dev/null 2>&1; then
+    dataset="$(curl -fsS --max-time 3 "$DATASET_URL" 2>/dev/null \
+      | sed -n 's/.*"datasetId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || dataset=""
+  fi
+  printf '%s\n' "$dataset"
+}
+
+# reset (#98) deletes data, so it runs only against the local demo stack:
+# a local Docker engine, the butler-demo compose project, an api that stores
+# its data in the azurite service, and Azurite's data in demo/.data/azurite.
+# Prints why to stderr and returns 1 otherwise. The rendered compose config is
+# never printed: it holds BUTLER_DEMO_PIN from demo/.env.
+check_local_target() {
+  local endpoint="" config="" reason=""
+  endpoint="${DOCKER_HOST:-}"
+  if [ -z "$endpoint" ]; then
+    endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" || endpoint=""
+  fi
+  case "$endpoint" in
+    unix://* | npipe://*) ;;
+    *) reason="the Docker engine is not local (${endpoint:-unknown})" ;;
+  esac
+  if [ -z "$reason" ]; then
+    if config="$(compose config 2>/dev/null)"; then
+      # Here-strings, not pipes: under pipefail, grep -q exiting early can
+      # fail the writer of a pipe (#265).
+      config="$(tr -d '\r' <<<"$config")"
+      if ! grep -qx 'name: butler-demo' <<<"$config"; then
+        reason="the compose project is not butler-demo"
+      elif ! grep -qE '^ +Storage__ConnectionString: .*;TableEndpoint=http://azurite:10002/devstoreaccount1;' <<<"$config"; then
+        reason="the api does not use the azurite service for storage"
+      elif ! grep -qE '^ +source: .*[/\\]demo[/\\]\.data[/\\]azurite$' <<<"$config"; then
+        reason="the Azurite data folder is not demo/.data/azurite"
+      fi
+    else
+      reason="demo/docker-compose.yml could not be rendered"
+    fi
+  fi
+  if [ -n "$reason" ]; then
+    echo "Refusing to reset: $reason. reset only runs against the local demo stack." >&2
+    return 1
+  fi
+  return 0
+}
+
+# reset (#98): stop the stack, delete the Azurite data, start it again, sign
+# in with the PIN and seed the demo household, which also changes the dataset
+# id. Asks nothing. Takes no arguments and, like up and down, ignores extras.
+cmd_reset() {
+  local old new token="" rc=0
+  check_pin || return 1
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl was not found. Install curl to run reset." >&2
+    return 1
+  fi
+  check_local_target || return 1
+  old="$(dataset_id)"
+  [ -z "$old" ] && old="unavailable"
+
+  echo "Stopping the demo stack ..."
+  # Never -v. Azurite saves its store on SIGINT, so delete only after down.
+  compose down || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not stop the demo stack. Nothing was deleted." >&2
+    return "$rc"
+  fi
+  # Delete inside the azurite container: on Linux the files are root-owned,
+  # and demo/.data/logs must survive.
+  echo "Deleting the demo data in demo/.data/azurite ..."
+  compose run --rm --no-deps -T --entrypoint find azurite /data -mindepth 1 -delete || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not delete the demo data in demo/.data/azurite." >&2
+    return "$rc"
+  fi
+
+  cmd_up || return $?
+
+  # Sign in once, after up (a restart drops PIN tokens), with no retry: five
+  # wrong PINs lock sign-in. The PIN goes to curl on stdin, not in argv.
+  echo "Signing in with the demo PIN ..."
+  token="$(printf '{"pin":"%s"}' "$(demo_pin)" \
+    | curl -fsS --max-time 30 -X POST "$PIN_SIGN_IN_URL" -H 'Content-Type: application/json' --data-binary @- 2>/dev/null \
+    | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || token=""
+  if [ -z "$token" ]; then
+    echo "PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run reset again." >&2
+    return 1
+  fi
+
+  echo "Seeding the demo household ..."
+  if ! curl -fsS --max-time 120 -o /dev/null -X POST "$SEED_URL" -H "Authorization: Bearer $token" -d '' 2>/dev/null; then
+    echo "Seeding the demo household failed. Run the logs command to see why." >&2
+    return 1
+  fi
+
+  new="$(dataset_id)"
+  if [ -z "$new" ] || [ "$new" = "$old" ]; then
+    echo "The dataset id did not change after the reset. Run the logs command to see why." >&2
+    return 1
+  fi
+  echo "Dataset: $old -> $new"
+  echo "Demo reset complete: the demo household is seeded at $HUB_URL"
+  echo "Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings."
+}
+
 cmd_status() {
   local rows
   rows="$(compose ps --all --format '{{.Service}}	{{.State}}	{{.Health}}')" || return $?
@@ -277,11 +389,8 @@ EOF
   fi
   echo ""
   echo "Hub:     $HUB_URL"
-  local dataset=""
-  if command -v curl >/dev/null 2>&1; then
-    dataset="$(curl -fsS --max-time 3 "$DATASET_URL" 2>/dev/null \
-      | sed -n 's/.*"datasetId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || dataset=""
-  fi
+  local dataset
+  dataset="$(dataset_id)"
   echo "Dataset: ${dataset:-unavailable}"
 }
 
