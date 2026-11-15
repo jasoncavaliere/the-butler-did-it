@@ -649,6 +649,112 @@ describe('drainWriteQueue', () => {
     expect(readWriteQueue('hh-1', storage).map((entry) => entry.status)).toEqual(['failed']);
   });
 
+  describe('a refused hub-glance (#217)', () => {
+    // An unpaired hub's device token is rejected outright...
+    const unauthorized: ApiResult<never> = {
+      ok: false,
+      error: { kind: 'http', status: 401, title: 'Unauthorized' },
+    };
+    // ...and a household that no longer exists answers with problem details.
+    const notFound: ApiResult<never> = {
+      ok: false,
+      error: { kind: 'problem', status: 404, title: 'Not Found', detail: 'No such household.' },
+    };
+
+    const cartAdd: WriteRequest = {
+      kind: 'cart-add',
+      dedupeKey: 'cart|2019-W01|oat-milk',
+      method: 'POST',
+      path: '/households/hh-1/carts/items',
+      body: { sku: 'oat-milk' },
+    };
+
+    it.each([
+      ['401 http', unauthorized],
+      ['404 problem', notFound],
+    ])(
+      'drops a queued hub-glance the API refuses on replay (%s), and replays the write behind it',
+      async (_label, answer) => {
+        const storage = fakeStorage();
+        enqueueWrite('hh-1', hubGlanceWrite('hh-1', 1_000), storage, 1);
+        enqueueWrite('hh-1', completion('c1'), storage, 2);
+        const send = jest.fn(async (write: QueuedWrite) =>
+          write.kind === 'hub-glance' ? answer : confirmed,
+        );
+
+        const outcome = await drainWriteQueue('hh-1', send, storage);
+
+        expect(send).toHaveBeenCalledTimes(2);
+        expect(send).toHaveBeenNthCalledWith(1, expect.objectContaining({ kind: 'hub-glance' }));
+        expect(send).toHaveBeenNthCalledWith(2, expect.objectContaining({ path: completion('c1').path }));
+        expect(outcome.queue).toEqual([]);
+        expect(readWriteQueue('hh-1', storage)).toEqual([]);
+        expect(outcome.confirmed).toBe(1);
+        expect(outcome.retryDelayMs).toBeNull();
+        expect(outcome.offline).toBe(false);
+      },
+    );
+
+    it('a dropped hub-glance is never counted or shown as failed', async () => {
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', hubGlanceWrite('hh-1', 1_000), storage, 1);
+      const { send } = recordingSend([unauthorized]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage);
+
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(countFailed(outcome.queue)).toBe(0);
+      expect(countPending(outcome.queue)).toBe(0);
+      expect(readWriteQueue('hh-1', storage)).toEqual([]);
+      // A drop is not a confirmation, so it cannot flash "All synced."
+      expect(outcome.confirmed).toBe(0);
+      expect(outcome.retryDelayMs).toBeNull();
+
+      // Nothing is left to retry on a later pass.
+      const second = await drainWriteQueue('hh-1', send, storage);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(second.queue).toEqual([]);
+    });
+
+    it.each([
+      ['completion', completion('c1')],
+      ['cart-add', cartAdd],
+    ])(
+      'any other kind refused on replay is still kept and counted toward failure (%s)',
+      async (_label, request) => {
+        const storage = fakeStorage();
+        enqueueWrite('hh-1', request, storage, 1);
+        const { send } = recordingSend([unauthorized]);
+
+        const outcome = await drainWriteQueue('hh-1', send, storage);
+
+        expect(outcome.retryDelayMs).toBe(1_000);
+        expect(readWriteQueue('hh-1', storage)).toEqual([
+          expect.objectContaining({
+            dedupeKey: request.dedupeKey,
+            status: 'pending',
+            attempts: 1,
+            lastError: 'Unauthorized',
+          }),
+        ]);
+      },
+    );
+
+    it('a queued hub-glance that meets an outage is kept, not dropped', async () => {
+      const storage = fakeStorage();
+      enqueueWrite('hh-1', hubGlanceWrite('hh-1', 1_000), storage, 1);
+      const { send } = recordingSend([unreachable]);
+
+      const outcome = await drainWriteQueue('hh-1', send, storage);
+
+      expect(outcome.offline).toBe(true);
+      expect(outcome.retryDelayMs).toBe(OFFLINE_RETRY_MS);
+      expect(readWriteQueue('hh-1', storage)).toEqual([
+        expect.objectContaining({ kind: 'hub-glance', status: 'pending', attempts: 0 }),
+      ]);
+    });
+  });
+
   describe('a write whose week has ended (#89)', () => {
     // The clock the drain runs against: Monday of 2026-W30, so anything queued
     // for 2026-W29 was tapped on a board that has since rolled over.

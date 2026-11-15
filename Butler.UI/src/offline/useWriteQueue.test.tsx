@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 import type { ApiClient, ApiResult, UpdateOptions } from '../api/client';
 import type { DatasetCheck } from './datasetGuard';
+import { hubGlanceWrite } from './hubGlance';
 import { resetSessionFallbackStorage, type LocalStorageLike } from './storage';
 import { useWriteQueue } from './useWriteQueue';
 import { currentWeekIso } from './weekIso';
@@ -287,6 +288,24 @@ describe('useWriteQueue', () => {
       await jest.advanceTimersByTimeAsync(10 * OFFLINE_RETRY_MS);
     });
     expect(client.update).toHaveBeenCalledTimes(MAX_WRITE_ATTEMPTS);
+  });
+
+  it('a queued hub-glance refused on replay leaves the queue without showing as failed (#217)', async () => {
+    saveWriteQueue('hh-1', [
+      { ...hubGlanceWrite('hh-1', 1_000), enqueuedAtMs: 1, attempts: 0, status: 'pending' },
+    ]);
+    const client = queueClient(() => refused);
+
+    const { result } = await renderHook(() => useWriteQueue('hh-1', client));
+
+    await waitFor(() => expect(client.update).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.entries).toEqual([]));
+    expect(result.current.failed).toBe(0);
+    expect(result.current.pending).toBe(0);
+    // A drop is not a confirmation: no "All synced." flash, no board refetch.
+    expect(result.current.confirmedRevision).toBe(0);
+    expect(result.current.unreachable).toBe(false);
+    expect(readWriteQueue('hh-1')).toEqual([]);
   });
 
   it('re-probes on a slow heartbeat while the API is unreachable', async () => {

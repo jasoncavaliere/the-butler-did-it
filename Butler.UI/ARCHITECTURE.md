@@ -115,7 +115,9 @@ Six rules keep replay honest:
 - **Bounded retries, then flag and continue.** A real error backs off exponentially (1s, 2s, 4s, 8s,
   capped at 30s); at 5 attempts the entry is flagged `failed` and the drain steps past it rather than
   blocking everything queued behind it. A flagged entry stays in storage - never dropped, never
-  auto-cleared - which is what O4 surfaces; only a fresh tap on the same target revives it.
+  auto-cleared - which is what O4 surfaces; only a fresh tap on the same target revives it. The one
+  exception is a queued `hub-glance`: a real error on replay drops it at once (no retry, no flag, not
+  counted as confirmed), the same as the online path, since a glance is telemetry (#217).
 - **One write per target.** `enqueueWrite` keys by `(weekIso, choreId)`, not by direction: tapping
   done twice queues one write, and a complete-then-undo collapses to the single write the user
   actually meant, at its original queue position.
@@ -175,7 +177,9 @@ itself, so claiming a person on the hub posts no event of its own.
 - **Offline: queued.** Only a `network` error enqueues the glance (`kind: 'hub-glance'`, a non-assignment
   `dedupeKey` of `hub-glance|<ms>`, so it is not week-bound) and it replays on reconnect like any other
   write. While queued it counts in the sync indicator's pending count. Any other refusal (a `401` on an
-  unpaired hub, `400`, `404`) is dropped, since retrying an answered request cannot succeed.
+  unpaired hub, `400`, `404`) is dropped, since retrying an answered request cannot succeed. The same
+  holds on replay: if the queued glance is refused, the drain drops it and it never counts as a failed
+  write in the sync indicator (#217).
 
 ### The sync indicator (O4)
 
