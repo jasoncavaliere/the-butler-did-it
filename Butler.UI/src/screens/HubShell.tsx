@@ -553,6 +553,13 @@ function HubShellBody({
     (cachedAtIso: string | null) => setBoardCachedAtIso(cachedAtIso),
     [],
   );
+  // And whether its load got no response with nothing cached (#239), stable for
+  // the same reason.
+  const [boardUnreachable, setBoardUnreachable] = useState(false);
+  const handleBoardUnreachable = useCallback(
+    (unreachable: boolean) => setBoardUnreachable(unreachable),
+    [],
+  );
 
   // OrganizerBar's Confirm order (#57) only moves the organizer to the cart: it
   // scrolls the grocery region into view and focuses the cart's own Confirm
@@ -615,9 +622,15 @@ function HubShellBody({
   // clears as soon as both are live again.
   const lastKnownAtIso: string | null =
     view.phase === 'ready' ? view.cachedAtIso ?? boardCachedAtIso : null;
-  // The cache stamp covers an outage served from cache; the network flag covers
-  // one with nothing cached. An error from a reachable API stays Online (#151).
-  const apiUnreachable = lastKnownAtIso !== null || (view.phase === 'error' && view.networkFailure);
+  // The cache stamp covers an outage served from cache; the network flags cover
+  // one with nothing cached, whether the shell's load (#151) or the board's
+  // (#239) got no response. The board's flag counts only while the shell is
+  // ready, the only time the board is mounted. An error from a reachable API
+  // stays Online.
+  const apiUnreachable =
+    lastKnownAtIso !== null ||
+    (view.phase === 'ready' && boardUnreachable) ||
+    (view.phase === 'error' && view.networkFailure);
 
   // The last-resort watchdog (#109): five continuous minutes in error - the
   // shell's error state, or any region on its last-known cache - while the
@@ -649,6 +662,7 @@ function HubShellBody({
           people={members}
           activePersonId={activeParticipant?.personId ?? null}
           onLastKnown={handleBoardLastKnown}
+          onUnreachable={handleBoardUnreachable}
           layout={layout}
         />
       ) : null}

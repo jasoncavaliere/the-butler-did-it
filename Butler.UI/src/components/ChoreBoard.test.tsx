@@ -1065,6 +1065,65 @@ describe('ChoreBoard offline cache', () => {
     await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
   });
 
+  /** Renders the board on `client` with an `onUnreachable` spy (#239). */
+  async function renderReportingUnreachable(client: ApiClient): Promise<jest.Mock> {
+    const onUnreachable = jest.fn();
+    useApiClientMock.mockReturnValue(client);
+    await render(
+      inQueue(
+        client,
+        <ChoreBoard householdId="hh-1" people={roster} activePersonId={null} onUnreachable={onUnreachable} />,
+      ),
+    );
+    return onUnreachable;
+  }
+
+  it('reports unreachable when the API gives no answer and no board is cached (#239)', async () => {
+    // Only the shell's half has ever been cached for this household.
+    writeGlance(
+      'hh-1',
+      { household: { name: 'Home', people: roster } },
+      undefined,
+      '2026-07-20T09:00:00.000Z',
+    );
+
+    const onUnreachable = await renderReportingUnreachable(boardClient({ generate: unreachable }));
+
+    await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+    expect(onUnreachable).toHaveBeenLastCalledWith(true);
+  });
+
+  it('does not report unreachable when the board falls back to the cache (#239)', async () => {
+    writeGlance('hh-1', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
+
+    const onUnreachable = await renderReportingUnreachable(boardClient({ generate: unreachable }));
+
+    await waitFor(() => expect(screen.getByTestId('chore-item-c1')).toBeOnTheScreen());
+    expect(onUnreachable).toHaveBeenLastCalledWith(false);
+    expect(onUnreachable).not.toHaveBeenCalledWith(true);
+  });
+
+  it('does not report unreachable for an error from an API that answered (#239)', async () => {
+    const serverError: ApiResult<never> = {
+      ok: false,
+      error: { kind: 'problem', status: 500, title: 'Server error', detail: 'The week could not be built.' },
+    };
+
+    const onUnreachable = await renderReportingUnreachable(boardClient({ generate: serverError }));
+
+    await waitFor(() => expect(screen.getByTestId('chore-board-error')).toBeOnTheScreen());
+    expect(onUnreachable).toHaveBeenLastCalledWith(false);
+    expect(onUnreachable).not.toHaveBeenCalledWith(true);
+  });
+
+  it('does not report unreachable for a live load (#239)', async () => {
+    const onUnreachable = await renderReportingUnreachable(boardClient());
+
+    await waitFor(() => expect(screen.getByTestId('chore-board')).toBeOnTheScreen());
+    expect(onUnreachable).toHaveBeenLastCalledWith(false);
+    expect(onUnreachable).not.toHaveBeenCalledWith(true);
+  });
+
   it('does not serve another household from cache', async () => {
     writeGlance('hh-2', { board: cachedBoard }, undefined, '2026-07-20T09:00:00.000Z');
 

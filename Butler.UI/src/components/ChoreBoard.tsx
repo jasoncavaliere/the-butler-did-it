@@ -309,6 +309,7 @@ export function ChoreBoard({
   people,
   activePersonId,
   onLastKnown,
+  onUnreachable,
   layout = DEFAULT_HUB_LAYOUT,
 }: {
   householdId: string;
@@ -327,6 +328,14 @@ export function ChoreBoard({
    * instead of one per region.
    */
   onLastKnown?: (cachedAtIso: string | null) => void;
+  /**
+   * Reports whether this board's latest load could not reach the API with
+   * nothing cached to fall back on (#239): `true` when the load ended in the
+   * error state on a `network`-kind failure, `false` on every other outcome (a
+   * live load, a cache fallback, or an error from an API that answered). The
+   * shell uses it to read Offline when only the board got no response.
+   */
+  onUnreachable?: (unreachable: boolean) => void;
 }) {
   const client = useApiClient();
   const [phase, setPhase] = useState<Phase>('loading');
@@ -345,6 +354,11 @@ export function ChoreBoard({
   useEffect(() => {
     reportRef.current = onLastKnown;
   }, [onLastKnown]);
+  // Same reason as `reportRef`: the parent's callback must never refetch.
+  const unreachableRef = useRef(onUnreachable);
+  useEffect(() => {
+    unreachableRef.current = onUnreachable;
+  }, [onUnreachable]);
 
   // Degraded = the last load did not produce live data, whether it fell back to
   // the cache or had nothing to fall back to. Only while degraded does the board
@@ -494,12 +508,15 @@ export function ChoreBoard({
           // the clocks; the reconnect, not the backoff, is what reloads it.
           setWeekMismatches(0);
           reportRef.current?.(cached.cachedAtIso);
+          unreachableRef.current?.(false);
           return;
         }
         setFromCache(false);
         setPhase('error');
         setWeekMismatches(0);
         reportRef.current?.(null);
+        // Nothing cached to show: unreachable only when the API gave no answer.
+        unreachableRef.current?.(failure.offline);
       };
 
       if (!assignments || !assignments.ok) {
@@ -564,6 +581,7 @@ export function ChoreBoard({
       // the next outage falls back to this week rather than an older one.
       writeGlance(householdId, { board: { weekIso: week, items: built } });
       reportRef.current?.(null);
+      unreachableRef.current?.(false);
     });
 
     return () => {
