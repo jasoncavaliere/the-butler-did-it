@@ -92,6 +92,7 @@ public sealed class AssemblyBuildVersionProviderTests
     {
         // The real build may or may not be stamped (CI or a developer can pass
         // the properties), so only the shape is asserted, never an exact SHA.
+        // BuildStampTests (#226) covers the exact stamped path with a real build.
         var version = AssemblyBuildVersionProvider
             .FromAssembly(typeof(AssemblyBuildVersionProvider).Assembly)
             .GetVersion();
