@@ -15,7 +15,13 @@
 //     on one row.
 //
 // Each failure prints a reason to stderr and the script exits 1; on success it
-// prints the measurements and "check-layout: OK".
+// prints the measurements and "check-layout: OK" and exits 0.
+//
+// Shutdown is bounded (#230): after the checks it sends Browser.close and waits
+// at most CLOSE_TIMEOUT_MS (5 s) for Chrome to exit. If Chrome is still running
+// then, whether or not it answered, the script SIGKILLs it and closes its pipes,
+// so a Chrome that never answers Browser.close cannot hang the CI job.
+// ci/check-layout.test.mjs proves this against a stub Chrome (ci/stub-chrome.mjs).
 //
 // No dependencies: it drives Chrome over the DevTools protocol on
 // --remote-debugging-pipe with Node's built-in modules only, so there is no
@@ -32,6 +38,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const SITE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PAGE_URL = pathToFileURL(join(SITE, 'index.html')).href;
 const TIMEOUT_MS = 60000;
+const CLOSE_TIMEOUT_MS = 5000;
 
 const VIEWPORTS = [
   { name: 'mobile', ac: 'AC5', width: 375, height: 800, mobile: true, tracks: 1, rows: 3 },
@@ -87,6 +94,9 @@ function launch(chromePath, profileDir) {
 
   const toChrome = child.stdio[3];
   const fromChrome = child.stdio[4];
+  // Writing to a pipe Chrome has closed raises EPIPE; ignore it rather than
+  // crash on an unhandled 'error' event (the exit handler reports the failure).
+  toChrome.on('error', () => {});
   const pending = new Map();
   const listeners = [];
   let nextId = 1;
@@ -227,6 +237,32 @@ function check(viewport, m) {
   return problems;
 }
 
+// Closes Chrome within CLOSE_TIMEOUT_MS. Waits for the process to exit, not for
+// the Browser.close reply: a Chrome that answers and exits is fast, and one that
+// never answers, or answers but keeps running, is SIGKILLed when the timer
+// fires (SIGKILL because a stuck process can ignore SIGTERM). Then it destroys
+// the stdio pipes, which Chrome's helper processes can hold open and so keep
+// Node alive.
+async function closeBrowser(browser) {
+  const { child } = browser;
+  const running = () => child.exitCode === null && child.signalCode === null;
+  const exited = new Promise((ok) => {
+    if (!running()) ok();
+    else child.once('exit', () => ok());
+  });
+  browser.send('Browser.close').catch(() => {});
+  let timer;
+  const timedOut = new Promise((ok) => {
+    timer = setTimeout(ok, CLOSE_TIMEOUT_MS);
+  });
+  await Promise.race([exited, timedOut]);
+  clearTimeout(timer);
+  if (running()) child.kill('SIGKILL');
+  for (const stream of child.stdio) {
+    if (stream) stream.destroy();
+  }
+}
+
 async function main() {
   const chromePath = findChrome();
   const profileDir = mkdtempSync(join(tmpdir(), 'check-layout-'));
@@ -249,8 +285,7 @@ async function main() {
     }
   } finally {
     clearTimeout(timer);
-    await browser.send('Browser.close').catch(() => {});
-    browser.child.kill();
+    await closeBrowser(browser);
     try {
       rmSync(profileDir, { recursive: true, force: true });
     } catch {
@@ -263,6 +298,7 @@ async function main() {
     process.exit(1);
   }
   console.log('check-layout: OK');
+  process.exit(0);
 }
 
 main().catch((err) => die(err.stack || err.message));

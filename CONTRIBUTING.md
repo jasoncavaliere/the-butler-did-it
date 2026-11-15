@@ -59,6 +59,7 @@ threshold lives in `jest.config.js` (`coverageThreshold`, per folder).
 # from the repo root
 bash Butler.Site/ci/check-site.sh
 node Butler.Site/ci/check-layout.mjs   # needs Chrome: CHROME_PATH, or google-chrome/chromium on PATH
+node --test Butler.Site/ci/check-layout.test.mjs   # no Chrome needed: bounded shutdown against a stub
 ```
 
 The landing page is hand-written HTML and CSS: there is no build and no coverage gate, because there is

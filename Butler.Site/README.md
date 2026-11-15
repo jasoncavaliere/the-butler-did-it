@@ -16,6 +16,8 @@ GitHub Pages project path.
 | `styles.css` | The stylesheet. Colours are design-token values only (see Colours). |
 | `ci/check-site.sh` | Static checks run by CI (see Checks). |
 | `ci/check-layout.mjs` | Viewport layout check run by CI (see Checks). |
+| `ci/check-layout.test.mjs` | Shutdown test for `check-layout.mjs`, run by CI (see Checks). |
+| `ci/stub-chrome.mjs` | Stub Chrome the shutdown test runs `check-layout.mjs` against. |
 | `.gitattributes` | Keeps `*.sh` at LF line endings. |
 
 ## Sign-up
@@ -59,7 +61,16 @@ horizontally at either width (scrollWidth wider than the viewport, or any elemen
 capabilities grid is not one column with the cards stacked at 375px, or if it is not three columns on
 one row at 1280px. It has no dependencies (Node 18+ built-ins only, talking to Chrome over
 `--remote-debugging-pipe`). It uses `CHROME_PATH` if set, otherwise `google-chrome` or `chromium` on
-`PATH`; CI runs it after `check-site.sh` on the runner's preinstalled Chrome.
+`PATH`; CI runs it after `check-site.sh` on the runner's preinstalled Chrome. Its shutdown is bounded:
+after the checks it waits at most 5 s for Chrome to exit after `Browser.close`, then kills it.
+
+```bash
+node --test Butler.Site/ci/check-layout.test.mjs
+```
+
+No Chrome needed: it runs `check-layout.mjs` against `ci/stub-chrome.mjs` and proves the script exits
+within 15 s, with its normal pass/fail result, when Chrome never answers `Browser.close`. CI runs it
+after the layout check.
 
 Accessibility is checked by hand with the Lighthouse CLI against the locally served page (it needs a
 Chrome or Chromium binary in `CHROME_PATH`):
