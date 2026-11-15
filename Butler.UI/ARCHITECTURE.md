@@ -275,7 +275,10 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
 - **Theme module and hub targets (#120).** `src/theme/theme.ts` is the typed view UI code reads design
   values from: the six claim colours (`claimColors`, token order, glyph plus light and dark variants),
   `onClaim`, the light and dark palettes (`themes`), and the spacing and touch-target sizes re-exported
-  from `src/layout/tokens.ts`. Hub targets (name tiles, chore rows) are at least `hubTouchTarget` (48,
+  from `src/layout/tokens.ts`, which is the size layer. UI code reads design values from `theme.ts`,
+  except code under `src/layout/` (for example `hubLayout.ts`), which may import sizes from
+  `layout/tokens` directly to avoid an import cycle, since `theme.ts` itself re-exports from
+  `layout/tokens` (#215). Hub targets (name tiles, chore rows) are at least `hubTouchTarget` (48,
   the `s8` step) square and sit at least `minTargetGap` (8, the `s2` step) apart; the compact
   `groupGap` is therefore 8. `src/theme/contrast.test.ts` checks every claim colour with the WCAG 2.1
   formula in `src/theme/contrast.ts`: each light variant >= 3:1 on the light bg and surface, each
