@@ -14,6 +14,12 @@
  * the exporter's own content-hashed filenames plus a build id, so every deploy opens a new cache
  * and `activate` deletes the superseded one. Navigations are network-first, so a deployed HTML
  * change is picked up on the next online load and can never be pinned by this cache.
+ *
+ * Handover (#108): a newly deployed worker installs and then *waits*. It takes over only when the
+ * page posts it `{ type: 'SKIP_WAITING' }`, which the hub does once it is idle (no one mid-tap, no
+ * unsynced writes), and the hub then reloads once onto the new build. A first install has no
+ * older worker to wait for, so it activates straight away and `clients.claim()` puts the page
+ * under it without a reload.
  */
 
 /* butler-precache:begin */
@@ -44,11 +50,20 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.addAll(PRECACHE.urls);
-      // A newly deployed shell should take over rather than wait for every tab to close; the
-      // family tablet runs one long-lived tab that would otherwise never hand over.
-      await self.skipWaiting();
+      // No skipWaiting here: an update waits until the hub says it is idle (see 'message').
     })()
   );
+});
+
+/**
+ * The hub's go-ahead (#108). The family tablet runs one long-lived tab that would never close to
+ * let a waiting worker take over, so the page asks for the handover itself, at a quiet moment.
+ * Anything else posted here is ignored.
+ */
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {

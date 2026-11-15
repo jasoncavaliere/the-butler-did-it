@@ -71,12 +71,12 @@ Per-feature design notes: `Butler.API/ARCHITECTURE.md` (read only the section yo
 | `src/auth/` | Organizer auth providers (dev / Entra), `OrganizerGate`, hub pairing. |
 | `src/screens/` | `HubShell` (the always-on hub), `HouseholdSetup` (organizer onboarding), `Household` (organizer room/chore editor), `Roster` (organizer people editor, #167), `Insights` (organizer insights charts, #123), `YourData` (plain-language data page, #125). |
 | `src/setup/` | Starter-chore template catalog (versioned JSON fixture) and matching helpers used by `HouseholdSetup`. |
-| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `InsightsCharts` (View-based bar charts for the Insights screen, #123), `VersionInfo` (hub and API build SHAs, mismatch flag, #126), `PersonFields` (people form fields shared by setup and the Roster editor, #167), `Screen`. |
+| `src/components/` | Hub widgets: `TodayPanel`, `ChoreBoard`, `FairnessView`, `GroceryCart`, `OrderReceipt`, `LastKnownBanner`, `SyncIndicator`, `WidgetState` (shared skeleton / empty / error states), `ChoreCelebration` (completion check + message, #119), `InsightsCharts` (View-based bar charts for the Insights screen, #123), `VersionInfo` (hub and API build SHAs, mismatch flag, #126), `UpdateNotice` (transient "Updated to build" line after a new-build reload, #108), `PersonFields` (people form fields shared by setup and the Roster editor, #167), `Screen`. |
 | `src/offline/` | Last-known-week cache, durable write queue (one per household via `WriteQueueProvider`) + sync on reconnect, and the hub-glance reporter (`hubGlance`, `useHubGlance`, #122). |
 | `src/voice/` | Feature-detected browser speech recognition used by the grocery cart mic (#116). |
 | `src/insights/` | Pure helpers for the Insights screen: member colours, bar fractions, week/day/month labels (#123). |
 | `src/motion/` | `useReducedMotion` (prefers-reduced-motion via `AccessibilityInfo`, ADR-0006, #119). |
-| `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration, the hub kiosk surface (`KioskSurface`, #130), and the PWA post-export step. |
+| `src/pwa/`, `public/sw.js`, `scripts/pwa-export.js` | Service worker registration, the idle-gated new-build update flow (`serviceWorkerUpdate`, `useServiceWorkerUpdate`, #108), the hub kiosk surface (`KioskSurface`, #130), and the PWA post-export step. |
 | `src/theme/` | Typed theme module over `design-tokens.json` (claim colours, light/dark palettes, spacing, touch targets) and the WCAG contrast helper (#120). |
 | `design-tokens.json`, `design/` | Design tokens and the design decision record. |
 

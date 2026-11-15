@@ -13,10 +13,23 @@ for a `web.output: single` app:
 | --- | --- | --- |
 | Manifest | `public/manifest.json` | Install metadata: name, `display: standalone` (the fallback; the verifier requires it) with `display_override: ["fullscreen"]` and `orientation: landscape` for the kiosk (#130), start URL, theme/background colour, and 192px + 512px icons in both `any` and `maskable` form (`public/icons/`, derived from `assets/icon.png`). |
 | HTML | `public/index.html` | The exporter's HTML template (`npx expo customize public/index.html`), with the `<link rel="manifest">`, `theme-color`, and apple-touch-icon added. For the kiosk (#130) the viewport disables pinch zoom (`maximum-scale=1, user-scalable=no`), `html, body` set `overscroll-behavior: none` (no pull-to-refresh), and `input`, `textarea` and contenteditable elements reset `user-select: text` so text fields stay usable under the kiosk surface. |
-| Worker | `public/sw.js` | Precaches the app shell on install, serves it cache-first, and answers navigations network-first so a deploy is never pinned. Static assets only. |
-| Registration | `src/pwa/` | `registerServiceWorker()` + the `useServiceWorkerRegistration()` hook `App.tsx` calls on mount. Feature-detected, so it is a no-op on iOS/Android and never throws. |
+| Worker | `public/sw.js` | Precaches the app shell on install, serves it cache-first, and answers navigations network-first so a deploy is never pinned. Static assets only. A new build installs and then waits until the page posts `{ type: 'SKIP_WAITING' }` (#108); a first install activates straight away and `clients.claim()`s the page. |
+| Registration | `src/pwa/` | `registerServiceWorker()` + the `useServiceWorkerRegistration()` hook `App.tsx` calls on mount. Feature-detected, so it is a no-op on iOS/Android and never throws. The update half (#108) is `serviceWorkerUpdate.ts` + the `useServiceWorkerUpdate()` hook `HubShell` calls. |
 | Kiosk surface | `src/pwa/KioskSurface.tsx` | Wraps `HubShell` only (#130): `user-select: none`, `-webkit-touch-callout: none`, and an `onContextMenu` handler that cancels the browser menu except on editable targets. No document or window listener, so the organizer screens keep browser defaults. A plain View on native. |
 | Build step | `scripts/pwa-export.js` | Injects the exported (content-hashed) file list and a build id into `dist/sw.js`, then verifies the export is installable. |
+
+**Update flow (#108).** The tablet runs one tab that never closes, so the hub hands over to a new
+build itself. `useServiceWorkerUpdate(idle)` watches the registration for a worker that finished
+installing while an older one controls the page (one already `waiting`, or `updatefound` then
+`installed`; a first install is never an update) and calls `registration.update()` every 60 s.
+When a build is waiting and the hub is idle - no active participant, and the household's write
+queue has nothing pending (failed writes do not count) - it posts `SKIP_WAITING` once. A deferred
+update applies as soon as both clear. On `controllerchange` the page writes a one-shot
+`sessionStorage` marker and reloads exactly once; it reloads only after posting the message itself,
+because a first install's `clients.claim()` also fires `controllerchange`. The reloaded `HubShell`
+reads and clears the marker and shows `UpdateNotice` ("Updated to build <sha>", the same
+`EXPO_PUBLIC_BUILD_SHA` VersionInfo shows) for 10 s. The applied and reloaded flags are module
+scope, so a dataset-guard remount of the hub body cannot post twice or lose the reload.
 
 **Offline scope.** This is the app *shell* only: HTML, JS, icons, static assets. API responses are
 not cached by the worker (the glance cache below is O2) and writes are not queued by it (that is
