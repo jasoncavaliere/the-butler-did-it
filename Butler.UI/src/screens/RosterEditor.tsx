@@ -17,6 +17,7 @@ import { useHousehold } from '../state/HouseholdContext';
 const COPY = {
   noHousehold: 'No household is selected.',
   stale: 'Someone else changed this person since it was loaded. Reload to see the latest.',
+  changedElsewhere: 'Someone else changed this person, so your edit was not saved. The list now shows the latest.',
 } as const;
 
 /** The role a person added here gets; an edit keeps the role from its read. */
@@ -85,7 +86,9 @@ function isEditorFor<K extends Editor['kind']>(
  *
  * Edit, Remove and Add person are held while a write is in flight, and a
  * finishing write changes only the editor it was started for (a form cancelled
- * meanwhile stays closed) while the list takes the server's result.
+ * meanwhile stays closed) while the list takes the server's result. A `412` for
+ * a save whose form was cancelled meanwhile says the person changed elsewhere
+ * and re-reads that person into the list; the form stays closed.
  */
 export function RosterEditor({ onDone }: { onDone?: () => void }) {
   const client = useApiClient();
@@ -102,6 +105,14 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
   useEffect(() => {
     editorRef.current = editor;
   }, [editor]);
+
+  // True while the edit form (not its loading read) for `personId` is still
+  // open. A hook-level callback, because the react-hooks/refs lint rejects a
+  // ref read reached from the form's Save handler through a render-scope function.
+  const editFormOpen = useCallback(
+    (personId: string): boolean => isEditorFor(editorRef.current, 'edit', personId),
+    [],
+  );
 
   const read = useCallback(async (): Promise<LoadState> => {
     if (householdId === null) {
@@ -219,6 +230,25 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
     setEditor({ kind: 'edit', personId, person: fresh, draft: draftFor(fresh), stale: false });
   }
 
+  /**
+   * After a 412 for a save whose form was cancelled in flight: tell the
+   * organizer, then re-read that person into the list. The form stays closed,
+   * and the write buttons stay held until the re-read lands.
+   */
+  async function refreshAfterCancelledConflict(personId: string) {
+    setNotice(COPY.changedElsewhere);
+    const result = await client.get<PersonResponse>(`${base}/${personId}`);
+    if (!result.ok) {
+      setNotice(describeApiError(result.error));
+      setLoad(await read());
+      setBusy(false);
+      return;
+    }
+    const fresh = result.data;
+    updatePeople((list) => list.map((p) => (p.personId === personId ? toEntry(fresh) : p)));
+    setBusy(false);
+  }
+
   async function saveEdit(current: Extract<Editor, { kind: 'edit' }>) {
     const { person, draft, personId } = current;
     begin();
@@ -232,6 +262,11 @@ export function RosterEditor({ onDone }: { onDone?: () => void }) {
       method: 'PUT',
       ifMatch: person.eTag,
     });
+    if (!result.ok && isPreconditionFailed(result.error) && !editFormOpen(personId)) {
+      // The form was cancelled in flight: no form to mark stale, so say so and refresh the list.
+      await refreshAfterCancelledConflict(personId);
+      return;
+    }
     setBusy(false);
     if (!result.ok) {
       if (isPreconditionFailed(result.error)) {
