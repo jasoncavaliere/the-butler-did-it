@@ -163,7 +163,8 @@ eligible people, and each person's trailing load into an assignment set per Engi
   throwing.
 - `IAssignmentGenerationService.GenerateAsync(...)` (C3) is the only place that composes fetch ->
   compute -> persist: it loads the household's active chores (H3) and people (H4), computes each
-  person's trailing-4-ISO-week completed `Effort` from `ChoreCompletions`, resolves `weekIso` from the
+  person's trailing-4-ISO-week completed `Effort` from `ChoreCompletions` net of undo
+  (`ChoreCompletionLedger.NetOfUndo`), resolves `weekIso` from the
   request or the injected clock, runs the C2 engine, and persists the result via the C1 repositories.
 - `IAssignmentGenerationService.GetOrGenerateAsync(...)` (#110) is the hub board's lazy read. Only the
   current week per the injected clock is ever generated, and only while it has no stored rows; a week
@@ -194,8 +195,8 @@ eligible people, and each person's trailing load into an assignment set per Engi
   same instant), pairs each `_void` reversal with the latest un-reversed completion of the same chore in
   the same week, and drops both, so the effort is effectively charged back to that completion's person.
   A reversal with nothing open to cancel is dropped as an orphan, so no person's net effort or count can
-  go negative. Fairness and Insights read through it; the C3 trailing-load read
-  (`AssignmentGenerationService.ComputeTrailingLoadsAsync`) still sums raw rows (follow-up issue).
+  go negative. Fairness, Insights and the C3 trailing-load read
+  (`AssignmentGenerationService.ComputeTrailingLoadsAsync`, #291) all read through it.
   Undoing an assignment that is already `Open` (or was never completed) is a success no-op - no
   compensating entry is appended, so effort is never double-subtracted.
 - Both `CompleteAsync` and `UndoAsync` first apply the completion week window (issue #86,

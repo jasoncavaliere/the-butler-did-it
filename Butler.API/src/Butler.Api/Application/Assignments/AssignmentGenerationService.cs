@@ -275,7 +275,11 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
 
     // Each person's trailing load is the sum of their completion effort over the
     // target week and the three preceding ISO weeks, read only from this
-    // household's append-only ledger (no cross-household query).
+    // household's append-only ledger (no cross-household query). The ledger is
+    // read net of undo (ChoreCompletionLedger.NetOfUndo, #220/#291): a _void
+    // reversal cancels the completion it reversed whoever pressed undo, so the
+    // completer's load returns to its earlier value and the undoer is never
+    // charged. Organizers are excluded later via the people list, after netting.
     private async Task<Dictionary<string, int>> ComputeTrailingLoadsAsync(
         string householdId,
         string targetWeek,
@@ -285,7 +289,7 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         var completions = await _completions.ListAsync(householdId, cancellationToken).ConfigureAwait(false);
 
         var loads = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var completion in completions)
+        foreach (var completion in ChoreCompletionLedger.NetOfUndo(completions))
         {
             if (!window.Contains(completion.WeekIso))
             {

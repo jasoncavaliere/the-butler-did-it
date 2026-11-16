@@ -21,8 +21,10 @@ namespace Butler.Api.Tests.Assignments;
 /// persists through the C1 <see cref="IAssignmentRepository"/>. Regenerating a
 /// week replaces its <c>Open</c> rows but preserves <c>Done</c> ones (and their
 /// completions), reflecting completed effort in the recomputed loads so a done
-/// chore is never re-assigned. The repositories are NSubstitute fakes and the
-/// clock is fixed, so every assertion is deterministic.
+/// chore is never re-assigned. Loads are read net of undo (#291), so a
+/// cross-person or organizer undo credits the effort back to the completer. The
+/// repositories are NSubstitute fakes and the clock is fixed, so every assertion
+/// is deterministic.
 /// </summary>
 public sealed class AssignmentGenerationServiceTests
 {
@@ -125,6 +127,44 @@ public sealed class AssignmentGenerationServiceTests
         Effort = effort,
         WeekIso = weekIso,
     };
+
+    // A compensating undo row as the C7 write path appends it: a _void row key,
+    // negative effort, stamped with whoever pressed undo. Its CompletedUtc is later
+    // than the default instant Completion leaves, so it replays after them.
+    private static ChoreCompletionEntity Reversal(string choreId, string undoerId, int effort, string weekIso) => new()
+    {
+        PartitionKey = Household,
+        RowKey = $"{weekIso}_{choreId}_{undoerId}{ChoreCompletionLedger.ReversalSuffix}",
+        ChoreId = choreId,
+        PersonId = undoerId,
+        Effort = -effort,
+        WeekIso = weekIso,
+        CompletedUtc = MidWeek29,
+    };
+
+    // Runs one generation over the harness with a substitute engine and returns the
+    // exact trailing load each person was handed to the C2 engine.
+    private static async Task<IReadOnlyDictionary<string, int>> CapturedTrailingLoadsAsync(Harness harness)
+    {
+        FairAssignmentRequest? captured = null;
+        var engine = Substitute.For<IFairAssignmentEngine>();
+        engine.Assign(Arg.Do<FairAssignmentRequest>(request => captured = request))
+            .Returns(new FairAssignmentResult([], []));
+
+        var service = new AssignmentGenerationService(
+            harness.Households,
+            harness.Chores,
+            harness.People,
+            harness.Completions,
+            harness.Assignments,
+            engine,
+            harness.Clock,
+            harness.Gate);
+        await service.GenerateAsync(Household, Week29, CancellationToken.None);
+
+        Assert.NotNull(captured);
+        return captured!.People.ToDictionary(person => person.PersonId, person => person.TrailingLoad);
+    }
 
     private static AssignmentEntity Existing(string choreId, string personId, string status, string weekIso = Week29) => new()
     {
@@ -388,6 +428,87 @@ public sealed class AssignmentGenerationServiceTests
 
         Assert.NotNull(response);
         Assert.Equal("p2", Assert.Single(response!.Assignments).AssignedPersonId);
+    }
+
+    [Fact]
+    public async Task Trailing_load_credits_a_cross_person_undo_back_to_the_completer()
+    {
+        var harness = new Harness();
+        harness.SetChores(Chore("chore-a", effort: 2));
+        harness.SetPeople(Person("p1"), Person("p2"));
+
+        // p1 completed plants (1) and dishes (3), p2 completed trash (2), then p2
+        // undid p1's dishes. The reversal cancels p1's dishes, so p1 is back to 1
+        // and p2 keeps exactly their own 2 - neither is charged the other's effort.
+        harness.SetCompletions(
+            Completion("plants", "p1", effort: 1, weekIso: Week29),
+            Completion("trash", "p2", effort: 2, weekIso: Week29),
+            Completion("dishes", "p1", effort: 3, weekIso: Week29),
+            Reversal("dishes", "p2", effort: 3, weekIso: Week29));
+
+        var loads = await CapturedTrailingLoadsAsync(harness);
+
+        Assert.Equal(1, loads["p1"]);
+        Assert.Equal(2, loads["p2"]);
+        Assert.All(loads.Values, load => Assert.True(load >= 0));
+    }
+
+    [Fact]
+    public async Task Generate_does_not_over_assign_the_undoer_after_a_cross_person_undo()
+    {
+        var harness = new Harness();
+        harness.SetChores(Chore("chore-a", effort: 2));
+        harness.SetPeople(Person("p1"), Person("p2"));
+
+        // p2 undid p1's only completion, so both are back to zero load and the
+        // engine's lowest-id tie-break hands the chore to p1. Summing raw rows would
+        // leave p1 at 5 and p2 at -5, wrongly piling the chore onto the undoer.
+        harness.SetCompletions(
+            Completion("dishes", "p1", effort: 5, weekIso: Week29),
+            Reversal("dishes", "p2", effort: 5, weekIso: Week29));
+
+        var response = await harness.Service.GenerateAsync(Household, Week29, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("p1", Assert.Single(response!.Assignments).AssignedPersonId);
+    }
+
+    [Fact]
+    public async Task Trailing_load_nets_an_organizer_undo_before_organizers_are_excluded()
+    {
+        var harness = new Harness();
+        harness.SetChores(Chore("chore-a", effort: 2));
+        harness.SetPeople(Organizer("org-1"), Person("p1"), Person("p2"));
+
+        // The organizer undid p1's completion. The organizer is not a candidate, but
+        // the reversal must still cancel p1's effort rather than being lost with
+        // the organizer.
+        harness.SetCompletions(
+            Completion("dishes", "p1", effort: 5, weekIso: Week29),
+            Reversal("dishes", "org-1", effort: 5, weekIso: Week29));
+
+        var loads = await CapturedTrailingLoadsAsync(harness);
+
+        Assert.Equal(0, loads["p1"]);
+        Assert.Equal(0, loads["p2"]);
+        Assert.False(loads.ContainsKey("org-1"));
+    }
+
+    [Fact]
+    public async Task Trailing_load_drops_an_orphan_reversal_instead_of_going_negative()
+    {
+        var harness = new Harness();
+        harness.SetChores(Chore("chore-a", effort: 2));
+        harness.SetPeople(Person("p1"), Person("p2"));
+
+        // A reversal with no completion to cancel is an orphan and is dropped, so
+        // the undoer's load stays at zero instead of going negative.
+        harness.SetCompletions(Reversal("dishes", "p2", effort: 3, weekIso: Week29));
+
+        var loads = await CapturedTrailingLoadsAsync(harness);
+
+        Assert.Equal(0, loads["p1"]);
+        Assert.Equal(0, loads["p2"]);
     }
 
     [Fact]
