@@ -26,7 +26,6 @@ sources:
   - { id: lenovo-us-m11, resource: https://www.lenovo.com/us/en/p/tablets/android-tablets/lenovo-tab-m-series/lenovo-tab-m11/len103t0006, title: Lenovo US - Lenovo Tab M11 }
   - { id: bestbuy-m11, resource: "https://www.bestbuy.com/site/searchpage.jsp?st=lenovo+tab+m11", title: Best Buy - Lenovo Tab M11 search results }
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T23:07:10Z }
-verified: { by: human:jasoncavaliere, at: 2026-11-15T18:37:40Z }
 ---
 
 # ADR-0012: The Fire Kids tablet is the hub demo device, and current stable Chrome validates the offline epic
