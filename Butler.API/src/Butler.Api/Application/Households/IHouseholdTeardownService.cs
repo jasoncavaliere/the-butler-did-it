@@ -7,14 +7,19 @@ namespace Butler.Api.Application.Households;
 public interface IHouseholdTeardownService
 {
     /// <summary>
-    /// Deletes every row in the household's partition of every registered table,
-    /// the <c>Households</c> row last. Nothing is deleted when the household does
-    /// not exist or <paramref name="confirmName"/> is not an exact (ordinal,
-    /// case-sensitive) match for its stored name.
+    /// Deletes every row in the household's partition of every registered table:
+    /// it sweeps every other table, then deletes the <c>Households</c> row, then
+    /// sweeps every other table again (#223). Nothing is deleted when the
+    /// household does not exist or <paramref name="confirmName"/> is not an exact
+    /// (ordinal, case-sensitive) match for its stored name.
     /// </summary>
     /// <param name="householdId">The household to tear down.</param>
     /// <param name="confirmName">The household name the organizer typed to confirm.</param>
     /// <param name="cancellationToken">Cancels the teardown.</param>
+    /// <exception cref="HouseholdTeardownIncompleteException">
+    /// The household purge or the second sweep failed or was cancelled. The
+    /// <c>Households</c> row has been restored, so a retry finishes the purge (#294).
+    /// </exception>
     Task<HouseholdTeardownResult> TeardownAsync(
         string householdId,
         string confirmName,
