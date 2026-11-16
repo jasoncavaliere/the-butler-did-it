@@ -27,8 +27,13 @@ public interface IHouseholdTeardownService
     /// restored first, so a retry finishes the purge (#336).
     /// </exception>
     /// <remarks>
-    /// Any other exception is a failure of the <c>Households</c> restore write
-    /// itself; the original failure is logged before it propagates (#337).
+    /// When the household purge or the second sweep fails and the restore of the
+    /// <c>Households</c> row (its read or its write) then also fails, the restore
+    /// exception propagates and the original failure is logged at Error first
+    /// (#337). Other exceptions (argument validation, the initial read of the
+    /// household, or the first sweep) propagate unchanged: nothing has been
+    /// deleted from <c>Households</c> yet, so no restore is attempted and nothing
+    /// is logged here.
     /// </remarks>
     Task<HouseholdTeardownResult> TeardownAsync(
         string householdId,
