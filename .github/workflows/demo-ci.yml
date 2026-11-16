@@ -55,6 +55,12 @@
 #            other compose project, non-Azurite storage, other data folder)
 #            exit 1 with the same message through both scripts and make no
 #            down, run or up call.
+#            And snapshots (#99, demo/ci/check-snapshot.sh static): with a
+#            stub docker, snapshot stops only Azurite, copies in a container
+#            and starts Azurite again; restore stops the stack, wipes and
+#            copies in containers; bad names, a missing PIN and non-local
+#            targets make no docker call; snapshots lists newest first; the
+#            same bytes and docker calls through both scripts.
 #            And the smoke step (#103): Azurite's Table port is published
 #            only on 127.0.0.1:10012 while the api keeps azurite:10002, and
 #            demo/ci/check-smoke-step.sh (stub dotnet and docker) shows both
@@ -90,7 +96,11 @@
 #            (#98, demo/ci/check-reset.sh stack): demo.sh reset, demo.ps1
 #            reset and a reset from a stopped stack, each with stdin closed,
 #            wipe the data, re-seed The Parker Household (roster, this week's
-#            assignments, fairness) and change the dataset id. And the smoke
+#            assignments, fairness) and change the dataset id. And snapshots
+#            (#99, demo/ci/check-snapshot.sh stack): demo.sh snapshot keeps
+#            the organizer signed in; demo.sh restore and demo.ps1 restore
+#            recreate the api, bring back the snapshot's data and change the
+#            dataset id. And the smoke
 #            step (#103): with the SDK from Butler.API/global.json, demo up
 #            runs the real Liveness and Rooms smoke tests through the proxy
 #            (signing in with the PIN, reading Azurite on 127.0.0.1:10012),
@@ -293,7 +303,7 @@ jobs:
               diff <(printf '%s\n' "$sh_out") <(printf '%s\n' "$ps_out") || true
               exit 1
             fi
-            for cmd in up down reset status logs share unshare; do
+            for cmd in up down reset snapshot restore snapshots status logs share unshare; do
               printf '%s\n' "$sh_out" | grep -qE "^  $cmd " || { echo "usage does not list '$cmd'" >&2; exit 1; }
             done
           done
@@ -317,8 +327,8 @@ jobs:
           names="$(bash demo/demo.sh 2>&1 | awk '/^  [a-z]/{print $1}')"
           set -e
           count="$(printf '%s\n' "$names" | grep -c . || true)"
-          if [ "$count" -lt 7 ]; then
-            echo "expected at least 7 subcommands in the usage, parsed $count" >&2
+          if [ "$count" -lt 10 ]; then
+            echo "expected at least 10 subcommands in the usage, parsed $count" >&2
             exit 1
           fi
           for name in $names; do
@@ -394,6 +404,15 @@ jobs:
       # and make the same docker calls. Stub docker.
       - name: "demo CLI: reset refuses non-local targets (#98)"
         run: bash demo/ci/check-reset.sh static
+
+      # #99 AC1, AC2, AC6b, AC7, AC8: snapshot stops only Azurite and copies
+      # in a container; restore stops the stack (down) and wipes and copies
+      # in containers; bad names, a missing PIN and non-local targets make no
+      # docker call; snapshots lists newest first; documented. demo.sh and
+      # demo.ps1 print the same bytes and make the same docker calls. Stub
+      # docker.
+      - name: "demo CLI: snapshot, restore and snapshots (#99)"
+        run: bash demo/ci/check-snapshot.sh static
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -903,6 +922,13 @@ jobs:
       # from a stopped stack works too. Starts with the stack up.
       - name: "demo CLI: reset wipes and re-seeds the demo (#98)"
         run: bash demo/ci/check-reset.sh stack
+
+      # #99 AC1, AC2, AC6, AC6b + review F1: demo.sh snapshot keeps the
+      # organizer signed in; demo.sh restore and demo.ps1 restore (stdin
+      # closed) recreate the api, bring the snapshot's data back and change
+      # the dataset id, with the same own lines. Starts with the stack up.
+      - name: "demo CLI: snapshot and restore round trip (#99)"
+        run: bash demo/ci/check-snapshot.sh stack
 
       # On failure, surface what each service logged so the cause is visible
       # without rerunning.

@@ -24,6 +24,9 @@ demo/demo.sh logs --api   # API only
 demo/demo.sh logs -f azurite   # Azurite only
 demo/demo.sh down      # stop; data in demo/.data/azurite is kept
 demo/demo.sh reset     # delete the demo data, restart and re-seed the demo household
+demo/demo.sh snapshot <name>   # save a copy of the demo data in demo/.data/snapshots/<name>
+demo/demo.sh restore <name>    # put that copy back and change the dataset id
+demo/demo.sh snapshots         # list the snapshots with their dates
 demo/demo.sh share     # HTTPS URL + QR code for a tablet on your tailnet
 demo/demo.sh unshare   # stop sharing; localhost:8080 keeps working
 ```
@@ -38,6 +41,9 @@ pwsh demo/demo.ps1 logs --api
 pwsh demo/demo.ps1 logs -f azurite
 pwsh demo/demo.ps1 down
 pwsh demo/demo.ps1 reset
+pwsh demo/demo.ps1 snapshot <name>
+pwsh demo/demo.ps1 restore <name>
+pwsh demo/demo.ps1 snapshots
 pwsh demo/demo.ps1 share
 pwsh demo/demo.ps1 unshare
 ```
@@ -47,6 +53,9 @@ pwsh demo/demo.ps1 unshare
 | `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and waits until every service reports healthy. Then it runs the smoke suite with the host .NET SDK and prints `Demo ready: <urls>` and exits 0 only when every smoke check passes (see [Smoke step](#smoke-step)); it checks for the SDK first, before running npm or docker. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
+| `demo.sh snapshot` | `snapshot <name>` saves a copy of the demo data: refuses to run unless the target is the local demo stack, stops only Azurite, copies `demo/.data/azurite` to `demo/.data/snapshots/<name>` and starts Azurite again. The API and the hub keep running, so the organizer stays signed in. Refuses a name that is already taken. See [Snapshots](#snapshots). |
+| `demo.sh restore` | `restore <name>` puts a snapshot back: checks the PIN, refuses to run unless the target is the local demo stack, stops the stack, replaces `demo/.data/azurite` with the snapshot, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and changes the dataset id. It prints the snapshot's and the new dataset id. Snapshot dates do not move. Needs `curl` (`demo.sh` only). See [Snapshots](#snapshots). |
+| `demo.sh snapshots` | Lists the snapshots in `demo/.data/snapshots`, newest first, with the local date and time each was taken. See [Snapshots](#snapshots). |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`). Naming a compose service (`azurite`, `api` or `web`) shows only the services named: `logs -f azurite` follows Azurite alone, and the API and Caddy default applies only when no service is named. See [Logs](#logs). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
@@ -557,6 +566,87 @@ After a reset:
 - The new dataset id tells the hub to drop its offline cache and its queue of
   unsent writes (#100), so nothing from before the reset is replayed.
 - The hub does not open the seeded household by itself yet; that is #316.
+
+## Snapshots
+
+A snapshot is a copy of the demo data that you can put back later. Use it for
+a short-lived, hand-staged state, such as a mid-week board set up for one
+prospect: stage it once, take a snapshot, and restore it before each run of
+that demo. For a demo dated today, use `reset` instead (see the warning
+below).
+
+```bash
+demo/demo.sh snapshot prospect-acme    # save the current demo data
+demo/demo.sh snapshots                 # list the snapshots, newest first
+demo/demo.sh restore prospect-acme     # put that data back
+```
+
+```powershell
+pwsh demo/demo.ps1 snapshot prospect-acme
+pwsh demo/demo.ps1 snapshots
+pwsh demo/demo.ps1 restore prospect-acme
+```
+
+**Warning: snapshot dates do not move.** A restore puts back the data exactly
+as it was. Chores, assignments, completions and the fairness history keep the
+dates they had when the snapshot was taken, so a snapshot ages: restore it a
+week later and the hub shows last week. Use `reset` for a demo dated today.
+
+Snapshot names use letters, digits, `.`, `_` and `-`, start with a letter or
+digit, and are at most 64 characters. Snapshots live in
+`demo/.data/snapshots/<name>`, which is git-ignored like the rest of
+`demo/.data`.
+
+`snapshot <name>`, in order:
+
+1. Checks the name, and stops if `demo/.data/snapshots/<name>` already exists.
+2. Refuses to run, as `reset` does, unless the target is the local demo stack.
+   The message starts with `Refusing to snapshot:`.
+3. Stops only Azurite (`stop azurite`), so it saves its store to disk. The API
+   and the hub keep running, and the organizer stays signed in. If the stack
+   was down, only Azurite is running afterwards.
+4. Copies `demo/.data/azurite` to `demo/.data/snapshots/<name>` inside a
+   one-off `azurite` container, so it needs no `sudo` on Linux. A failed copy
+   is removed.
+5. Starts Azurite again and waits until it is healthy, and prints
+   `Snapshot saved: demo/.data/snapshots/<name>`.
+
+`restore <name>`, in order:
+
+1. Checks the name, checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN, as `up`
+   does, and stops if there is no snapshot with that name.
+2. Refuses to run, as `reset` does, unless the target is the local demo stack.
+   The message starts with `Refusing to restore:`.
+3. Stops the stack (`down`, never `-v`).
+4. Deletes everything in `demo/.data/azurite` and copies the snapshot into it,
+   inside one-off `azurite` containers. The snapshot itself is not changed, so
+   you can restore it again and again.
+5. Starts the stack as `up` does, without the smoke step, so the API starts
+   fresh on the restored data.
+6. Signs in with `BUTLER_DEMO_PIN`, once, and changes the dataset id
+   (`POST /api/demo/dataset/regenerate`, organizer only).
+7. Checks that the dataset id changed and prints
+   `Dataset: <snapshot id> -> <new id>`.
+
+After a restore:
+
+- The organizer signs in with the PIN again: the restart dropped every
+  organizer session.
+- A tablet paired after the snapshot was taken pairs again: its hub-device
+  token is not in the restored data. Tablets paired before it stay paired.
+- The new dataset id tells the hub to drop its offline cache and its queue of
+  unsent writes (#100), so nothing from before the restore is replayed.
+
+`snapshots` lists every snapshot, newest first, with the local date and time
+it was taken (`YYYY-MM-DD HH:MM`).
+
+There is no delete command. On Linux the snapshot folders are owned by root
+(Azurite writes its data as root), so delete one with sudo:
+
+```bash
+sudo rm -rf demo/.data/snapshots/<name>   # Linux
+rm -rf demo/.data/snapshots/<name>        # macOS / Windows (Docker Desktop)
+```
 
 ## Wipe the demo data
 

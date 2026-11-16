@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Butler.Api.Application.Auth;
 using Butler.Api.Application.Demo;
+using Butler.Api.Application.System;
 using Butler.Api.Infrastructure.Hosting;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +10,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Butler.Api.Controllers;
 
 /// <summary>
-/// Thin controller for the demo seeder (#97). Organizer-only, and registered
+/// Thin controller for the demo seeder (#97) and the demo dataset regenerate
+/// (#99, used by <c>demo restore</c>). Organizer-only, and registered
 /// only in the Development and Demo environments (<see cref="DemoOnlyAttribute"/>,
 /// #106): everywhere else it is not mapped, so every request is a <c>404</c>
 /// regardless of credentials.
@@ -48,4 +50,16 @@ public sealed class DemoController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>
+    /// Stores a new dataset id (#100 D7) without reseeding, and returns it
+    /// (#99). <c>demo restore</c> calls it after it copies a snapshot back.
+    /// </summary>
+    [HttpPost("dataset/regenerate")]
+    [Authorize(Policy = OrganizerAuthorization.PolicyName)]
+    [ProducesResponseType(typeof(DatasetResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<DatasetResponse>> RegenerateDataset(CancellationToken cancellationToken) =>
+        Ok(await _sender.Send(new RegenerateDemoDatasetCommand(), cancellationToken));
 }

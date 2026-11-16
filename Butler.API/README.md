@@ -163,6 +163,9 @@ curl -X POST http://localhost:5108/demo/seed
 token="$(curl -s -X POST http://localhost:5108/auth/pin/sign-in -H 'Content-Type: application/json' \
   -d "{\"pin\":\"$BUTLER_DEMO_PIN\"}" | jq -r .token)"
 curl -X POST -H "Authorization: Bearer $token" http://localhost:5108/demo/seed
+
+# change the dataset id without reseeding (demo restore calls this)
+curl -X POST -H "Authorization: Bearer $token" http://localhost:5108/demo/dataset/regenerate
 ```
 
 - `--seed-demo` is the same as setting `Demo__SeedOnStartup=true` (handy for a container). The
@@ -176,8 +179,12 @@ curl -X POST -H "Authorization: Bearer $token" http://localhost:5108/demo/seed
   again, so there are never duplicates. Paired hub devices are kept, so a tablet stays paired.
 - All dates come from the clock: the current ISO week gets the assignments, and the three weeks
   before it get the history.
-- Outside Development and Demo the demo endpoints are not mapped: `POST /demo/seed` is a `404` for
-  every caller, with or without a token (never `401` or `403`). `--seed-demo` (or
+- `POST /demo/dataset/regenerate` (organizer only, #99) stores a new dataset id without reseeding
+  and returns `200` `{ "datasetId": "..." }`. A non-organizer gets `403`. `demo restore` calls it
+  after it copies a snapshot back, so the hub drops its offline cache.
+- Outside Development and Demo the demo endpoints are not mapped: `POST /demo/seed` and
+  `POST /demo/dataset/regenerate` are a `404` for every caller, with or without a token (never
+  `401` or `403`). `--seed-demo` (or
   `Demo__SeedOnStartup=true`) stops the host from starting with an error that names
   `Demo:SeedOnStartup`, before any table is provisioned.
 

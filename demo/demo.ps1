@@ -19,6 +19,17 @@
               again, sign in with BUTLER_DEMO_PIN and seed the demo
               household, which also changes the dataset id. Asks nothing,
               and refuses to run against anything but the local demo stack.
+      snapshot <name>
+              Stop Azurite, copy demo/.data/azurite to
+              demo/.data/snapshots/<name>, then start Azurite again. The
+              API and the hub keep running.
+      restore <name>
+              Stop the stack, replace demo/.data/azurite with the snapshot,
+              start it again, sign in with BUTLER_DEMO_PIN and change the
+              dataset id. Snapshot dates do not move.
+      snapshots
+              List the snapshots in demo/.data/snapshots, newest first,
+              with their dates.
       status  Show each container's state and health, the hub URL and the
               dataset id.
       logs    Follow the API and Caddy (web) logs, last 100 lines each.
@@ -39,6 +50,8 @@
     pwsh demo/demo.ps1 up
 .EXAMPLE
     pwsh demo/demo.ps1 reset
+.EXAMPLE
+    pwsh demo/demo.ps1 snapshot prospect-acme
 .EXAMPLE
     ./demo/demo.ps1 logs --api
 .EXAMPLE
@@ -79,6 +92,13 @@ $DatasetUrl = "$HubUrl/api/api/system/dataset"
 # reset (#98) signs the organizer in with the PIN, then seeds the demo household.
 $PinSignInUrl = "$HubUrl/api/auth/pin/sign-in"
 $SeedUrl = "$HubUrl/api/demo/seed"
+# restore (#99) copies a snapshot back, then changes the dataset id through
+# this organizer-only endpoint. Snapshots live in git-ignored demo/.data.
+$RegenerateUrl = "$HubUrl/api/demo/dataset/regenerate"
+$SnapshotsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'snapshots'
+# A snapshot name: a letter or digit, then up to 63 letters, digits, '.', '_'
+# or '-'. \z, not $: .NET's $ also matches before a trailing newline.
+$SnapshotNamePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z'
 $WaitTimeout = '300'
 
 # The smoke step up runs once the stack is healthy (#103): the smoke suite,
@@ -102,13 +122,16 @@ $DemoReady = "Demo ready: hub $HubUrl | API $HubUrl/api/health | Swagger http://
 # below (and the same entry and handler in demo.sh, plus a row in
 # demo/README.md).
 $Commands = [ordered]@{
-    up      = 'Build the hub export if needed, start the stack, wait until it is healthy and run the smoke suite'
-    down    = 'Stop the stack (data in demo/.data/azurite is kept)'
-    reset   = 'Delete the demo data, restart the stack, re-seed the demo household and change the dataset id'
-    status  = 'Show container health, the hub URL and the dataset id'
-    logs    = 'Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)'
-    share   = 'Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code'
-    unshare = 'Turn off tailscale serve (the hub stays on http://localhost:8080)'
+    up        = 'Build the hub export if needed, start the stack, wait until it is healthy and run the smoke suite'
+    down      = 'Stop the stack (data in demo/.data/azurite is kept)'
+    reset     = 'Delete the demo data, restart the stack, re-seed the demo household and change the dataset id'
+    snapshot  = 'Save a copy of the demo data in demo/.data/snapshots/<name> (stops Azurite while it copies)'
+    restore   = 'Replace the demo data with a snapshot, restart the stack and change the dataset id'
+    snapshots = 'List the snapshots in demo/.data/snapshots with their dates'
+    status    = 'Show container health, the hub URL and the dataset id'
+    logs      = 'Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)'
+    share     = 'Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code'
+    unshare   = 'Turn off tailscale serve (the hub stays on http://localhost:8080)'
 }
 
 # Files and folders under Butler.UI/ that the hub export is built from.
@@ -465,12 +488,13 @@ function Get-DatasetId {
     return $dataset
 }
 
-# reset (#98) deletes data, so it runs only against the local demo stack:
-# a local Docker engine, the butler-demo compose project, an api that stores
-# its data in the azurite service, and Azurite's data in demo/.data/azurite.
-# Writes why to stderr and returns $false otherwise. Same checks and text as
-# check_local_target in demo.sh.
-function Test-LocalTarget {
+# reset (#98), snapshot and restore (#99) touch the demo data, so they run
+# only against the local demo stack: a local Docker engine, the butler-demo
+# compose project, an api that stores its data in the azurite service, and
+# Azurite's data in demo/.data/azurite. -Verb names the command in the
+# message. Writes why to stderr and returns $false otherwise. Same checks and
+# text as check_local_target in demo.sh.
+function Test-LocalTarget([string]$Verb) {
     $reason = ''
     $endpoint = [string]$env:DOCKER_HOST
     if (-not $endpoint) {
@@ -515,7 +539,7 @@ function Test-LocalTarget {
         }
     }
     if ($reason) {
-        Write-Err "Refusing to reset: $reason. reset only runs against the local demo stack."
+        Write-Err "Refusing to ${Verb}: $reason. $Verb only runs against the local demo stack."
         $script:ExitCode = 1
         return $false
     }
@@ -527,7 +551,7 @@ function Test-LocalTarget {
 # id. Asks nothing. Takes no arguments and, like up and down, ignores extras.
 function Invoke-DemoReset {
     if (-not (Test-DemoPin)) { return }
-    if (-not (Test-LocalTarget)) { return }
+    if (-not (Test-LocalTarget -Verb 'reset')) { return }
     $old = Get-DatasetId
     if (-not $old) { $old = 'unavailable' }
 
@@ -589,6 +613,206 @@ function Invoke-DemoReset {
     Write-Out "Dataset: $old -> $new"
     Write-Out "Demo reset complete: the demo household is seeded at $HubUrl"
     Write-Out 'Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings.'
+}
+
+# snapshot and restore (#99) take exactly one name. Writes the usage or the
+# name rule to stderr, sets exit code 2 and returns $false otherwise. The rule
+# also keeps the name safe as a container path. Same text as
+# check_snapshot_name in demo.sh.
+function Test-SnapshotName([string]$Verb, [string[]]$NameArgs) {
+    if (@($NameArgs).Count -ne 1) {
+        Write-Err "Usage: demo $Verb <name>"
+        $script:ExitCode = 2
+        return $false
+    }
+    if (-not ([string]$NameArgs[0] -cmatch $SnapshotNamePattern)) {
+        Write-Err "Snapshot names use letters, digits, '.', '_' and '-', start with a letter or digit, and are at most 64 characters."
+        $script:ExitCode = 2
+        return $false
+    }
+    return $true
+}
+
+# Created on the host before docker mounts it, so docker does not create a
+# root-owned mount point.
+function Initialize-SnapshotsDir {
+    try {
+        $null = New-Item -ItemType Directory -Force -Path $SnapshotsDir
+        return $true
+    }
+    catch {
+        Write-Err 'Could not create demo/.data/snapshots.'
+        $script:ExitCode = 1
+        return $false
+    }
+}
+
+# snapshot (#99): stop only Azurite (it saves its store on SIGINT), copy
+# demo/.data/azurite to demo/.data/snapshots/<name>, start Azurite again. The
+# api and web keep running, so the organizer stays signed in. The copy runs
+# inside an azurite container: on Linux the files are root-owned. cp -R, not
+# -a, so the new folder's date is the snapshot time (snapshots lists it).
+function Invoke-DemoSnapshot([string[]]$SnapshotArgs) {
+    if (-not (Test-SnapshotName -Verb 'snapshot' -NameArgs $SnapshotArgs)) { return }
+    $name = [string]$SnapshotArgs[0]
+    if (Test-Path -LiteralPath (Join-Path $SnapshotsDir $name)) {
+        Write-Err "Snapshot $name already exists in demo/.data/snapshots. Pick another name, or delete that folder first."
+        $script:ExitCode = 1
+        return
+    }
+    if (-not (Test-LocalTarget -Verb 'snapshot')) { return }
+    if (-not (Initialize-SnapshotsDir)) { return }
+
+    Write-Out 'Stopping Azurite ...'
+    Invoke-Compose @('stop', 'azurite')
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Could not stop Azurite. No snapshot was taken.'
+        return
+    }
+
+    Write-Out "Copying demo/.data/azurite to demo/.data/snapshots/$name ..."
+    $mount = "${SnapshotsDir}:/snapshots"
+    Invoke-Compose @('run', '--rm', '--no-deps', '-T', '-v', $mount, '--entrypoint', 'cp', 'azurite', '-R', '/data', "/snapshots/$name")
+    $copyCode = $script:ExitCode
+    if ($copyCode -ne 0) {
+        Write-Err "Could not copy demo/.data/azurite to demo/.data/snapshots/$name."
+        # Best effort: drop the partial copy, then still start Azurite.
+        Invoke-Compose @('run', '--rm', '--no-deps', '-T', '-v', $mount, '--entrypoint', 'rm', 'azurite', '-rf', "/snapshots/$name")
+    }
+
+    Write-Out 'Starting Azurite ...'
+    Invoke-Compose @('up', '-d', '--no-deps', '--wait', '--wait-timeout', $WaitTimeout, 'azurite')
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Azurite did not become healthy. Run the logs command to see why.'
+        return
+    }
+    if ($copyCode -ne 0) {
+        $script:ExitCode = $copyCode
+        return
+    }
+    Write-Out "Snapshot saved: demo/.data/snapshots/$name"
+}
+
+# restore (#99): stop the stack (down, so the api container is recreated and
+# provisions its tables against the restored data), replace demo/.data/azurite
+# with the snapshot inside an azurite container, start the stack as reset
+# does, sign in with the PIN and change the dataset id, so the hub drops its
+# offline cache. The snapshot itself is never changed, so restore repeats.
+function Invoke-DemoRestore([string[]]$RestoreArgs) {
+    if (-not (Test-SnapshotName -Verb 'restore' -NameArgs $RestoreArgs)) { return }
+    $name = [string]$RestoreArgs[0]
+    if (-not (Test-DemoPin)) { return }
+    if (-not (Test-Path -LiteralPath (Join-Path $SnapshotsDir $name) -PathType Container)) {
+        Write-Err "No snapshot named $name in demo/.data/snapshots. Run the snapshots command to list them."
+        $script:ExitCode = 1
+        return
+    }
+    if (-not (Test-LocalTarget -Verb 'restore')) { return }
+
+    Write-Out 'Stopping the demo stack ...'
+    # Never -v. Azurite saves its store on SIGINT, so replace it only after down.
+    Invoke-Compose @('down')
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Could not stop the demo stack. Nothing was restored.'
+        return
+    }
+
+    Write-Out "Restoring demo/.data/azurite from demo/.data/snapshots/$name ..."
+    Invoke-Compose @('run', '--rm', '--no-deps', '-T', '--entrypoint', 'find', 'azurite', '/data', '-mindepth', '1', '-delete')
+    if ($script:ExitCode -eq 0) {
+        # "/." copies the snapshot's contents into /data, not a folder named after it.
+        Invoke-Compose @('run', '--rm', '--no-deps', '-T', '-v', "${SnapshotsDir}:/snapshots", '--entrypoint', 'cp', 'azurite', '-R', "/snapshots/$name/.", '/data')
+    }
+    if ($script:ExitCode -ne 0) {
+        Write-Err "Could not restore demo/.data/azurite from demo/.data/snapshots/$name. Run restore again, or reset."
+        return
+    }
+
+    Start-DemoStack
+    if ($script:ExitCode -ne 0) { return }
+
+    # The id the restored data holds (the API reads it from storage).
+    $snap = Get-DatasetId
+    if (-not $snap) { $snap = 'unavailable' }
+
+    # Sign in once, after the restart, with no retry: five wrong PINs lock
+    # sign-in.
+    Write-Out 'Signing in with the demo PIN ...'
+    $token = ''
+    try {
+        $body = @{ pin = [string](Get-DemoPin) } | ConvertTo-Json -Compress
+        $response = Invoke-RestMethod -Method Post -Uri $PinSignInUrl -ContentType 'application/json' -Body $body -TimeoutSec 30
+        if ($response -and $response.PSObject.Properties['token'] -and $response.token) {
+            $token = [string]$response.token
+        }
+    }
+    catch {
+        $token = ''
+    }
+    if (-not $token) {
+        Write-Err 'PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run restore again.'
+        $script:ExitCode = 1
+        return
+    }
+
+    Write-Out 'Changing the dataset id ...'
+    $returned = ''
+    try {
+        $response = Invoke-RestMethod -Method Post -Uri $RegenerateUrl -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 30
+        if ($response -and $response.PSObject.Properties['datasetId'] -and $response.datasetId) {
+            $returned = [string]$response.datasetId
+        }
+    }
+    catch {
+        $returned = ''
+    }
+    if (-not $returned) {
+        Write-Err 'Changing the dataset id failed. Run the logs command to see why.'
+        $script:ExitCode = 1
+        return
+    }
+
+    $new = Get-DatasetId
+    if (-not $new -or $new -cne $returned -or $new -ceq $snap) {
+        Write-Err 'The dataset id did not change after the restore. Run the logs command to see why.'
+        $script:ExitCode = 1
+        return
+    }
+    Write-Out "Dataset: $snap -> $new"
+    Write-Out "Restore complete: the demo data matches snapshot $name at $HubUrl"
+    Write-Out 'Sign in with the PIN again: the restore restarted the API. Tablets paired after the snapshot was taken must pair again, and the new dataset id makes the hub drop its offline cache and queued writes.'
+}
+
+# snapshots (#99): list the snapshot folders, newest first (ties by name, in
+# byte order), with their local dates. Skips files and folders that are not
+# valid names. Ignores extra arguments, like status. Same lines as
+# cmd_snapshots in demo.sh.
+function Invoke-DemoSnapshots {
+    $entries = [System.Collections.Generic.List[object]]::new()
+    if (Test-Path -LiteralPath $SnapshotsDir -PathType Container) {
+        foreach ($dir in @(Get-ChildItem -LiteralPath $SnapshotsDir -Directory -Force)) {
+            if (-not ($dir.Name -cmatch $SnapshotNamePattern)) { continue }
+            $entries.Add([pscustomobject]@{
+                    Name  = $dir.Name
+                    Epoch = [DateTimeOffset]::new($dir.LastWriteTimeUtc).ToUnixTimeSeconds()
+                    When  = $dir.LastWriteTime.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+                })
+        }
+    }
+    if ($entries.Count -eq 0) {
+        Write-Out 'No snapshots in demo/.data/snapshots. Take one with the snapshot command.'
+        return
+    }
+    # Sort-Object is culture-aware; an ordinal comparison matches sort in demo.sh.
+    $entries.Sort([Comparison[object]] {
+            param($a, $b)
+            if ($a.Epoch -ne $b.Epoch) { return $b.Epoch.CompareTo($a.Epoch) }
+            return [string]::CompareOrdinal($a.Name, $b.Name)
+        })
+    Write-Out 'Snapshots in demo/.data/snapshots (newest first):'
+    foreach ($entry in $entries) {
+        Write-Out "  $($entry.When)  $($entry.Name)"
+    }
 }
 
 function Invoke-DemoStatus {
@@ -782,6 +1006,9 @@ function Invoke-Main([object[]]$Arguments) {
         'up' { Invoke-DemoUp }
         'down' { Invoke-DemoDown }
         'reset' { Invoke-DemoReset }
+        'snapshot' { Invoke-DemoSnapshot -SnapshotArgs $rest }
+        'restore' { Invoke-DemoRestore -RestoreArgs $rest }
+        'snapshots' { Invoke-DemoSnapshots }
         'status' { Invoke-DemoStatus }
         'logs' { Invoke-DemoLogs -LogArgs $rest }
         'share' { Invoke-DemoShare }

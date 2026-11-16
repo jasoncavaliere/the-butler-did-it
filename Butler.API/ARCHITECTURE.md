@@ -497,7 +497,9 @@ when it changed, so a demo reseed never leaves stale taps to replay into the new
   serializes both, so concurrent first reads in one process agree on one id. A multi-instance race
   on the very first id is out of scope (the demo runs one API).
 - **Reseed.** `DemoSeeder` calls `RegenerateAsync` on every seed, before it purges anything (see
-  below). That covers both `POST /demo/seed` and `--seed-demo`.
+  below). That covers both `POST /demo/seed` and `--seed-demo`. `POST /demo/dataset/regenerate`
+  (`RegenerateDemoDatasetCommand`, #99) also calls `RegenerateAsync`, without reseeding:
+  `demo restore` sends it after it copies a snapshot back.
 - **The hub's contract.** The hub reads the id on startup, on every reconnect, and before every
   write-queue replay. A different id clears that household's glance cache and write queue and
   reloads the hub; an id it cannot read (unreachable API, a proxy `502`, a malformed body) changes
@@ -541,7 +543,9 @@ the append-only ledger rule (BRD R-2) on purpose; it is a demo-only exception, a
 do this wipe anyway (the last organizer cannot be removed, chores only deactivate, and the ledger has
 no delete). `HubDevices` is not purged, so a paired tablet survives a re-seed.
 
-**Triggers.** `POST /demo/seed` (organizer-only) sends `SeedDemoHouseholdCommand`. For start-up,
+**Triggers.** `POST /demo/seed` (organizer-only) sends `SeedDemoHouseholdCommand`.
+`POST /demo/dataset/regenerate` (organizer-only, #99) sends `RegenerateDemoDatasetCommand`, which only
+changes the dataset id. For start-up,
 `DemoCommandLine.Normalize` rewrites `--seed-demo` to `--Demo:SeedOnStartup=true` before
 `WebApplication.CreateBuilder`, because the command-line provider would otherwise read the next
 argument as the switch's value. `app.SeedDemoIfRequestedAsync()` runs just before `app.Run()` and
