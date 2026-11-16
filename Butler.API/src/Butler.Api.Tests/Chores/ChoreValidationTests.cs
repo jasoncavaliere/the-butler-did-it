@@ -20,7 +20,7 @@ public sealed class ChoreValidationTests : IClassFixture<ButlerApiFactory>
     public async Task RejectUnknownRoom_returns_400_and_persists_nothing()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var choresUri = new Uri($"/households/{householdId}/chores", UriKind.Relative);
 
         using var response = await client.PostAsJsonAsync(
@@ -40,7 +40,7 @@ public sealed class ChoreValidationTests : IClassFixture<ButlerApiFactory>
     public async Task RejectUnknownRoom_on_update_returns_400_and_leaves_row_unchanged()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
         var (choreId, etag) = await ChoreTestHelper.CreateChoreAsync(client, householdId, roomId);
         var choreUri = new Uri($"/households/{householdId}/chores/{choreId}", UriKind.Relative);
@@ -68,7 +68,7 @@ public sealed class ChoreValidationTests : IClassFixture<ButlerApiFactory>
     public async Task RejectNonPositiveEffort_returns_400(int effort)
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var choresUri = new Uri($"/households/{householdId}/chores", UriKind.Relative);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
 
@@ -83,7 +83,7 @@ public sealed class ChoreValidationTests : IClassFixture<ButlerApiFactory>
     public async Task RejectUnknownCadence_returns_400()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var choresUri = new Uri($"/households/{householdId}/chores", UriKind.Relative);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
 

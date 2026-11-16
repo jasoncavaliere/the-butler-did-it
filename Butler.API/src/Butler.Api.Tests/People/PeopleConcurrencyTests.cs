@@ -20,7 +20,7 @@ public sealed class PeopleConcurrencyTests : IClassFixture<ButlerApiFactory>
     public async Task PeopleConcurrency()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
         using var createResponse = await client.PostAsJsonAsync(

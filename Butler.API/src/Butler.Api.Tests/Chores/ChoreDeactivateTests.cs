@@ -21,7 +21,7 @@ public sealed class ChoreDeactivateTests : IClassFixture<ButlerApiFactory>
     public async Task DeactivateChore_sets_active_false_and_retains_the_row()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
         var (choreId, _) = await ChoreTestHelper.CreateChoreAsync(client, householdId, roomId);
         var choreUri = new Uri($"/households/{householdId}/chores/{choreId}", UriKind.Relative);

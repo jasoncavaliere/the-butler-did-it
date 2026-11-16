@@ -1,3 +1,4 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.Chores;
@@ -5,6 +6,8 @@ namespace Butler.Api.Application.Chores;
 /// <summary>
 /// Creates a chore in a household with a server-generated <c>choreId</c>,
 /// attached to a room in the same household.
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the chore belongs to.</param>
 /// <param name="Title">The chore's display title.</param>
@@ -18,7 +21,7 @@ public sealed record CreateChoreCommand(
     string RoomId,
     string Cadence,
     int Effort,
-    int? MinAge) : IRequest<ChoreResponse>;
+    int? MinAge) : IRequest<ChoreResponse>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="CreateChoreCommand"/> via the application service.</summary>
 public sealed class CreateChoreCommandHandler : IRequestHandler<CreateChoreCommand, ChoreResponse>

@@ -81,7 +81,7 @@ public sealed class PairRequiresOrganizerTests
     {
         using var factory = new ButlerApiFactory();
         using var client = factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(factory.Services);
 
         using var response = await client.PostAsJsonAsync(
             PairUri(householdId),

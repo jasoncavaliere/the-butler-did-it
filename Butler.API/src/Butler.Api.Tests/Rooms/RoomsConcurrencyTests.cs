@@ -20,7 +20,7 @@ public sealed class RoomsConcurrencyTests : IClassFixture<ButlerApiFactory>
     public async Task Update_enforces_if_match_precondition()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomsUri = new Uri($"/households/{householdId}/rooms", UriKind.Relative);
 
         using var createResponse = await client.PostAsJsonAsync(

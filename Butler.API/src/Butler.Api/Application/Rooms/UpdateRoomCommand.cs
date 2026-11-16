@@ -1,3 +1,4 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.Rooms;
@@ -7,6 +8,8 @@ namespace Butler.Api.Application.Rooms;
 /// <c>null</c> when the room does not exist (mapped to <c>404</c>); the
 /// <c>If-Match</c> precondition is enforced by the persistence seam (a missing
 /// value is <c>428</c>, a stale one <c>412</c>).
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the room belongs to.</param>
 /// <param name="RoomId">The room id to update.</param>
@@ -18,7 +21,7 @@ public sealed record UpdateRoomCommand(
     string RoomId,
     string Name,
     int SortOrder,
-    string? IfMatch) : IRequest<RoomResponse?>;
+    string? IfMatch) : IRequest<RoomResponse?>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="UpdateRoomCommand"/> via the application service.</summary>
 public sealed class UpdateRoomCommandHandler : IRequestHandler<UpdateRoomCommand, RoomResponse?>

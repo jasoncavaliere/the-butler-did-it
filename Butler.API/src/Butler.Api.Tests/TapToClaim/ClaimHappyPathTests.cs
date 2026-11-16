@@ -26,7 +26,7 @@ public sealed class ClaimHappyPathTests : IClassFixture<ButlerApiFactory>
     public async Task Claiming_a_person_returns_a_session_scoped_to_that_person()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
         // Seed a person on the roster.
@@ -65,7 +65,7 @@ public sealed class ClaimHappyPathTests : IClassFixture<ButlerApiFactory>
     public async Task Claiming_records_a_participant_claimed_event()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
 
         using var createResponse = await client.PostAsJsonAsync(
             new Uri($"/households/{householdId}/people", UriKind.Relative),

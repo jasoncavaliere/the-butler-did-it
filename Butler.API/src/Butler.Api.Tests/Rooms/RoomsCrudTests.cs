@@ -21,7 +21,7 @@ public sealed class RoomsCrudTests : IClassFixture<ButlerApiFactory>
     public async Task Rooms_create_list_update_delete_round_trip()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomsUri = new Uri($"/households/{householdId}/rooms", UriKind.Relative);
 
         // Create -> 201 with server-generated roomId and an ETag.

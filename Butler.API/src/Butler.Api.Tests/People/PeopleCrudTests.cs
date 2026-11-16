@@ -22,7 +22,7 @@ public sealed class PeopleCrudTests : IClassFixture<ButlerApiFactory>
     public async Task AddParticipant()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
         // Create -> 201 with a server-generated personId, a Participant role, and an ETag.
@@ -87,7 +87,7 @@ public sealed class PeopleCrudTests : IClassFixture<ButlerApiFactory>
     public async Task AddChild()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
         // Create a child -> IsChild = true is persisted on the stored row.

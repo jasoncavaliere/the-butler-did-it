@@ -36,6 +36,7 @@ public sealed class HubDevicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<HubDevicePairingResponse>> Pair(
         string householdId,
         [FromBody] PairHubDeviceRequest request,

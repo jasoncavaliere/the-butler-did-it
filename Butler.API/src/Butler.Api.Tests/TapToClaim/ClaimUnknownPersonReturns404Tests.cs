@@ -20,7 +20,7 @@ public sealed class ClaimUnknownPersonReturns404Tests : IClassFixture<ButlerApiF
     public async Task Claiming_an_unknown_person_in_an_existing_household_is_404()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
 
         // Seed one person so the household partition exists, then claim a different id.
         using var createResponse = await client.PostAsJsonAsync(

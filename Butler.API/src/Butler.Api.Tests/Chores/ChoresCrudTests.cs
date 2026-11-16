@@ -21,7 +21,7 @@ public sealed class ChoresCrudTests : IClassFixture<ButlerApiFactory>
     public async Task CreateChoreWithValidRoom_persists_and_round_trips()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var choresUri = new Uri($"/households/{householdId}/chores", UriKind.Relative);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
 
@@ -82,7 +82,7 @@ public sealed class ChoresCrudTests : IClassFixture<ButlerApiFactory>
     public async Task Cadence_is_normalized_case_insensitively()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var choresUri = new Uri($"/households/{householdId}/chores", UriKind.Relative);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Garage", 1);
 

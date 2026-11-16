@@ -1,3 +1,4 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.Chores;
@@ -8,6 +9,8 @@ namespace Butler.Api.Application.Chores;
 /// precondition is enforced by the persistence seam (a missing value is
 /// <c>428</c>, a stale one <c>412</c>). Setting <see cref="Active"/> back to
 /// <c>true</c> reactivates a previously deactivated chore.
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the chore belongs to.</param>
 /// <param name="ChoreId">The chore id to update.</param>
@@ -27,7 +30,7 @@ public sealed record UpdateChoreCommand(
     int Effort,
     int? MinAge,
     bool Active,
-    string? IfMatch) : IRequest<ChoreResponse?>;
+    string? IfMatch) : IRequest<ChoreResponse?>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="UpdateChoreCommand"/> via the application service.</summary>
 public sealed class UpdateChoreCommandHandler : IRequestHandler<UpdateChoreCommand, ChoreResponse?>

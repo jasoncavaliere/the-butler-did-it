@@ -78,6 +78,12 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
             context.ProblemDetails.Extensions["householdId"] = teardownIncomplete.HouseholdId;
         }
 
+        // A write to a missing household names the household it looked for (#295).
+        if (exception is HouseholdNotFoundException householdNotFound)
+        {
+            context.ProblemDetails.Extensions["householdId"] = householdNotFound.HouseholdId;
+        }
+
         return await _problemDetailsService.TryWriteAsync(context);
     }
 
@@ -104,6 +110,10 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
         // absent (404), not forbidden (#97, #106).
         DemoSeedingNotAllowedException
             => (StatusCodes.Status404NotFound, "Demo seeding is not available in this environment."),
+        // An organizer create or update targeted a household that does not exist,
+        // for example after teardown; nothing was written (#295).
+        HouseholdNotFoundException
+            => (StatusCodes.Status404NotFound, "Household not found."),
         // A teardown that failed after the household row was deleted; the row is
         // restored, so the DELETE can be retried (#294).
         HouseholdTeardownIncompleteException

@@ -20,7 +20,7 @@ public sealed class ChoresConcurrencyTests : IClassFixture<ButlerApiFactory>
     public async Task Update_enforces_if_match_precondition()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
         var (choreId, originalETag) = await ChoreTestHelper.CreateChoreAsync(client, householdId, roomId);
         var choreUri = new Uri($"/households/{householdId}/chores/{choreId}", UriKind.Relative);

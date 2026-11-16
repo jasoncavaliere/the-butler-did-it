@@ -19,10 +19,12 @@ namespace Butler.Api.SmokeTests;
 /// The class creates no table: the API provisions every feature table at
 /// startup (#91), and <see cref="TableProvisioningSmokeTests"/> relies on no
 /// smoke test creating one. It is mutating, so never point it at a deployed
-/// environment; each test writes to its own <c>smoke-rooms-{guid}</c> partition
-/// and every room it creates is deleted afterwards. It reads the Rooms table
-/// directly to prove the API persisted to Table Storage, not to the in-memory
-/// fallback.
+/// environment. Organizer room writes now need an existing household (#295), so
+/// each test creates its own household named <c>smoke-rooms-{guid}</c> through
+/// <c>POST /households</c>, deletes every room it creates afterwards, and then
+/// tears the household down with <c>DELETE /households/{householdId}</c>. It
+/// reads the Rooms table directly to prove the API persisted to Table Storage,
+/// not to the in-memory fallback.
 /// </remarks>
 [Trait(SmokeCategories.Name, SmokeCategories.Endpoints)]
 public sealed class RoomsHttpRoundTripSmokeTests : IAsyncLifetime
@@ -30,16 +32,38 @@ public sealed class RoomsHttpRoundTripSmokeTests : IAsyncLifetime
     /// <summary>The table the Rooms feature registers (Application/Rooms/RoomsServiceCollectionExtensions.cs:22).</summary>
     private const string RoomsTable = "Rooms";
 
-    private readonly string _householdId = "smoke-rooms-" + Guid.NewGuid().ToString("N");
+    private readonly string _householdName = "smoke-rooms-" + Guid.NewGuid().ToString("N");
     private readonly HttpClient _client = SmokeSettings.Current.CreateHttpClient();
     private readonly List<string> _createdRoomIds = [];
+    private string? _householdId;
 
-    public Task InitializeAsync() => Task.CompletedTask;
+    /// <summary>The household created in <see cref="InitializeAsync"/>; set before any test runs.</summary>
+    private string HouseholdId =>
+        _householdId ?? throw new InvalidOperationException("The smoke household was not created.");
+
+    public async Task InitializeAsync()
+    {
+        // A room write to a household that does not exist is a 404 (#295).
+        using var response = await _client.PostAsJsonAsync(
+            new Uri("households", UriKind.Relative),
+            new { name = _householdName });
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"Expected 201, got {(int)response.StatusCode}: {body}");
+
+        using var document = JsonDocument.Parse(body);
+        _householdId = document.RootElement.GetProperty("householdId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(_householdId), "POST /households must return a householdId.");
+    }
 
     public async Task DisposeAsync()
     {
         try
         {
+            if (_householdId is null)
+            {
+                return;
+            }
+
             foreach (var roomId in _createdRoomIds)
             {
                 try
@@ -51,6 +75,19 @@ public sealed class RoomsHttpRoundTripSmokeTests : IAsyncLifetime
                 {
                     // The API is unreachable; the test itself has already failed.
                 }
+            }
+
+            try
+            {
+                using var teardown = new HttpRequestMessage(HttpMethod.Delete, new Uri($"households/{_householdId}", UriKind.Relative))
+                {
+                    Content = JsonContent.Create(new { confirmName = _householdName }),
+                };
+                using var response = await _client.SendAsync(teardown);
+            }
+            catch (HttpRequestException)
+            {
+                // The API is unreachable; the test itself has already failed.
             }
         }
         finally
@@ -160,9 +197,9 @@ public sealed class RoomsHttpRoundTripSmokeTests : IAsyncLifetime
         Assert.Null(await ReadRoomRowAsync(created.RoomId));
     }
 
-    private Uri RoomsUri() => new($"households/{_householdId}/rooms", UriKind.Relative);
+    private Uri RoomsUri() => new($"households/{HouseholdId}/rooms", UriKind.Relative);
 
-    private Uri RoomUri(string roomId) => new($"households/{_householdId}/rooms/{roomId}", UriKind.Relative);
+    private Uri RoomUri(string roomId) => new($"households/{HouseholdId}/rooms/{roomId}", UriKind.Relative);
 
     private async Task<Room> CreateRoomAsync(string name, int sortOrder)
     {
@@ -206,7 +243,7 @@ public sealed class RoomsHttpRoundTripSmokeTests : IAsyncLifetime
     private async Task<TableEntity?> ReadRoomRowAsync(string roomId)
     {
         var table = new TableClient(SmokeSettings.Current.StorageConnectionString, RoomsTable);
-        var response = await table.GetEntityIfExistsAsync<TableEntity>(_householdId, roomId);
+        var response = await table.GetEntityIfExistsAsync<TableEntity>(HouseholdId, roomId);
         return response.HasValue ? response.Value : null;
     }
 
