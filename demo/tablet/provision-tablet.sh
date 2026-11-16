@@ -192,25 +192,6 @@ if [ "$dry_run" -eq 0 ]; then
   fi
 fi
 
-announce shell dumpsys account
-if [ "$dry_run" -eq 0 ]; then
-  capture shell dumpsys account
-  # One "Accounts: N" line per Android user.
-  counts="$(printf '%s\n' "$CAP_OUT" | sed -n 's/^[[:space:]]*Accounts:[[:space:]]*\([0-9][0-9]*\).*$/\1/p')"
-  if [ -z "$counts" ]; then
-    echo "Could not read the tablet's accounts (no 'Accounts:' line in adb shell dumpsys account). Nothing was changed." >&2
-    exit 1
-  fi
-  accounts=0
-  for n in $counts; do
-    accounts=$((accounts + 10#$n))
-  done
-  if [ "$accounts" -gt 0 ]; then
-    echo "The tablet has $accounts account(s) on it (adb shell dumpsys account). Device owner can only be set when no account exists: factory reset the tablet, skip every account sign-in, then run this again." >&2
-    exit 1
-  fi
-fi
-
 owner_set=0
 announce shell dumpsys device_policy
 if [ "$dry_run" -eq 0 ]; then
@@ -226,6 +207,27 @@ if [ "$dry_run" -eq 0 ]; then
     END { exit(found ? 0 : 1) }
   '; then
     owner_set=1
+  fi
+fi
+
+announce shell dumpsys account
+if [ "$dry_run" -eq 0 ]; then
+  capture shell dumpsys account
+  # One "Accounts: N" line per Android user.
+  counts="$(printf '%s\n' "$CAP_OUT" | sed -n 's/^[[:space:]]*Accounts:[[:space:]]*\([0-9][0-9]*\).*$/\1/p')"
+  if [ -z "$counts" ]; then
+    echo "Could not read the tablet's accounts (no 'Accounts:' line in adb shell dumpsys account). Nothing was changed." >&2
+    exit 1
+  fi
+  accounts=0
+  for n in $counts; do
+    accounts=$((accounts + 10#$n))
+  done
+  # The no-accounts rule only gates set-device-owner, so an account does not
+  # stop a re-run once Fully is the device owner (#324).
+  if [ "$accounts" -gt 0 ] && [ "$owner_set" -eq 0 ]; then
+    echo "The tablet has $accounts account(s) on it (adb shell dumpsys account). Device owner can only be set when no account exists: factory reset the tablet, skip every account sign-in, then run this again." >&2
+    exit 1
   fi
 fi
 
@@ -287,7 +289,7 @@ fi
 # Phase 6: what is left to do by hand.
 echo "Done. Remaining manual steps on the tablet:"
 echo "  1. Open Fully, grant the permissions it asks for, and activate the PLUS license. On Android 13 or later, if a setting is blocked as restricted: App info for Fully > three-dot menu > Allow restricted settings."
-echo "  2. If you connect over Tailscale, install it now: the device owner is set, so adding an account is safe from here on."
+echo "  2. If you connect over Tailscale, install it now: the device owner is set, so adding an account is safe from here on. A re-run of this script still works after that: it skips the account check because Fully is already the device owner."
 echo "  3. In Fully: Other Settings > Import Settings from File > Download/fully-settings.json."
 echo "  4. Set your kiosk PIN in Kiosk Mode > Kiosk Mode PIN. This script never pushes a PIN; do not reuse the organizer PIN."
 echo "  5. Turn on kiosk mode and, when Fully asks, make it the default Home app."

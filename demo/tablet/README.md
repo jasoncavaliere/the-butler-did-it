@@ -31,9 +31,9 @@ and print the same text.
    as `demo/tablet/fully-emm.apk`, or pass its path with `--apk`. Git ignores
    every `*.apk`, so the APK is never committed.
 2. **Connect the tablet** over USB with USB debugging on, and accept the
-   debugging prompt on the tablet. It must be factory reset with no account
-   added: Android only lets an app become device owner when the tablet has no
-   account.
+   debugging prompt on the tablet. For the first run it must be factory reset
+   with no account added: Android only lets an app become device owner when
+   the tablet has no account.
 3. **Run the script** from the repo root:
 
    ```bash
@@ -55,8 +55,10 @@ Before it changes anything, the script stops with a message (and a non-zero
 exit code) if the APK is missing (it prints the download page), the start URL
 is unknown or has characters other than letters, digits and `. _ ~ : / -`,
 `adb` is not on your PATH, no device or more than one device is connected,
-the tablet has not accepted USB debugging, or `adb shell dumpsys account`
-shows an account (or cannot be read).
+the tablet has not accepted USB debugging, `adb shell dumpsys account` cannot
+be read, or it shows an account while Fully is not yet the device owner. The
+script reads `adb shell dumpsys device_policy` first, so an account only stops
+a tablet where Fully still has to become device owner.
 
 Then it runs, in order:
 
@@ -80,10 +82,17 @@ the kiosk PIN by hand in Kiosk Mode > Kiosk Mode PIN, turn on kiosk mode, and
 restart and pair the tablet. After the import, delete the pushed copy with
 `adb shell rm /sdcard/Download/fully-settings.json`.
 
+A re-run after you install Tailscale (or add any account) still works: once
+the `Device Owner:` section of `adb shell dumpsys device_policy` names Fully,
+an account no longer stops the script. It reinstalls the APK, skips
+set-device-owner and pushes the settings again. If Fully is not the device
+owner, an account still means a factory reset.
+
 The manual steps in [Importing the settings](#importing-the-settings) remain
 the way to load this file without the script, for example on a tablet that
-already has an account. `bash demo/ci/check-provision-tablet.sh` checks both
-scripts against a fake adb; demo-ci runs it.
+already has an account and where Fully is not the device owner.
+`bash demo/ci/check-provision-tablet.sh` checks both scripts against a fake
+adb; demo-ci runs it.
 
 ## Requirements
 

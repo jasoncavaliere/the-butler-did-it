@@ -240,25 +240,6 @@ function Invoke-Provision([object[]]$Arguments) {
         }
     }
 
-    Write-Announce @('shell', 'dumpsys', 'account')
-    if (-not $dryRun) {
-        $cap = Invoke-AdbCapture @('shell', 'dumpsys', 'account')
-        # One "Accounts: N" line per Android user.
-        $found = [regex]::Matches($cap.Out, '(?m)^[ \t]*Accounts:[ \t]*([0-9]+)')
-        if ($found.Count -eq 0) {
-            Write-Err "Could not read the tablet's accounts (no 'Accounts:' line in adb shell dumpsys account). Nothing was changed."
-            $script:ExitCode = 1
-            return
-        }
-        [long]$accounts = 0
-        foreach ($m in $found) { $accounts += [long]$m.Groups[1].Value }
-        if ($accounts -gt 0) {
-            Write-Err "The tablet has $accounts account(s) on it (adb shell dumpsys account). Device owner can only be set when no account exists: factory reset the tablet, skip every account sign-in, then run this again."
-            $script:ExitCode = 1
-            return
-        }
-    }
-
     $ownerSet = $false
     Write-Announce @('shell', 'dumpsys', 'device_policy')
     if (-not $dryRun) {
@@ -274,6 +255,27 @@ function Invoke-Provision([object[]]$Arguments) {
             if ($inOwner -and ($t -eq '' -or $indent -le $headIndent)) { $inOwner = $false }
             if ($t -ceq 'Device Owner:') { $inOwner = $true; $headIndent = $indent; continue }
             if ($inOwner -and $t -ceq "package=$OwnerPackage") { $ownerSet = $true }
+        }
+    }
+
+    Write-Announce @('shell', 'dumpsys', 'account')
+    if (-not $dryRun) {
+        $cap = Invoke-AdbCapture @('shell', 'dumpsys', 'account')
+        # One "Accounts: N" line per Android user.
+        $found = [regex]::Matches($cap.Out, '(?m)^[ \t]*Accounts:[ \t]*([0-9]+)')
+        if ($found.Count -eq 0) {
+            Write-Err "Could not read the tablet's accounts (no 'Accounts:' line in adb shell dumpsys account). Nothing was changed."
+            $script:ExitCode = 1
+            return
+        }
+        [long]$accounts = 0
+        foreach ($m in $found) { $accounts += [long]$m.Groups[1].Value }
+        # The no-accounts rule only gates set-device-owner, so an account does not
+        # stop a re-run once Fully is the device owner (#324).
+        if ($accounts -gt 0 -and -not $ownerSet) {
+            Write-Err "The tablet has $accounts account(s) on it (adb shell dumpsys account). Device owner can only be set when no account exists: factory reset the tablet, skip every account sign-in, then run this again."
+            $script:ExitCode = 1
+            return
         }
     }
 
@@ -337,7 +339,7 @@ function Invoke-Provision([object[]]$Arguments) {
     # Phase 6: what is left to do by hand.
     Write-Out 'Done. Remaining manual steps on the tablet:'
     Write-Out '  1. Open Fully, grant the permissions it asks for, and activate the PLUS license. On Android 13 or later, if a setting is blocked as restricted: App info for Fully > three-dot menu > Allow restricted settings.'
-    Write-Out '  2. If you connect over Tailscale, install it now: the device owner is set, so adding an account is safe from here on.'
+    Write-Out '  2. If you connect over Tailscale, install it now: the device owner is set, so adding an account is safe from here on. A re-run of this script still works after that: it skips the account check because Fully is already the device owner.'
     Write-Out '  3. In Fully: Other Settings > Import Settings from File > Download/fully-settings.json.'
     Write-Out '  4. Set your kiosk PIN in Kiosk Mode > Kiosk Mode PIN. This script never pushes a PIN; do not reuse the organizer PIN.'
     Write-Out '  5. Turn on kiosk mode and, when Fully asks, make it the default Home app.'
