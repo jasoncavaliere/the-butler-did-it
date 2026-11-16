@@ -98,8 +98,9 @@ adb; demo-ci runs it.
 
 - An Android tablet with Fully Kiosk Browser installed.
 - A Fully PLUS license for the tablet. Kiosk mode, remote administration and
-  the wakeup and sleep schedule are PLUS features: without a license they do
-  not take effect and Fully shows a watermark.
+  the wakeup and sleep schedule are PLUS features. Without a license, PLUS
+  features run only as a free trial, with a watermark and reminders on
+  screen ([Fully PLUS License](https://www.fully-kiosk.com/docs/en/legal/fully-plus-license)).
 - `adb` on the desktop and USB debugging enabled on the tablet (the same setup
   as [adb reverse](../README.md#adb-reverse-android-usb)), to copy the file
   over. Any other way of getting the file to the tablet's Download folder
