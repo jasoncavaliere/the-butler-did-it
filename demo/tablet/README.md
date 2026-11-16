@@ -62,8 +62,9 @@ Then it runs, in order:
 
 1. `adb install -r <apk>`
 2. `adb shell dpm set-device-owner com.fullykiosk.emm/de.ozerov.fully.DeviceOwnerReceiver`,
-   skipped when `adb shell dumpsys device_policy` shows Fully is already the
-   device owner. If this fails, the script stops here.
+   skipped when the `Device Owner:` section of `adb shell dumpsys device_policy`
+   names Fully (`package=com.fullykiosk.emm`). Fully being only a device admin
+   does not count. If this fails, the script stops here.
 3. `adb push` of a filled copy of this file to
    `/sdcard/Download/fully-settings.json`. The copy has `__START_URL__`
    replaced by the start URL, and the `kioskPin` line (the `__KIOSK_PIN__`

@@ -9,8 +9,9 @@
 # (AC2), two devices (AC3), an unauthorized device, an account on the tablet
 # (AC4), unreadable accounts, no share URL, a bad --url), the dry-run command
 # list (AC9), a full run and the pushed settings copy (AC6, AC7), the
-# device-owner skip (AC10), a failed set-device-owner, the demo share URL
-# default (AC8) and the APK ignore rule (AC11).
+# device-owner skip (AC10), Fully as a device admin but not the device owner
+# and another app as the device owner (#323), a failed set-device-owner, the
+# demo share URL default (AC8) and the APK ignore rule (AC11).
 #
 # Every case runs both scripts and fails unless their output (stdout and
 # stderr together), exit code and fake adb calls are identical (AC1), and the
@@ -52,7 +53,9 @@ export ADB_STUB_PUSH_COPY="$WORK/pushed.json"
 
 # A fake adb: logs its arguments, answers the calls the scripts should make,
 # and fails on anything else. Driven by ADB_STUB_DEVICES, ADB_STUB_ACCOUNTS (a
-# number, or garbage for no Accounts line), ADB_STUB_OWNER=yes and
+# number, or garbage for no Accounts line), ADB_STUB_OWNER (yes: Fully is the
+# device owner and a device admin; admin: Fully is only a device admin; other:
+# another app is the device owner and Fully is only a device admin) and
 # ADB_STUB_DPM_FAIL=yes.
 cat > "$STUB_DIR/adb" <<'STUB'
 #!/usr/bin/env bash
@@ -79,13 +82,34 @@ case "$*" in
     ;;
   "shell dumpsys device_policy")
     echo "Current Device Policy Manager state:"
-    if [ "${ADB_STUB_OWNER:-}" = yes ]; then
-      echo "  Device Owner: "
-      echo "    admin=ComponentInfo{com.fullykiosk.emm/de.ozerov.fully.DeviceOwnerReceiver}"
-      echo "    name=Fully Kiosk Browser"
-      echo "    package=com.fullykiosk.emm"
-    fi
+    case "${ADB_STUB_OWNER:-}" in
+      yes)
+        echo "  Device Owner: "
+        echo "    admin=ComponentInfo{com.fullykiosk.emm/de.ozerov.fully.DeviceOwnerReceiver}"
+        echo "    name=Fully Kiosk Browser"
+        echo "    package=com.fullykiosk.emm"
+        echo "    isOrganizationOwnedDevice=true"
+        echo "    User ID: 0"
+        echo ""
+        ;;
+      other)
+        echo "  Device Owner: "
+        echo "    admin=ComponentInfo{com.example.mdm/com.example.mdm.AdminReceiver}"
+        echo "    name=Example MDM"
+        echo "    package=com.example.mdm"
+        echo "    isOrganizationOwnedDevice=true"
+        echo "    User ID: 0"
+        echo ""
+        ;;
+    esac
     echo "  Enabled Device Admins (User 0, provisioningState: 0):"
+    case "${ADB_STUB_OWNER:-}" in
+      yes|admin|other)
+        echo "    com.fullykiosk.emm/de.ozerov.fully.DeviceOwnerReceiver:"
+        echo "      uid=10153"
+        echo "      testOnlyAdmin=false"
+        ;;
+    esac
     ;;
   "install -r "*)
     echo "Performing Streamed Install"
@@ -352,6 +376,23 @@ expect_log "AC10 owner already set" "$(printf '%s\n' "$ALL_CALLS" | grep -v 'dpm
 expect_line "AC10 owner already set" "$M_OWNER"
 expect_pushed "AC10 owner already set" "$HUB_URL"
 expect_manual_steps "AC10 owner already set"
+
+# #323 AC1: Fully is a device admin but not the device owner, so set-device-owner still runs.
+ADB_STUB_OWNER=admin with_stub "#323 AC1 admin, not owner" --apk "$APK" --url "$HUB_URL"
+expect_rc "#323 AC1 admin, not owner" 0
+expect_log "#323 AC1 admin, not owner" "$ALL_CALLS"
+expect_no "#323 AC1 admin, not owner" "$M_OWNER"
+printf '%s\n' "$OUT" | grep -qxF "> adb shell dpm set-device-owner $COMPONENT" \
+  || fail "#323 AC1 admin, not owner: the dpm command is not announced"
+expect_pushed "#323 AC1 admin, not owner" "$HUB_URL"
+expect_manual_steps "#323 AC1 admin, not owner"
+
+# #323: another app is the device owner (Fully is only an admin), so the
+# script does not skip set-device-owner; dpm itself then reports the conflict.
+ADB_STUB_OWNER=other with_stub "#323 another app is device owner" --apk "$APK" --url "$HUB_URL"
+expect_rc "#323 another app is device owner" 0
+expect_log "#323 another app is device owner" "$ALL_CALLS"
+expect_no "#323 another app is device owner" "$M_OWNER"
 
 # dpm fails (adb exits 0, no Success): stop before the push.
 ADB_STUB_DPM_FAIL=yes with_stub "dpm fails" --apk "$APK" --url "$HUB_URL"
