@@ -6,7 +6,8 @@
 #
 #   1. The file is valid JSON with an object at the top level (AC1).
 #   2. The hub settings have their expected values, with __START_URL__ as the
-#      start URL and __KIOSK_PIN__ as the kiosk PIN (AC1).
+#      start URL and __KIOSK_PIN__ as the kiosk PIN (AC1), and Lock Task
+#      Mode on (#347).
 #   3. No real PIN or secret: no *Enc, password or Wi-Fi key, and every
 #      kioskPin under demo/tablet is the placeholder (AC2).
 #   4. Every key in the file appears in backticks in the README (AC3).
@@ -44,6 +45,7 @@ expect '.kioskPin == "__KIOSK_PIN__"' 'kioskPin must be the __KIOSK_PIN__ placeh
 expect '.kioskMode == true' 'kioskMode must be true'
 expect '.launchOnBoot == true' 'launchOnBoot must be true'
 expect '.keepScreenOn == true' 'keepScreenOn must be true'
+expect '.mdmLockTask == true' 'mdmLockTask (Device Owner Settings > Enable Lock Task Mode) must be true (#347)'
 expect '.reloadOnWifiOn == true' 'reloadOnWifiOn (reload on network reconnect) must be true'
 expect '.enablePullToRefresh == false' 'enablePullToRefresh must be false'
 expect '.enableZoom == false' 'enableZoom must be false'

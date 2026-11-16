@@ -71,7 +71,9 @@ Then it runs, in order:
    `/sdcard/Download/fully-settings.json`. The copy has `__START_URL__`
    replaced by the start URL, and the `kioskPin` line (the `__KIOSK_PIN__`
    placeholder) removed, so the script never pushes a PIN. The copy lives in a
-   temp folder that is deleted when the script ends.
+   temp folder that is deleted when the script ends. Every other key is pushed
+   unchanged, including `mdmLockTask`, so importing the copy also turns on
+   Lock Task Mode.
 4. `adb shell settings put global stay_on_while_plugged_in 7` (the screen stays
    on while the tablet charges).
 
@@ -118,6 +120,7 @@ Booleans are JSON `true`/`false`; Fully stores numbers and times as strings.
 | `kioskMode` | `true` | Kiosk Mode (PLUS) > Enable Kiosk Mode | Locks the tablet to the hub: no home button, status bar or app switching for the family. |
 | `kioskPin` | `__KIOSK_PIN__` | Kiosk Mode (PLUS) > Kiosk Mode PIN | The PIN that leaves kiosk mode. Filled in at import time (see step 2) so no real PIN is ever committed. |
 | `launchOnBoot` | `true` | Device Management > Launch on Boot | After a power cut or a restart the tablet comes back to the hub with nobody touching it. |
+| `mdmLockTask` | `true` | Device Owner Settings (PLUS) > Lock Task Mode > Enable Lock Task Mode | Turns off the home button, recents and the status bar while kiosk mode runs, so the family cannot leave the hub. It takes effect only where Fully is the device owner (provisioned devices only, see [Device Owner Settings](https://www.fully-kiosk.com/docs/en/configuration/device-owner)). Fully's docs print no key names; `mdmLockTask` is the key Fully writes for this toggle in an exported settings file (the `mdm` prefix marks Device Owner Settings). On-device confirmation is #132. |
 | `keepScreenOn` | `true` | Device Management > Keep Screen On | The hub is an always-on board; the screen must not time out during the day. |
 | `sleepSchedule` | `[{"sleepTime":"22:00","wakeupTime":"06:00","dayOfWeek":8}]` | Power Settings (PLUS) > Schedule Wakeup and Sleep | The overnight dim: the screen turns off at 22:00 and back on at 06:00. `dayOfWeek` 8 is read as every day; Fully does not document the number, so confirm it after import (step 6). The value is a string that contains JSON. |
 | `reloadOnWifiOn` | `true` | Web Auto Reload > Auto Reload on Network Reconnect | Reloads the hub when Wi-Fi comes back, so a page that failed to load while the network was down (a router restart, or a boot before Wi-Fi joined) recovers by itself. |
@@ -189,6 +192,8 @@ Do this on the desktop from the repo root, with the tablet connected over USB.
      wakeup at 06:00 on every day of the week. If it shows other days, fix
      the days by hand.
    - Remote Administration > Enable Remote Administration is off.
+   - On a tablet where Fully is the device owner, Device Owner Settings >
+     Enable Lock Task Mode is on. If it is off, turn it on there by hand.
 7. **Restart the tablet.** Fully should start on its own, in kiosk mode, on
    the hub.
 8. **Delete the filled copies**, which hold your real PIN:

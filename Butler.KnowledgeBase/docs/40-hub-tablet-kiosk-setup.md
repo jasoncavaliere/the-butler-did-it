@@ -28,7 +28,7 @@ sources:
   - { id: xda-fire-unlock, resource: https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/, title: Fire tablet bootloader unlock status (XDA) }
   - { id: whalesdev-lineageos, resource: https://whalesdev.com/best-tablets-for-lineageos/, title: Tablets with LineageOS support 2026 (WhalesDev) }
   - { id: lineageos-devices, resource: https://wiki.lineageos.org/devices/, title: LineageOS - Devices wiki }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T17:47:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T20:09:02Z }
 ---
 
 # Hub Tablet Kiosk Setup
@@ -94,8 +94,8 @@ The hub is an offline-first PWA, and its service worker only registers over HTTP
    Expect a line that starts with `Success: Device owner set to package ...`. The package name `com.fullykiosk.emm` is from [Fully's Fire FAQ](https://www.fully-kiosk.com/docs/en/faq/fire). The ADB (manual) method is from [Fully's device provisioning page](https://www.fully-kiosk.com/docs/en/management/device-provisioning), which says provisioning is free with a PLUS license. Fully's docs do not print this exact line. The receiver class appears in their [exit FAQ](https://www.fully-kiosk.com/docs/en/faq/exit) `dpm remove-active-admin` command, and step 5 confirms it on your APK.
 7. Open Fully, grant the permissions it asks for, and activate the PLUS license.
 8. Connect the tablet (see [Connecting the tablet](#connecting-the-tablet)), installing Tailscale now if you use it.
-9. Import the hub settings file, `demo/tablet/fully-settings.json`, as described in [Importing the settings](../../demo/tablet/README.md#importing-the-settings). It sets the start URL, the kiosk PIN, launch on boot, keep screen on, and the overnight sleep.
-10. Turn on kiosk mode, and when Fully asks, set it as the default Home app ([Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode)). Then open Fully's Device Owner Settings and turn on Enable Lock Task Mode, which turns off the home and recents buttons in kiosk mode ([Device Owner Settings](https://www.fully-kiosk.com/docs/en/configuration/device-owner)). The settings file has no key for Lock Task Mode, so this is a manual step.
+9. Import the hub settings file, `demo/tablet/fully-settings.json`, as described in [Importing the settings](../../demo/tablet/README.md#importing-the-settings). It sets the start URL, the kiosk PIN, launch on boot, keep screen on, the overnight sleep, and Lock Task Mode.
+10. Turn on kiosk mode, and when Fully asks, set it as the default Home app ([Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode)). The settings file from step 9 already turns on Fully's Lock Task Mode (`mdmLockTask`, shown in Device Owner Settings as Enable Lock Task Mode), which turns off the home and recents buttons in kiosk mode. It works because Fully is the device owner from step 6 ([Device Owner Settings](https://www.fully-kiosk.com/docs/en/configuration/device-owner)).
 11. Restart the tablet: it should open on Butler with no swipe, and the home and recents buttons should do nothing. Then pair the hub: tap "Pair this tablet" after the organizer signs in (see [Organizer PIN](../../demo/README.md#organizer-pin)).
 12. Optional: add a Google account now if you want Play Store updates for Chrome and WebView.
 
@@ -106,7 +106,7 @@ The provisioning script, [provision-tablet.sh](../../demo/tablet/provision-table
 - Copies the settings file to the tablet with your start URL filled in. This is only the copy half of step 9: you still import it in Fully.
 - Keeps the screen on while the tablet charges.
 
-**The script does not set the kiosk PIN.** It removes the PIN line from the copy it pushes. After the import, set the PIN by hand in Kiosk Mode > Kiosk Mode PIN. Steps 7 and 8, the import in step 9, and steps 10 to 12 stay manual. That includes Lock Task Mode in step 10.
+**The script does not set the kiosk PIN.** It removes the PIN line from the copy it pushes. After the import, set the PIN by hand in Kiosk Mode > Kiosk Mode PIN. Steps 7 and 8, the import in step 9, and steps 10 to 12 stay manual. The pushed settings turn on Lock Task Mode once you import them in step 9, so step 10 only turns on kiosk mode.
 
 ## Fire tablet path
 

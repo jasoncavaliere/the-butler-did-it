@@ -13,7 +13,7 @@
 # and another app as the device owner (#323), a failed set-device-owner, the
 # demo share URL default (AC8) and the APK ignore rule (AC11), and the
 # re-run cases (#324): an account aborts only when Fully is not already the
-# device owner.
+# device owner, and (#347) the Lock Task Mode key in both pushed copies.
 #
 # Every case runs both scripts and fails unless their output (stdout and
 # stderr together), exit code and fake adb calls are identical (AC1), and the
@@ -256,6 +256,17 @@ expect_log() {
 expect_line() { printf '%s\n' "$OUT" | grep -qxF -- "$2" || fail "$1: missing line '$2'"; }
 expect_no() { if printf '%s\n' "$OUT" | grep -qF -- "$2"; then fail "$1: output must not contain '$2'"; fi; }
 expect_nothing_pushed() { [ -z "$PUSHED" ] || fail "$1: the settings file must not be pushed"; }
+# expect_lock_task <label>: each twin's own pushed copy turns on Lock Task Mode
+# (#347). run_both keeps both copies until the next run.
+expect_lock_task() {
+  local label="$1" twin copy
+  for twin in sh ps1; do
+    if [ "$twin" = sh ]; then copy="$WORK/pushed.sh.json"; else copy="$ADB_STUB_PUSH_COPY"; fi
+    [ -f "$copy" ] || fail "$label: provision-tablet.$twin pushed no settings copy"
+    jq -e '.mdmLockTask == true' "$copy" > /dev/null \
+      || fail "$label: provision-tablet.$twin's pushed copy does not turn on Lock Task Mode (mdmLockTask)"
+  done
+}
 
 # Runs both scripts with the fake adb and tailscale first on PATH.
 with_stub() { PATH="$STUB_DIR:$PATH" run_both "$@"; }
@@ -281,6 +292,8 @@ expect_pushed() {
     || fail "$label: the pushed startURL is not $want"
   jq -e 'has("kioskPin") | not' "$PUSHED" > /dev/null \
     || fail "$label: the pushed copy must not hold a kiosk PIN"
+  jq -e '.mdmLockTask == true' "$PUSHED" > /dev/null \
+    || fail "$label: the pushed copy must turn on Lock Task Mode (mdmLockTask)"
   [ "$(jq -S 'del(.startURL, .kioskPin)' "$PUSHED")" = "$(jq -S 'del(.startURL, .kioskPin)' "$SETTINGS_SRC")" ] \
     || fail "$label: the pushed copy changes keys other than startURL and the kiosk PIN"
   if grep -qF '__' "$PUSHED"; then fail "$label: the pushed copy still holds a placeholder"; fi
@@ -407,6 +420,19 @@ expect_log "AC10 owner already set" "$(printf '%s\n' "$ALL_CALLS" | grep -v 'dpm
 expect_line "AC10 owner already set" "$M_OWNER"
 expect_pushed "AC10 owner already set" "$HUB_URL"
 expect_manual_steps "AC10 owner already set"
+
+# #347 AC1a: the pushed settings turn on Lock Task Mode, whether the run makes
+# Fully the device owner or Fully already is.
+with_stub "#347 AC1a full run turns on Lock Task Mode" --apk "$APK" --url "$HUB_URL"
+expect_rc "#347 AC1a full run turns on Lock Task Mode" 0
+expect_log "#347 AC1a full run turns on Lock Task Mode" "$ALL_CALLS"
+expect_pushed "#347 AC1a full run turns on Lock Task Mode" "$HUB_URL"
+expect_lock_task "#347 AC1a full run turns on Lock Task Mode"
+ADB_STUB_OWNER=yes with_stub "#347 AC1a Fully already device owner turns on Lock Task Mode" --apk "$APK" --url "$HUB_URL"
+expect_rc "#347 AC1a Fully already device owner turns on Lock Task Mode" 0
+expect_line "#347 AC1a Fully already device owner turns on Lock Task Mode" "$M_OWNER"
+expect_pushed "#347 AC1a Fully already device owner turns on Lock Task Mode" "$HUB_URL"
+expect_lock_task "#347 AC1a Fully already device owner turns on Lock Task Mode"
 
 # #323 AC1: Fully is a device admin but not the device owner, so set-device-owner still runs.
 ADB_STUB_OWNER=admin with_stub "#323 AC1 admin, not owner" --apk "$APK" --url "$HUB_URL"
