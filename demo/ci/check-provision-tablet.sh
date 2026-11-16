@@ -11,7 +11,9 @@
 # list (AC9), a full run and the pushed settings copy (AC6, AC7), the
 # device-owner skip (AC10), Fully as a device admin but not the device owner
 # and another app as the device owner (#323), a failed set-device-owner, the
-# demo share URL default (AC8) and the APK ignore rule (AC11).
+# demo share URL default (AC8) and the APK ignore rule (AC11), and the
+# re-run cases (#324): an account aborts only when Fully is not already the
+# device owner.
 #
 # Every case runs both scripts and fails unless their output (stdout and
 # stderr together), exit code and fake adb calls are identical (AC1), and the
@@ -36,6 +38,7 @@ M_DPM='set-device-owner failed (see above). The usual causes are an account on t
 M_OWNER='Fully is already the device owner; skipping set-device-owner.'
 M_DRY='Dry run: no adb command was run.'
 M_DONE='Done. Remaining manual steps on the tablet:'
+M_STEP2='  2. If you connect over Tailscale, install it now: the device owner is set, so adding an account is safe from here on. A re-run of this script still works after that: it skips the account check because Fully is already the device owner.'
 M_NOSHARE='No --url given, and the demo share URL is not available (Tailscale backend state: NeedsLogin). Run demo/demo.sh share first, or pass --url <hub url>.'
 M_BADURL='--url must be an http:// or https:// URL made of letters, digits and . _ ~ : / - only (got: https://a&b).'
 
@@ -260,13 +263,13 @@ with_stub() { PATH="$STUB_DIR:$PATH" run_both "$@"; }
 # The seven adb commands of a full run, in order (fake adb log form).
 ALL_CALLS="$(printf '%s\n' \
   'devices' \
-  'shell dumpsys account' \
   'shell dumpsys device_policy' \
+  'shell dumpsys account' \
   "install -r $APK" \
   "shell dpm set-device-owner $COMPONENT" \
   'push <settings> /sdcard/Download/fully-settings.json' \
   'shell settings put global stay_on_while_plugged_in 7')"
-QUERIES2="$(printf '%s\n' 'devices' 'shell dumpsys account')"
+QUERIES3="$(printf '%s\n' 'devices' 'shell dumpsys device_policy' 'shell dumpsys account')"
 
 # Checks the pushed copy: valid JSON, startURL = $2, no kiosk PIN key, and
 # every other key equal to the committed settings file.
@@ -285,6 +288,7 @@ expect_pushed() {
 
 expect_manual_steps() {
   expect_line "$1" "$M_DONE"
+  expect_line "$1" "$M_STEP2"
   expect_line "$1" "  3. In Fully: Other Settings > Import Settings from File > Download/fully-settings.json."
   printf '%s\n' "$OUT" | grep -qF 'Kiosk Mode PIN' || fail "$1: the kiosk PIN step is missing"
   expect_line "$1" "See demo/tablet/README.md."
@@ -328,22 +332,49 @@ expect_rc "unauthorized" 1
 expect_line "unauthorized" "$M_STATE"
 expect_log "unauthorized" "devices"
 
-# AC4 account present (and still with Fully already the device owner)
-ADB_STUB_ACCOUNTS=1 with_stub "AC4 account present" --apk "$APK" --url "$HUB_URL"
-expect_rc "AC4 account present" 1
-expect_line "AC4 account present" "$M_ACCT1"
-expect_log "AC4 account present" "$QUERIES2"
-expect_nothing_pushed "AC4 account present"
-ADB_STUB_ACCOUNTS=1 ADB_STUB_OWNER=yes with_stub "AC4 account present (owner set)" --apk "$APK" --url "$HUB_URL"
-expect_rc "AC4 account present (owner set)" 1
-expect_line "AC4 account present (owner set)" "$M_ACCT1"
-expect_log "AC4 account present (owner set)" "$QUERIES2"
+# #324 AC2: an account aborts the run when Fully is not the device owner,
+# before any change (no install, dpm or push).
+ADB_STUB_ACCOUNTS=1 with_stub "#324 AC2 account present, not owner" --apk "$APK" --url "$HUB_URL"
+expect_rc "#324 AC2 account present, not owner" 1
+expect_line "#324 AC2 account present, not owner" "$M_ACCT1"
+expect_log "#324 AC2 account present, not owner" "$QUERIES3"
+expect_nothing_pushed "#324 AC2 account present, not owner"
+expect_no "#324 AC2 account present, not owner" "$M_OWNER"
+ADB_STUB_ACCOUNTS=1 ADB_STUB_OWNER=admin with_stub "#324 AC2 account present, Fully only admin" --apk "$APK" --url "$HUB_URL"
+expect_rc "#324 AC2 account present, Fully only admin" 1
+expect_line "#324 AC2 account present, Fully only admin" "$M_ACCT1"
+expect_log "#324 AC2 account present, Fully only admin" "$QUERIES3"
+expect_nothing_pushed "#324 AC2 account present, Fully only admin"
+expect_no "#324 AC2 account present, Fully only admin" "$M_OWNER"
+ADB_STUB_ACCOUNTS=1 ADB_STUB_OWNER=other with_stub "#324 AC2 account present, another owner" --apk "$APK" --url "$HUB_URL"
+expect_rc "#324 AC2 account present, another owner" 1
+expect_line "#324 AC2 account present, another owner" "$M_ACCT1"
+expect_log "#324 AC2 account present, another owner" "$QUERIES3"
+expect_nothing_pushed "#324 AC2 account present, another owner"
+expect_no "#324 AC2 account present, another owner" "$M_OWNER"
+
+# #324 AC1: with Fully already the device owner, an account does not stop a
+# re-run: it reinstalls, skips set-device-owner and pushes the settings.
+ADB_STUB_ACCOUNTS=1 ADB_STUB_OWNER=yes with_stub "#324 AC1 account present, Fully is owner" --apk "$APK" --url "$HUB_URL"
+expect_rc "#324 AC1 account present, Fully is owner" 0
+expect_log "#324 AC1 account present, Fully is owner" "$(printf '%s\n' "$ALL_CALLS" | grep -v 'dpm set-device-owner')"
+expect_line "#324 AC1 account present, Fully is owner" "$M_OWNER"
+expect_no "#324 AC1 account present, Fully is owner" "$M_ACCT1"
+expect_pushed "#324 AC1 account present, Fully is owner" "$HUB_URL"
+expect_manual_steps "#324 AC1 account present, Fully is owner"
+ADB_STUB_ACCOUNTS=2 ADB_STUB_OWNER=yes with_stub "#324 AC1 two accounts, Fully is owner" --apk "$APK" --url "$HUB_URL"
+expect_rc "#324 AC1 two accounts, Fully is owner" 0
+expect_log "#324 AC1 two accounts, Fully is owner" "$(printf '%s\n' "$ALL_CALLS" | grep -v 'dpm set-device-owner')"
+expect_line "#324 AC1 two accounts, Fully is owner" "$M_OWNER"
+expect_no "#324 AC1 two accounts, Fully is owner" "$M_ACCT1"
+expect_pushed "#324 AC1 two accounts, Fully is owner" "$HUB_URL"
+expect_manual_steps "#324 AC1 two accounts, Fully is owner"
 
 # AC4 unreadable accounts
 ADB_STUB_ACCOUNTS=garbage with_stub "AC4 unreadable accounts" --apk "$APK" --url "$HUB_URL"
 expect_rc "AC4 unreadable accounts" 1
 expect_line "AC4 unreadable accounts" "$M_ACCT_UNKNOWN"
-expect_log "AC4 unreadable accounts" "$QUERIES2"
+expect_log "AC4 unreadable accounts" "$QUERIES3"
 
 # AC9 dry run: every adb command printed, none run.
 with_stub "AC9 dry run" --apk "$APK" --url "$HUB_URL" --dry-run
