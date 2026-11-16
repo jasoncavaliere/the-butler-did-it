@@ -15,6 +15,7 @@ import { HouseholdTeardownScreen } from '../screens/HouseholdTeardownScreen';
 import { HubShell } from '../screens/HubShell';
 import { InsightsScreen } from '../screens/InsightsScreen';
 import { RosterScreen } from '../screens/RosterScreen';
+import { TabletSetupScreen } from '../screens/TabletSetupScreen';
 import { YourDataScreen } from '../screens/YourDataScreen';
 import { useHousehold } from '../state/HouseholdContext';
 
@@ -26,6 +27,7 @@ export type RootStackParamList = {
   HouseholdTeardown: undefined;
   Insights: undefined;
   Roster: undefined;
+  TabletSetup: undefined;
   YourData: undefined;
 };
 
@@ -33,7 +35,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /**
  * The Home route: the hub shell with the organizer's Household, Edit roster,
- * Insights, Your data and Delete household buttons wired to their routes. Navigation stays here so
+ * Insights, Your data, Tablet setup and Delete household buttons wired to their routes. Navigation stays here so
  * {@link HubShell} itself never needs a navigation context.
  *
  * The native stack keeps Home mounted under a pushed route, so the hub would
@@ -69,6 +71,7 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
       onHouseholdTeardown={() => navigation.navigate('HouseholdTeardown')}
       onShowInsights={() => navigation.navigate('Insights')}
       onShowYourData={() => navigation.navigate('YourData')}
+      onShowTabletSetup={() => navigation.navigate('TabletSetup')}
       refreshSignal={refreshSignal}
     />
   );
@@ -77,6 +80,11 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
 /** The Roster route (#167): the organizer's people editor, whose Done returns to the hub. */
 function RosterRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 'Roster'>) {
   return <RosterScreen onDone={() => navigation.goBack()} />;
+}
+
+/** The Tablet setup route (#248): static setup points, whose Done returns to the hub. */
+function TabletSetupRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 'TabletSetup'>) {
+  return <TabletSetupScreen onDone={() => navigation.goBack()} />;
 }
 
 /** The Your data route (#125), whose Delete household link opens the teardown screen (#168). */
@@ -105,10 +113,10 @@ function TeardownRoute({
  * once setup is complete. The Home route mounts the always-on {@link HubShell}
  * (T2) - the shared-device shell the rest of the product renders inside - and
  * the signed-in stack also holds the organizer's Household editor (#112),
- * Roster editor (#167), Insights screen (#123), Your data page (#125) and
- * household teardown screen (#168), opened from the Household, Edit roster,
- * Insights, Your data and Delete household buttons on the hub's organizer bar
- * (teardown also from a link on Your data).
+ * Roster editor (#167), Insights screen (#123), Your data page (#125), Tablet
+ * setup page (#248) and household teardown screen (#168), opened from the
+ * Household, Edit roster, Insights, Your data, Tablet setup and Delete household
+ * buttons on the hub's organizer bar (teardown also from a link on Your data).
  *
  * A successful teardown clears the household id, which removes the whole
  * signed-in stack at once. The navigator owns the "Household deleted" notice
@@ -158,6 +166,11 @@ export function RootNavigator({
               name="YourData"
               component={YourDataRoute}
               options={{ title: 'Your data' }}
+            />
+            <Stack.Screen
+              name="TabletSetup"
+              component={TabletSetupRoute}
+              options={{ title: 'Tablet setup' }}
             />
             <Stack.Screen name="HouseholdTeardown" options={{ title: 'Delete household' }}>
               {(props) => <TeardownRoute {...props} onDeleted={showNotice} />}

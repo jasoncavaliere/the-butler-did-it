@@ -24,6 +24,7 @@ const SENSITIVE = [
   'affordance-your-data',
   'affordance-version',
   'affordance-edit-roster',
+  'affordance-tablet-setup',
   'affordance-confirm-order',
   'affordance-household-teardown',
 ];
@@ -54,6 +55,7 @@ describe('OrganizerBar', () => {
           onShowYourData={jest.fn()}
           onShowVersion={jest.fn()}
           onEditRoster={jest.fn()}
+          onShowTabletSetup={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
         />
@@ -82,6 +84,7 @@ describe('OrganizerBar', () => {
           onShowYourData={jest.fn()}
           onShowVersion={jest.fn()}
           onEditRoster={jest.fn()}
+          onShowTabletSetup={jest.fn()}
           onConfirmOrder={jest.fn()}
           onHouseholdTeardown={jest.fn()}
         />
@@ -192,6 +195,46 @@ describe('OrganizerBar', () => {
 
     await press('affordance-your-data');
     expect(onShowYourData).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the Tablet setup button until an organizer signs in', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowTabletSetup={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    expect(screen.getByTestId('organizer-sign-in')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-tablet-setup')).toBeNull();
+  });
+
+  it('shows the Tablet setup button for a signed-in organizer and calls onShowTabletSetup', async () => {
+    const onShowTabletSetup = jest.fn();
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowTabletSetup={onShowTabletSetup} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-tablet-setup')).toHaveTextContent('Tablet setup');
+
+    await press('affordance-tablet-setup');
+    expect(onShowTabletSetup).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no Tablet setup button when onShowTabletSetup is not supplied', async () => {
+    await render(
+      <OrganizerProvider authProvider={fakeProvider()}>
+        <OrganizerBar onShowInsights={jest.fn()} />
+      </OrganizerProvider>,
+    );
+
+    await press('organizer-sign-in');
+
+    expect(screen.getByTestId('affordance-insights')).toBeOnTheScreen();
+    expect(screen.queryByTestId('affordance-tablet-setup')).toBeNull();
   });
 
   it('hides the Version button when no organizer is signed in', async () => {
@@ -348,6 +391,7 @@ describe('OrganizerBar', () => {
             onShowYourData={jest.fn()}
             onShowVersion={jest.fn()}
             onEditRoster={jest.fn()}
+            onShowTabletSetup={jest.fn()}
             onConfirmOrder={jest.fn()}
             onHouseholdTeardown={jest.fn()}
           />

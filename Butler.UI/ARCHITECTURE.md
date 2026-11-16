@@ -389,6 +389,7 @@ src/
               HouseholdScreen.tsx      # Household route = OrganizerGate + HouseholdEditor (#112)
               InsightsScreen.tsx       # Insights route = OrganizerGate + InsightsDashboard: four charts from GET /insights?weeks=8 (#123)
               YourDataScreen.tsx       # Your data route: static plain-language page on what Butler stores, kids' profiles, local-only, deletion (#125)
+              TabletSetupScreen.tsx    # Tablet setup route: static BYO-tablet setup points (charging, mount, lockdown) + docs/17 link (#248)
   insights/   insightsSeries.ts # pure helpers for the Insights charts: member colours, bar fractions, week/day/month labels (#123)
   setup/      starterChoreTemplates.json # versioned starter-chore catalog: 30 templates across 9 rooms with aliases (#111)
               starterTemplates.ts # catalog types, room-name/alias matching, template -> CreateChoreRequest (#111)
@@ -432,8 +433,8 @@ scripts/                    # web-export build tooling (plain Node, no bundler)
 Navigation auth-flow pattern): with no household it mounts the onboarding flow (`HouseholdSetup`),
 and once `useHousehold` holds an id it mounts the `Home` route, which renders the always-on
 `HubShell` (T2), the `Household` route (the organizer's room and chore editor, #112), the `Insights`
-route (#123) and the `YourData` route (#125). `Home` is a small wrapper that passes `HubShell`
-`onEditHousehold`, `onShowInsights` and `onShowYourData` handlers navigating to those routes, so `HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
+route (#123), the `YourData` route (#125) and the `TabletSetup` route (#248). `Home` is a small wrapper that passes `HubShell`
+`onEditHousehold`, `onShowInsights`, `onShowYourData` and `onShowTabletSetup` handlers navigating to those routes, so `HubShell` itself never needs a navigation context. Add a screen under `src/screens`, then register it in `RootNavigator` and extend
 `RootStackParamList`.
 
 **The hub shell** (`src/screens/HubShell.tsx`, T2/T3) is the shared-device shell the rest of the
@@ -636,7 +637,7 @@ token and household, which drops the stored record and returns the navigator to 
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.
 Each affordance renders only when `HubShell` supplies its handler, so the bar never shows a button that
-does nothing. Today that is Household (#112), Edit roster (#167), Insights (#123), Your data (#125) and Delete household (#168), which open their
+does nothing. Today that is Household (#112), Edit roster (#167), Insights (#123), Your data (#125), Tablet setup (#248) and Delete household (#168), which open their
 routes through the handlers `RootNavigator` passes to `HubShell`, Version (#126), and Confirm order (only once the hub has a ready household, since the cart is not mounted while
 loading, with no household, or in the error state, #171), which scrolls the hub to `GroceryCart` and focuses the
 cart's own Confirm order button through `confirmRef` (the final tap stays in the cart, G4). Version is
@@ -693,6 +694,17 @@ Every string lives in the exported `YOUR_DATA_COPY` constant and the screen rend
 test that scans it for non-ASCII characters covers every rendered word. Keep the table list in step with
 the API's registrations. A signed-in organizer also sees a Delete household link in the deletion
 section, rendered only when `RootNavigator` passes `onOpenTeardown` (#168).
+
+**Tablet setup** (`src/screens/TabletSetupScreen.tsx`, #248) is the `TabletSetup` route: the three things
+that keep a wall-mounted hub tablet healthy (cap charging, mount it with permanent power, lock it down) and
+a link that opens the full bring-your-own-tablet article (`Butler.KnowledgeBase/docs/17`) on GitHub through
+`Linking.openURL`, with a refused open swallowed so the organizer stays on the screen. Like Your data it is
+static and ungated: no API call, no household read and no `OrganizerGate`, so it renders offline, and its
+only entry is the Tablet setup button on `OrganizerBar`, shown only to a signed-in organizer when the hub
+is given `onShowTabletSetup`. Done, rendered only when `RootNavigator` passes `onDone`, calls
+`navigation.goBack()` and returns to the hub, as Roster's does. Every string lives in the exported
+`TABLET_SETUP_COPY` constant, and tests hold it to plain ASCII, 120 words or fewer, and no brand names
+(the article keeps the product examples).
 
 **Household teardown** (`src/screens/HouseholdTeardownScreen.tsx`, #168) is the `HouseholdTeardown`
 route in the signed-in stack, opened from Delete household on `OrganizerBar` or the link on Your data;

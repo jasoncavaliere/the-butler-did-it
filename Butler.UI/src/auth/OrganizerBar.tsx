@@ -9,7 +9,7 @@ import { PinPad } from './PinPad';
  * The organizer control strip on the hub. It is the visible half of Engineering
  * Contract 7.4's client side: when no organizer is signed in it offers only a
  * sign-in affordance, and the sensitive actions (edit household, insights, your
- * data, version, edit roster, confirm order, household teardown) are simply not rendered - a participant is never even
+ * data, version, edit roster, tablet setup, confirm order, household teardown) are simply not rendered - a participant is never even
  * presented them. Once an organizer signs in, those affordances appear
  * alongside sign-out - but each one only when the hub supplies its handler, so
  * the strip never shows a button that does nothing. An action whose screen has
@@ -52,6 +52,11 @@ export type OrganizerBarProps = {
   onConfirmOrder?: () => void;
   /** Invoked when the organizer taps "Edit roster". When omitted, the button is not rendered. */
   onEditRoster?: () => void;
+  /**
+   * Invoked when the organizer taps "Tablet setup" (the static bring-your-own
+   * tablet setup points, #248). When omitted, the button is not rendered.
+   */
+  onShowTabletSetup?: () => void;
 };
 
 export function OrganizerBar({
@@ -62,6 +67,7 @@ export function OrganizerBar({
   onHouseholdTeardown,
   onConfirmOrder,
   onEditRoster,
+  onShowTabletSetup,
 }: OrganizerBarProps) {
   const { organizer, signIn, signOut, providerKind } = useOrganizer();
   const [showPinPad, setShowPinPad] = useState(false);
@@ -118,6 +124,13 @@ export function OrganizerBar({
         ) : null}
         {onEditRoster ? (
           <Affordance testID="affordance-edit-roster" label="Edit roster" onPress={onEditRoster} />
+        ) : null}
+        {onShowTabletSetup ? (
+          <Affordance
+            testID="affordance-tablet-setup"
+            label="Tablet setup"
+            onPress={onShowTabletSetup}
+          />
         ) : null}
         {onConfirmOrder ? (
           <Affordance

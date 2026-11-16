@@ -300,6 +300,7 @@ export function HubShell({
   onHouseholdTeardown,
   onShowInsights,
   onShowYourData,
+  onShowTabletSetup,
   refreshSignal = 0,
 }: {
   idleTimeoutMs?: number;
@@ -333,6 +334,12 @@ export function HubShell({
    * button.
    */
   onShowYourData?: () => void;
+  /**
+   * Opens the organizer's Tablet setup page (#248). Supplied by the navigator,
+   * like {@link onEditHousehold}; when omitted, the organizer bar shows no
+   * Tablet setup button.
+   */
+  onShowTabletSetup?: () => void;
   /**
    * Bumped by the navigator when the hub comes back into focus after another
    * route (#167). A change re-reads the household and roster in place, without
@@ -408,6 +415,7 @@ export function HubShell({
       onHouseholdTeardown={onHouseholdTeardown}
       onShowInsights={onShowInsights}
       onShowYourData={onShowYourData}
+      onShowTabletSetup={onShowTabletSetup}
       refreshSignal={refreshSignal}
       updatedToBuild={showUpdateNotice ? resolveUiBuildSha() : null}
     />
@@ -428,6 +436,7 @@ function HubShellBody({
   onHouseholdTeardown,
   onShowInsights,
   onShowYourData,
+  onShowTabletSetup,
   refreshSignal,
   updatedToBuild,
 }: {
@@ -440,6 +449,7 @@ function HubShellBody({
   onHouseholdTeardown: (() => void) | undefined;
   onShowInsights: (() => void) | undefined;
   onShowYourData: (() => void) | undefined;
+  onShowTabletSetup: (() => void) | undefined;
   refreshSignal: number;
   /** The build the hub just reloaded onto (#108), while its notice shows; else `null`. */
   updatedToBuild: string | null;
@@ -772,8 +782,8 @@ function HubShellBody({
         </>
       ) : null}
       {/* Household (#112), Edit roster (#167), Insights (#123), Your data
-          (#125) and Delete household (#168), when the navigator supplies them,
-          and Version (#126) are wired. Confirm order is wired only once the hub
+          (#125), Tablet setup (#248) and Delete household (#168), when the
+          navigator supplies them, and Version (#126) are wired. Confirm order is wired only once the hub
           has a ready household, since its target cart mounts only then (#171). */}
       <View style={styles.chrome} testID="hub-chrome">
         <OrganizerBar
@@ -782,6 +792,7 @@ function HubShellBody({
           onHouseholdTeardown={onHouseholdTeardown}
           onShowInsights={onShowInsights}
           onShowYourData={onShowYourData}
+          onShowTabletSetup={onShowTabletSetup}
           onShowVersion={handleShowVersion}
           onConfirmOrder={ready ? handleConfirmOrder : undefined}
         />
