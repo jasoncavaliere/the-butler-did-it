@@ -19,6 +19,7 @@ sources:
   - { id: fully-faq-exit, resource: https://www.fully-kiosk.com/docs/en/faq/exit, title: Fully Kiosk - How to exit kiosk mode }
   - { id: fully-kiosk-mode, resource: https://www.fully-kiosk.com/docs/en/features/kiosk-mode, title: Fully Kiosk - Kiosk Mode }
   - { id: fully-downloads, resource: https://www.fully-kiosk.com/docs/en/getting-started/downloads, title: Fully Kiosk - Downloads (Regular and EMM editions) }
+  - { id: fully-plus-license, resource: https://www.fully-kiosk.com/docs/en/legal/fully-plus-license, title: Fully Kiosk - Fully PLUS License }
   - { id: apple-guided-access, resource: https://support.apple.com/en-us/111795, title: Apple - Use Guided Access on iPhone and iPad }
   - { id: samsung-protect-battery-in, resource: https://www.samsung.com/in/support/mobile-devices/battery-protection-feature-in-samsung-galaxy-phones, title: Samsung - Protect battery feature (India support) }
   - { id: samsung-battery-protection-us, resource: https://www.samsung.com/us/support/troubleshoot/TSG10013504/, title: Samsung - Battery protection on Galaxy phones and tablets (US support) }
@@ -27,7 +28,7 @@ sources:
   - { id: xda-fire-unlock, resource: https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/, title: Fire tablet bootloader unlock status (XDA) }
   - { id: whalesdev-lineageos, resource: https://whalesdev.com/best-tablets-for-lineageos/, title: Tablets with LineageOS support 2026 (WhalesDev) }
   - { id: lineageos-devices, resource: https://wiki.lineageos.org/devices/, title: LineageOS - Devices wiki }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T21:17:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T16:59:27Z }
 ---
 
 # Hub Tablet Kiosk Setup
@@ -36,14 +37,14 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T21:17:17Z }
 > - **Use this when:** You have a tablet that no account has touched yet
 > - **You'll end with:** A tablet locked to Butler in kiosk mode
 
-Lock a tablet to Butler before any account touches it: Fully Kiosk EMM as device owner on stock Android, Fully's Fire method on a Fire tablet, or Guided Access on an iPad. This runbook turns a tablet into the Butler [hub](90-glossary.md#the-hub) for a demo or a pilot. It was written for [issue #127](https://github.com/jasoncavaliere/the-butler-did-it/issues/127) from findings F3, F5 and F6 in the [Hub Hardware Findings](11-hub-hardware-findings.md). The family-facing summary of the same lockdown is the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md#locking-it-down). **These steps have not been run on a device yet**: the on-device checklist is [#132](https://github.com/jasoncavaliere/the-butler-did-it/issues/132), and the reference device is decided in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163). The Fully docs cited below were read on 2026-11-15.
+Lock a tablet to Butler before any account touches it: Fully Kiosk EMM as device owner on stock Android, Fully's Fire method on a Fire tablet, or Guided Access on an iPad. This runbook turns a tablet into the Butler [hub](90-glossary.md#the-hub) for a demo or a pilot. It was written for [issue #127](https://github.com/jasoncavaliere/the-butler-did-it/issues/127) from findings F3, F5 and F6 in the [Hub Hardware Findings](11-hub-hardware-findings.md). The family-facing summary of the same lockdown is the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md#locking-it-down). **These steps have not been run on a device yet**: the on-device checklist is [#132](https://github.com/jasoncavaliere/the-butler-did-it/issues/132), and the reference device is decided in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163). The Fully docs cited below were re-read on 2026-11-16.
 
 ## Pick a path
 
 | Path | Device | How strong the lockdown is | What you need |
 | --- | --- | --- | --- |
-| [Stock Android](#stock-android-path) | Any mainstream Android tablet, such as the Lenovo Tab M11 or Galaxy Tab A9+ | Strongest. Device owner makes Fully the Home app and blocks the home and recents escapes. | A computer with `adb`, the Fully EMM APK, a Fully PLUS license |
-| [Fire tablet](#fire-tablet-path) | A reclaimed Amazon Fire tablet, including a Fire Kids tablet | Weaker. Fully locks the tablet through an Accessibility service and a Home app swap. | A computer with `adb`, the Fully EMM APK, a Fully PLUS license |
+| [Stock Android](#stock-android-path) | Any mainstream Android tablet, such as the Lenovo Tab M11 or Galaxy Tab A9+ | Strongest. Device owner lets Fully use its Lock Task Mode, which turns off the home and recents buttons. | A computer with `adb`, the Fully EMM APK, a Fully PLUS license |
+| [Fire tablet](#fire-tablet-path) | A reclaimed Amazon Fire tablet, including a Fire Kids tablet | Weaker. Fully locks the tablet through an Accessibility service, plus a Home app swap on older Fire OS. | A computer with `adb`, the Fully EMM APK, a Fully PLUS license |
 | [iPad](#ipad-path) | Any iPad on a current iPadOS | Guided Access keeps the iPad in one app until someone enters a passcode. | Nothing extra |
 
 A Fire tablet is good for checking how the board reads from across a room, but it must never be the device that signs off the offline epic, because Fire OS uses Amazon's own WebView (finding [F2](11-hub-hardware-findings.md#f2-the-offline-epic-makes-the-browser-engine-a-first-class-requirement) and [F3](11-hub-hardware-findings.md#f3-the-spare-fire-kids-tablet-usable-as-a-prop-not-as-a-target)).
@@ -53,7 +54,7 @@ A Fire tablet is good for checking how the board reads from across a room, but i
 - The demo stack is running on the desktop (`demo/demo.sh up`, see the [demo README](../../demo/README.md)).
 - Android platform-tools (`adb`) are installed on the desktop, for the Android and Fire paths.
 - You have the **EMM edition** of Fully Kiosk Browser, package `com.fullykiosk.emm`, from [Fully's downloads page](https://www.fully-kiosk.com/docs/en/getting-started/downloads), not the Play Store build.
-- You have one Fully PLUS license for each tablet. Kiosk mode and Device Owner Settings are PLUS features ([Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode), [Device Owner Settings](https://www.fully-kiosk.com/docs/en/configuration/device-owner)). Without a license they do not take effect and Fully shows a watermark ([tablet settings README](../../demo/tablet/README.md#requirements)).
+- You have one Fully PLUS license for each tablet. Kiosk mode and Device Owner Settings are PLUS features ([Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode), [Device Owner Settings](https://www.fully-kiosk.com/docs/en/configuration/device-owner)). Without a license, PLUS features run only as a free trial, with a watermark and reminders on screen. A single license is bound to one tablet's device ID, and activating it needs an internet connection once, after which the tablet can stay offline ([Fully PLUS License](https://www.fully-kiosk.com/docs/en/legal/fully-plus-license)).
 - You have picked a kiosk PIN, which must differ from the organizer PIN in `demo/.env`.
 - You know which connection you will use (next section).
 
@@ -94,7 +95,7 @@ The hub is an offline-first PWA, and its service worker only registers over HTTP
 7. Open Fully, grant the permissions it asks for, and activate the PLUS license.
 8. Connect the tablet (see [Connecting the tablet](#connecting-the-tablet)), installing Tailscale now if you use it.
 9. Import the hub settings file, `demo/tablet/fully-settings.json`, as described in [Importing the settings](../../demo/tablet/README.md#importing-the-settings). It sets the start URL, the kiosk PIN, launch on boot, keep screen on, and the overnight sleep.
-10. Turn on kiosk mode, and when Fully asks, set it as the default Home app ([Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode)).
+10. Turn on kiosk mode, and when Fully asks, set it as the default Home app ([Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode)). Then open Fully's Device Owner Settings and turn on Enable Lock Task Mode, which turns off the home and recents buttons in kiosk mode ([Device Owner Settings](https://www.fully-kiosk.com/docs/en/configuration/device-owner)). The settings file has no key for Lock Task Mode, so this is a manual step.
 11. Restart the tablet: it should open on Butler with no swipe, and the home and recents buttons should do nothing. Then pair the hub: tap "Pair this tablet" after the organizer signs in (see [Organizer PIN](../../demo/README.md#organizer-pin)).
 12. Optional: add a Google account now if you want Play Store updates for Chrome and WebView.
 
@@ -102,17 +103,17 @@ The provisioning script in [#128](https://github.com/jasoncavaliere/the-butler-d
 
 ## Fire tablet path
 
-Fully's provisioning page says Fire OS devices do not support device provisioning, and its Fire FAQ says that if you try, use the ADB method before adding an Amazon account. So this path uses Fully's documented Fire method, with device owner as an optional first try in step 6. A Fire OS update can undo some of these changes, so check the tablet after each update ([Fully's Fire FAQ](https://www.fully-kiosk.com/docs/en/faq/fire)).
+Fully's provisioning page says Fire OS devices do not support device provisioning, and its Fire FAQ says that if you try, use the ADB method before adding an Amazon account. So this path relies on Fully's kiosk mode and its Accessibility service, with device owner as an optional first try in step 6. A Fire OS update can undo some of these changes, so check the tablet after each update ([Fully's Fire FAQ](https://www.fully-kiosk.com/docs/en/faq/fire)).
 
 1. Deregister the Kids profile from the tablet ([SpiceHomeTech walkthrough](https://spicehometech.com/how-to/setup-install/fire-tablet-home-assistant-kiosk/), finding [F3](11-hub-hardware-findings.md#f3-the-spare-fire-kids-tablet-usable-as-a-prop-not-as-a-target)).
 2. Factory reset it and set it up as an adult device. To try step 6, skip the Amazon account sign-in if setup lets you, and add the account after step 6.
 3. Open Settings > Device Options > About Fire Tablet and tap Serial Number until developer mode turns on. In Developer Options, turn on USB Debugging, then plug the tablet into the desktop, accept the prompt, and check `adb devices`.
 4. Turn off the Amazon apps you do not need with `adb shell pm disable-user --user 0 <package>`. Find the names with `adb shell pm list packages | grep amazon`. Use `disable-user`, not `uninstall`, so a factory reset brings them back.
-5. Install the EMM APK with `adb install <path-to-the-fully-emm-apk>`. Fully says not to install it from Google Play on a Fire tablet, and to turn off Play's auto-updates if Play is on the tablet.
+5. Install the EMM APK with `adb install <path-to-the-fully-emm-apk>`. Fully's Fire FAQ points to the regular-edition APKs, but it lists the EMM package, `com.fullykiosk.emm`, for its commands. This runbook keeps the EMM edition so one APK and one package name cover every Android and Fire tablet, and the provisioning script (`demo/tablet/provision-tablet.sh`) hard-codes the EMM package. Fully says not to install it from Google Play on a Fire tablet, and to turn off Play's auto-updates if Play is on the tablet.
 6. Optional, and only if no Amazon account is on the tablet yet: run the step 5 and step 6 commands from the [Stock Android path](#stock-android-path). If the `dpm` command fails, carry on, because the steps below do not need it.
 7. Open Fully, activate the PLUS license, connect the tablet, and import the settings, as in steps 7 to 9 of the Stock Android path.
 8. Turn on kiosk mode, and when Fully asks, turn on its service in the Accessibility settings. Fully says this is required to secure the kiosk on Fire OS.
-9. Make Fully the Home app and turn off the Fire launcher:
+9. On Fire OS 5, 6 or 7, pressing Home takes about 5 seconds to return to Fully. Fully's Fire FAQ gives a workaround that it does not support and that you use at your own risk: after kiosk mode is on, make Fully the Home app and turn off the Fire launcher. Fully says Fire OS 8 seems unaffected when the Accessibility service is on, so skip this step there.
 
    ```bash
    adb shell pm set-home-activity com.fullykiosk.emm/de.ozerov.fully.LauncherReplacement
@@ -157,8 +158,13 @@ Work down this list, because each step is heavier than the one before it.
 
 1. Swipe in from the left edge of the screen, holding at the edge for a moment first if the tablet uses gesture navigation.
 2. Enter the kiosk PIN, or Fully's default of 1234 if no PIN was ever set ([Fully exit FAQ](https://www.fully-kiosk.com/docs/en/faq/exit)).
-3. If the PIN is lost, Fully's exit FAQ lists the escapes: Remote Admin, a `fully-once-settings.json` file in `/sdcard` and a restart, safe mode, or uninstalling Fully over `adb`.
-4. On a Fire tablet, after you turn kiosk mode off, give the Fire launcher back ([Fully's Fire FAQ](https://www.fully-kiosk.com/docs/en/faq/fire)):
+3. If the PIN is lost, Fully's exit FAQ lists these escapes, and each one has a condition:
+   - **Remote Admin or Fully Cloud** can change the PIN or turn kiosk mode off, but only if Remote Admin is on. The hub settings file turns it off (`"remoteAdmin": false` in `demo/tablet/fully-settings.json`), so this escape is closed unless you turned it on.
+   - **A `fully-once-settings.json` file** that turns kiosk mode off, copied over USB to `/sdcard`, then a restart. This works only if Fully was installed from an APK, All Files Access was granted, and Settings Auto-Import in Other Settings was left on.
+   - **Safe mode**, then uninstall Fully. This works only if safe mode was never locked, in Fully's Kiosk Mode settings, its Device Owner Settings, or KNOX.
+   - **Uninstall Fully over `adb`**, as in [Remove device owner](#remove-device-owner).
+   - Otherwise, a [factory reset](#factory-reset) is the only way back.
+4. On a Fire tablet where you ran step 9 of the Fire path, after you turn kiosk mode off, give the Fire launcher back ([Fully's Fire FAQ](https://www.fully-kiosk.com/docs/en/faq/fire)):
 
    ```bash
    adb shell pm enable --user 0 com.amazon.firelauncher
@@ -216,14 +222,15 @@ If you still want it, find the exact model on the [LineageOS devices wiki](https
 9. [Fully Kiosk - How to exit kiosk mode](https://www.fully-kiosk.com/docs/en/faq/exit)
 10. [Fully Kiosk - Kiosk Mode](https://www.fully-kiosk.com/docs/en/features/kiosk-mode)
 11. [Fully Kiosk - Downloads (Regular and EMM editions)](https://www.fully-kiosk.com/docs/en/getting-started/downloads)
-12. [Apple - Use Guided Access on iPhone and iPad](https://support.apple.com/en-us/111795)
-13. [Samsung - Protect battery feature (India support)](https://www.samsung.com/in/support/mobile-devices/battery-protection-feature-in-samsung-galaxy-phones)
-14. [Samsung - Battery protection on Galaxy phones and tablets (US support)](https://www.samsung.com/us/support/troubleshoot/TSG10013504/)
-15. [Lenovo Tab M11 User Guide - Battery section](https://download.lenovo.com/consumer/mobiles_pub/tab_m11_ug_en.pdf)
-16. [Fire tablet HA kiosk walkthrough (SpiceHomeTech)](https://spicehometech.com/how-to/setup-install/fire-tablet-home-assistant-kiosk/)
-17. [Fire tablet bootloader unlock status (XDA)](https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/)
-18. [Tablets with LineageOS support 2026 (WhalesDev)](https://whalesdev.com/best-tablets-for-lineageos/)
-19. [LineageOS - Devices wiki](https://wiki.lineageos.org/devices/)
+12. [Fully Kiosk - Fully PLUS License](https://www.fully-kiosk.com/docs/en/legal/fully-plus-license)
+13. [Apple - Use Guided Access on iPhone and iPad](https://support.apple.com/en-us/111795)
+14. [Samsung - Protect battery feature (India support)](https://www.samsung.com/in/support/mobile-devices/battery-protection-feature-in-samsung-galaxy-phones)
+15. [Samsung - Battery protection on Galaxy phones and tablets (US support)](https://www.samsung.com/us/support/troubleshoot/TSG10013504/)
+16. [Lenovo Tab M11 User Guide - Battery section](https://download.lenovo.com/consumer/mobiles_pub/tab_m11_ug_en.pdf)
+17. [Fire tablet HA kiosk walkthrough (SpiceHomeTech)](https://spicehometech.com/how-to/setup-install/fire-tablet-home-assistant-kiosk/)
+18. [Fire tablet bootloader unlock status (XDA)](https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/)
+19. [Tablets with LineageOS support 2026 (WhalesDev)](https://whalesdev.com/best-tablets-for-lineageos/)
+20. [LineageOS - Devices wiki](https://wiki.lineageos.org/devices/)
 
 ## Related
 
