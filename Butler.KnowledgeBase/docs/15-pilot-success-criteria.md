@@ -16,9 +16,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T08:23:55Z }
 
 # Pilot Success Criteria and Week-4 Go/No-Go
 
-> **In one line:** At the end of pilot week 4, read four numbers from the organizer Insights screen (carts from its API), compare each with a threshold written down in advance, and decide whether to build more, change course, or stop.
+> - **Who it's for:** The owner deciding what happens after the pilot
+> - **Use this when:** Pilot week 4 ends and you need the go/no-go
+> - **You'll end with:** Four numbers checked against preset thresholds and a build, change, or stop call
 
-This article was written on **2026-11-14** for [issue #140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140), and its thresholds are a **hypothesis, not a ratified decision**, which the owner ratifies or changes in review. Each threshold is derived from the [North Star](90-glossary.md#north-star) target and guardrails in the vision's [What winning looks like](10-product-vision.md#what-winning-looks-like) section, and this article adds no new market data.
+At the end of pilot week 4, read four numbers from the organizer Insights screen (carts from its API), compare each with a threshold written down in advance, and decide whether to build more, change course, or stop. This article was written on **2026-11-14** for [issue #140](https://github.com/jasoncavaliere/the-butler-did-it/issues/140), and its thresholds are a **hypothesis, not a ratified decision**, which the owner ratifies or changes in review. Each threshold is derived from the [North Star](90-glossary.md#north-star) target and guardrails in the vision's [What winning looks like](10-product-vision.md#what-winning-looks-like) section, and this article adds no new market data.
 
 ## When and how to read the numbers
 

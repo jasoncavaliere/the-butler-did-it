@@ -18,9 +18,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T16:46:17Z }
 
 # Customer Interview Guide
 
-> **In one line:** After every Butler demo, ask the household the same twelve open questions, each one aimed at a named risk or claim in the Product Vision, and log the answers in the Feedback Log.
+> - **Who it's for:** Whoever runs the conversation after a Butler demo
+> - **Use this when:** A demo just ended and you are about to ask for feedback
+> - **You'll end with:** Twelve open questions, each tied to a vision claim
 
-This guide was written on **2026-11-14** for [issue #139](https://github.com/jasoncavaliere/the-butler-did-it/issues/139), and it turns the vision's unproven claims into questions that a real household can answer from experience. Each question names the part of the [Product Vision](10-product-vision.md) it tests, so a pattern in the answers points straight at the claim that may need to change. The guide is Living: when a question stops teaching us anything, replace it here and note why in the log.
+After every Butler demo, ask the household the same twelve open questions, each one aimed at a named risk or claim in the Product Vision, and log the answers in the Feedback Log. This guide was written on **2026-11-14** for [issue #139](https://github.com/jasoncavaliere/the-butler-did-it/issues/139), and it turns the vision's unproven claims into questions that a real household can answer from experience. Each question names the part of the [Product Vision](10-product-vision.md) it tests, so a pattern in the answers points straight at the claim that may need to change. The guide is Living: when a question stops teaching us anything, replace it here and note why in the log.
 
 ## When and how to run it
 

@@ -20,9 +20,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T23:07:10Z }
 
 # Hub Hardware Findings - Tablet and Kiosk Boot
 
-> **In one line:** Butler v1 does not need a flashed or custom OS - it needs a mainstream Android tablet running a current Chromium, locked into Android device-owner kiosk mode and pointed at the Static Web App URL.
+> - **Who it's for:** Whoever chooses or buys the hub tablet
+> - **Use this when:** You need the August 2026 research on tablets and kiosk boot
+> - **You'll end with:** The dated findings F1-F7 and which ones to re-check before buying
 
-These findings were gathered on **2026-08-13** for [issue #83](https://github.com/jasoncavaliere/the-butler-did-it/issues/83) [7]. They are **research, not a ratified decision**: the reference device is ratified by its own ADR in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163), not here. Hardware availability, pricing, and unlock or ROM status all drift, so **re-verify F3 and F4 before purchasing**. This note is a Record: when the findings change, supersede it with a new dated note rather than editing it. Everything below is consistent with the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app) and its [BYO-tablet](90-glossary.md#byo-tablet) hardware decision; if anything, it reinforces them. That decision is now [ADR-0012](../adr/0012-hub-reference-validation-tablet.md).
+Butler v1 does not need a flashed or custom OS - it needs a mainstream Android tablet running a current Chromium, locked into Android device-owner kiosk mode and pointed at the Static Web App URL. These findings were gathered on **2026-08-13** for [issue #83](https://github.com/jasoncavaliere/the-butler-did-it/issues/83) [7]. They are **research, not a ratified decision**: the reference device is ratified by its own ADR in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163), not here. Hardware availability, pricing, and unlock or ROM status all drift, so **re-verify F3 and F4 before purchasing**. This note is a Record: when the findings change, supersede it with a new dated note rather than editing it. Everything below is consistent with the vision's [shared hub](10-product-vision.md#the-product-a-shared-hub-not-a-phone-app) and its [BYO-tablet](90-glossary.md#byo-tablet) hardware decision; if anything, it reinforces them. That decision is now [ADR-0012](../adr/0012-hub-reference-validation-tablet.md).
 
 ## Why this came up
 

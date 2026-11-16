@@ -16,9 +16,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T23:31:41Z }
 
 # Pricing Hypothesis and Pilot-to-Paid Offer
 
-> **In one line:** Butler proposes one yearly price per household, $69 as the list price and $49 as a founding price for pilot families who convert, and tests both with a short set of willingness-to-pay questions before anything is charged.
+> - **Who it's for:** The owner, and anyone talking price with a pilot family
+> - **Use this when:** You need the proposed yearly price or the willingness-to-pay test
+> - **You'll end with:** The $69 list and $49 founding proposal and how it gets tested
 
-This article was written on **2026-11-14** for [issue #137](https://github.com/jasoncavaliere/the-butler-did-it/issues/137), and it is a **hypothesis, not live pricing**. The numbers are a proposal for the owner to ratify or change in review, and Butler charges no household anything today. Every market figure below comes from the vision's [Business model](10-product-vision.md#business-model) section, where it is sourced, and is not repeated here as a new claim.
+Butler proposes one yearly price per household, $69 as the list price and $49 as a founding price for pilot families who convert, and tests both with a short set of willingness-to-pay questions before anything is charged. This article was written on **2026-11-14** for [issue #137](https://github.com/jasoncavaliere/the-butler-did-it/issues/137), and it is a **hypothesis, not live pricing**. The numbers are a proposal for the owner to ratify or change in review, and Butler charges no household anything today. Every market figure below comes from the vision's [Business model](10-product-vision.md#business-model) section, where it is sourced, and is not repeated here as a new claim.
 
 ## The band we price against
 

@@ -15,9 +15,11 @@ generated: { by: human:jasoncavaliere, at: 2026-07-21T00:00:00Z }
 
 # Product Vision
 
-> **In one line:** Butler is the shared family operating system for the home - a kitchen-tablet hub that fairly divides the household's work, models the home itself, and reaches into the real world to get things done.
+> - **Who it's for:** Product, leadership, investors, and anyone settling a scope question
+> - **Use this when:** You need the why, the moat, the business model, or what v1 leaves out
+> - **You'll end with:** The sourced case for Butler and its locked v1 decisions
 
-This is the seed article for Butler. It is the full vision, quantified against a verified fact pack (see [Sources](#sources)), with every v1 decision locked. It stays as one article because it is one idea; as sections grow they can split into their own `1x` articles under Product & Strategy. New terms are defined once in the [Glossary](90-glossary.md) and linked, not re-explained here.
+Butler is the shared family operating system for the home - a kitchen-tablet hub that fairly divides the household's work, models the home itself, and reaches into the real world to get things done. This is the seed article for Butler. It is the full vision, quantified against a verified fact pack (see [Sources](#sources)), with every v1 decision locked. It stays as one article because it is one idea; as sections grow they can split into their own `1x` articles under Product & Strategy. New terms are defined once in the [Glossary](90-glossary.md) and linked, not re-explained here.
 
 ## A Tuesday at the hub
 

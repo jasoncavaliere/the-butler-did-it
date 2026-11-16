@@ -7,7 +7,7 @@ category: Start Here
 lifecycle: Living
 owner: agent-managed
 related: []
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T23:48:42Z }
 ---
 
 # How to Maintain the Butler Knowledge Base
@@ -49,7 +49,7 @@ The Product Vision (`10`) is intentionally one article because it is one idea. A
 | | **Living** | **Record** |
 | --- | --- | --- |
 | Purpose | Current reference, kept true to reality | A point-in-time snapshot of a decision or state |
-| When it is wrong | **Fix it in place** | **Do not edit** - supersede it with a new dated article and link forward |
+| When it is wrong | **Fix it in place** | **Do not edit** - supersede it with a new dated article and link forward (a format-only template migration is the one exception; see [Canonical scorer](#canonical-scorer)) |
 
 Every article's `lifecycle:` frontmatter says which it is. A superseded Record article also gets OKF `status: deprecated`. If unsure, it is Living. All four seed articles are Living, including the Product Vision - as decisions evolve, revise the vision in place rather than freezing it.
 
@@ -100,10 +100,32 @@ This is hub-and-spoke, not a pipeline, so articles do NOT carry a `<!-- pipeline
 
 The raw source vision and the build brief live in `intake/`. They are the provenance for everything in `docs/` - future agents need them to check claims and understand why decisions were made. Keep them. Do not edit them to change the docs; edit the Markdown in `docs/` instead. Every quantitative claim in an article must carry a source (see the Sources section of the [Product Vision](docs/10-product-vision.md) for the pattern).
 
+## Canonical scorer
+
+The canonical scorer for this repo is the newer `kb_score.py` in the `knowledge-base` skill, as synced from the fe-docs plugin. You can tell it apart because it requires the intent header (`intent_labels`) and hard-fails any page that still has the legacy `> **In one line:**` callout. The owner decided this on **2026-11-15** in [issue #236](https://github.com/jasoncavaliere/the-butler-did-it/issues/236).
+
+| | **Canonical** | **Not canonical** |
+| --- | --- | --- |
+| Copy | The newer `kb_score.py`, synced from the fe-docs plugin | The older copy pinned in the fe-ai-skills repo |
+| Intent header | Required | Not checked |
+| Legacy `> **In one line:**` callout | Hard fail if present | Required: hard-fails every page without it, which is every migrated article |
+
+If the scorer reports `missing TL;DR (In one line) callout`, you are running the older copy. Switch to the synced scorer; do not restore the callout.
+
+Run it against this directory before you finish any change to `docs/`:
+
+```bash
+python3 <knowledge-base skill>/tools/kb_score.py Butler.KnowledgeBase --gate
+```
+
+It must exit 0, with zero hard fails. The repo does not vendor the scorer, so `<knowledge-base skill>` is wherever the synced skill lives on your machine. Overrides live in `kb_score.json` at the root of this directory.
+
+A template migration that the canonical scorer requires is a format change, not a content edit, so it is allowed on `Record` articles. Change only the format, and leave the substance and `generated:` as they are.
+
 ## Before you finish
 
 - Every internal link resolves and points at a real heading anchor.
-- Every article has its H1, its `> **In one line:**` TL;DR callout, and a `## Related` section whose links match its `related:` frontmatter.
+- Every article has its H1, then the intent header (three labelled lines, "Who it's for", "Use this when", and "You'll end with", as a `> - **Label:**` list before the first `##`), no legacy In-one-line callout, and a `## Related` section whose links match its `related:` frontmatter.
 - Plain ASCII prose only: no em dashes, curly quotes, ellipsis characters, or non-breaking spaces. A usability scorer hard-fails these.
 - Every non-index `.md` file has parseable frontmatter with a non-empty `type` (OKF conformance).
-- If a `tools/kb_score.py` is available, run it against this directory to catch link rot, orphans, one-directional edges, and character-hygiene failures before they accumulate.
+- Run the [canonical scorer](#canonical-scorer) with `--gate` against this directory. It must exit 0. It catches link rot, orphans, one-directional edges, missing intent headers, and character-hygiene failures before they accumulate.

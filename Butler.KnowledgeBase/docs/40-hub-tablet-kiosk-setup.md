@@ -32,9 +32,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T21:17:17Z }
 
 # Hub Tablet Kiosk Setup
 
-> **In one line:** Lock a tablet to Butler before any account touches it: Fully Kiosk EMM as device owner on stock Android, Fully's Fire method on a Fire tablet, or Guided Access on an iPad.
+> - **Who it's for:** Whoever prepares a tablet for a demo or pilot
+> - **Use this when:** You have a tablet that no account has touched yet
+> - **You'll end with:** A tablet locked to Butler in kiosk mode
 
-This runbook turns a tablet into the Butler [hub](90-glossary.md#the-hub) for a demo or a pilot. It was written for [issue #127](https://github.com/jasoncavaliere/the-butler-did-it/issues/127) from findings F3, F5 and F6 in the [Hub Hardware Findings](11-hub-hardware-findings.md). The family-facing summary of the same lockdown is the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md#locking-it-down). **These steps have not been run on a device yet**: the on-device checklist is [#132](https://github.com/jasoncavaliere/the-butler-did-it/issues/132), and the reference device is decided in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163). The Fully docs cited below were read on 2026-11-15.
+Lock a tablet to Butler before any account touches it: Fully Kiosk EMM as device owner on stock Android, Fully's Fire method on a Fire tablet, or Guided Access on an iPad. This runbook turns a tablet into the Butler [hub](90-glossary.md#the-hub) for a demo or a pilot. It was written for [issue #127](https://github.com/jasoncavaliere/the-butler-did-it/issues/127) from findings F3, F5 and F6 in the [Hub Hardware Findings](11-hub-hardware-findings.md). The family-facing summary of the same lockdown is the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md#locking-it-down). **These steps have not been run on a device yet**: the on-device checklist is [#132](https://github.com/jasoncavaliere/the-butler-did-it/issues/132), and the reference device is decided in [#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163). The Fully docs cited below were read on 2026-11-15.
 
 ## Pick a path
 
