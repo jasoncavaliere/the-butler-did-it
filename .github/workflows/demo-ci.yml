@@ -257,8 +257,8 @@ jobs:
       - name: "Tablet: Fully settings file is placeholder-only and documented (#129)"
         run: bash demo/ci/check-fully-settings.sh
 
-      # #128 AC1-AC12: the provisioning scripts, both twins, against a fake adb
-      # and a fake tailscale. pwsh and jq are preinstalled on ubuntu-latest.
+      # #128 AC1-AC12 and #323: the provisioning scripts, both twins, against a
+      # fake adb and a fake tailscale. pwsh and jq are preinstalled on ubuntu-latest.
       - name: "Tablet: provision-tablet scripts against a fake adb (#128)"
         run: bash demo/ci/check-provision-tablet.sh
 

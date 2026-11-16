@@ -263,7 +263,18 @@ function Invoke-Provision([object[]]$Arguments) {
     Write-Announce @('shell', 'dumpsys', 'device_policy')
     if (-not $dryRun) {
         $cap = Invoke-AdbCapture @('shell', 'dumpsys', 'device_policy')
-        $ownerSet = $cap.Out.Contains($OwnerPackage)
+        # Match only the package= line inside the "Device Owner:" block: a Fully
+        # that is only a device admin is listed elsewhere in the dump too (#323).
+        # The block ends at a blank line or a line indented no deeper than its header.
+        $inOwner = $false
+        $headIndent = 0
+        foreach ($line in ($cap.Out -split "`n")) {
+            $t = $line.Trim(" `t".ToCharArray())
+            $indent = $line.Length - $line.TrimStart(" `t".ToCharArray()).Length
+            if ($inOwner -and ($t -eq '' -or $indent -le $headIndent)) { $inOwner = $false }
+            if ($t -ceq 'Device Owner:') { $inOwner = $true; $headIndent = $indent; continue }
+            if ($inOwner -and $t -ceq "package=$OwnerPackage") { $ownerSet = $true }
+        }
     }
 
     # Phase 5: changes.

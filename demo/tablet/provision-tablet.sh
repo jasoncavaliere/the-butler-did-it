@@ -215,9 +215,18 @@ owner_set=0
 announce shell dumpsys device_policy
 if [ "$dry_run" -eq 0 ]; then
   capture shell dumpsys device_policy
-  case "$CAP_OUT" in
-    *"$OWNER_PACKAGE"*) owner_set=1 ;;
-  esac
+  # Match only the package= line inside the "Device Owner:" block: a Fully
+  # that is only a device admin is listed elsewhere in the dump too (#323).
+  # The block ends at a blank line or a line indented no deeper than its header.
+  if printf '%s\n' "$CAP_OUT" | awk -v pkg="$OWNER_PACKAGE" '
+    { match($0, /^[ \t]*/); ind = RLENGTH; t = $0; sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t) }
+    in_owner && (t == "" || ind <= hind) { in_owner = 0 }
+    t == "Device Owner:" { in_owner = 1; hind = ind; next }
+    in_owner && t == ("package=" pkg) { found = 1 }
+    END { exit(found ? 0 : 1) }
+  '; then
+    owner_set=1
+  fi
 fi
 
 # Phase 5: changes.
