@@ -188,9 +188,13 @@ eligible people, and each person's trailing load into an assignment set per Engi
   (`AssignmentGenerationGate`, a singleton `SemaphoreSlim` per household) that `GenerateAsync` also
   takes, and the week is re-read inside the lock, so concurrent first reads persist one set. The lock
   guards one process only (the demo runs one API instance). The generated week (lazy GET and POST
-  generate alike) is persisted in one all-or-nothing `IAssignmentRepository.SaveAllAsync` write over
-  `SubmitBatchAsync` (#319), so an interrupted first read leaves no rows and the next read generates
-  the full week instead of returning a partial one as stored. The stored projection returns every `Done`
+  generate alike) is persisted in one `IAssignmentRepository.SaveAllAsync` write over
+  `SubmitBatchAsync` (#319). The Table store commits that write as one entity-group transaction per
+  100 placements, so it is all-or-nothing only for a week of up to 100 placements: an interrupted
+  first read then leaves no rows and the next read generates the full week instead of returning a
+  partial one as stored. A larger week is written in chunks of 100, one transaction each, so an
+  interruption between chunks can leave a partial week; weeks over 100 placements are outside v1
+  (#343). The stored projection returns every `Done`
   row and the `Open` rows of chores that are still active (effort from the chore, `0` if it is gone);
   `unassigned` is always empty because unplaced chores are never persisted. A household with no active
   chores or no eligible members reads as an empty week and nothing is persisted.

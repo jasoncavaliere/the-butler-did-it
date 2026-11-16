@@ -55,9 +55,12 @@ public interface IAssignmentGenerationService
     /// Generation runs the same C2/C3 path as <see cref="GenerateAsync"/> under a
     /// per-household lock that <see cref="GenerateAsync"/> also takes, and the
     /// week is re-read inside the lock, so concurrent first reads persist one set.
-    /// The generated week is persisted in one all-or-nothing write, so an
-    /// interrupted first read leaves no rows and the next read generates the full
-    /// week (#319).
+    /// The generated week is persisted in one write that the Table store commits
+    /// as one transaction per 100 placements (#319). A week of up to 100
+    /// placements is therefore all-or-nothing: an interrupted first read leaves no
+    /// rows and the next read generates the full week. A larger week is written in
+    /// chunks of 100, so an interruption between chunks can leave a partial week;
+    /// weeks over 100 placements are outside v1 (#343).
     /// </para>
     /// <para>
     /// <b>Stored projection.</b> <c>Done</c> rows are always returned; <c>Open</c>
