@@ -23,7 +23,7 @@ public sealed class RoomsOrderingTests : IClassFixture<ButlerApiFactory>
     public async Task List_returns_rooms_ordered_by_sort_order_ascending()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomsUri = new Uri($"/households/{householdId}/rooms", UriKind.Relative);
 
         // Created deliberately out of order.

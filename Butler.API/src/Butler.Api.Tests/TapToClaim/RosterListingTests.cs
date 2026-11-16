@@ -28,7 +28,7 @@ public sealed class RosterListingTests : IClassFixture<ButlerApiFactory>
     public async Task Roster_returns_only_the_claimable_fields()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
         // Seed a chore-doing member (organizer-gated create is satisfied by the dev
@@ -85,7 +85,7 @@ public sealed class RosterListingTests : IClassFixture<ButlerApiFactory>
     public async Task Roster_excludes_organizer_role_people()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var peopleUri = new Uri($"/households/{householdId}/people", UriKind.Relative);
 
         // One administrator (organizer) and one chore-doing member (participant).

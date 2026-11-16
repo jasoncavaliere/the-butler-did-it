@@ -1,3 +1,4 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.Chores;
@@ -8,10 +9,13 @@ namespace Butler.Api.Application.Chores;
 /// Resolves to <c>null</c> when the chore does not exist (mapped to <c>404</c>);
 /// otherwise resolves to the updated chore. Reactivation is via
 /// <see cref="UpdateChoreCommand"/> with <c>Active = true</c>.
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the chore belongs to.</param>
 /// <param name="ChoreId">The chore id to deactivate.</param>
-public sealed record DeactivateChoreCommand(string HouseholdId, string ChoreId) : IRequest<ChoreResponse?>;
+public sealed record DeactivateChoreCommand(string HouseholdId, string ChoreId)
+    : IRequest<ChoreResponse?>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="DeactivateChoreCommand"/> via the application service.</summary>
 public sealed class DeactivateChoreCommandHandler : IRequestHandler<DeactivateChoreCommand, ChoreResponse?>

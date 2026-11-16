@@ -9,6 +9,8 @@ namespace Butler.Api.Tests.People;
 /// Criterion (H3): an unknown <c>personId</c> (or a person in an unknown
 /// household) returns <c>404</c> as an RFC 7807 problem details document on the
 /// single-read, update, and delete endpoints (Engineering Contract 7.5).
+/// The household is seeded: an update in an unknown household is now the
+/// household <c>404</c> (#295, <c>OrganizerWriteAfterTeardownTests</c>).
 /// </summary>
 public sealed class PersonNotFoundTests : IClassFixture<ButlerApiFactory>
 {
@@ -21,7 +23,7 @@ public sealed class PersonNotFoundTests : IClassFixture<ButlerApiFactory>
     {
         using var client = _factory.CreateClient();
 
-        using var response = await client.GetAsync(UnknownPersonUri());
+        using var response = await client.GetAsync(await UnknownPersonUriAsync());
 
         await AssertPersonNotFound(response);
     }
@@ -31,7 +33,7 @@ public sealed class PersonNotFoundTests : IClassFixture<ButlerApiFactory>
     {
         using var client = _factory.CreateClient();
 
-        using var request = new HttpRequestMessage(HttpMethod.Put, UnknownPersonUri())
+        using var request = new HttpRequestMessage(HttpMethod.Put, await UnknownPersonUriAsync())
         {
             Content = JsonContent.Create(
                 new { displayName = "Ghost", role = "Participant", isChild = false, claimColor = (string?)null }),
@@ -47,14 +49,15 @@ public sealed class PersonNotFoundTests : IClassFixture<ButlerApiFactory>
     {
         using var client = _factory.CreateClient();
 
-        using var response = await client.DeleteAsync(UnknownPersonUri());
+        using var response = await client.DeleteAsync(await UnknownPersonUriAsync());
 
         await AssertPersonNotFound(response);
     }
 
-    private static Uri UnknownPersonUri()
+    private async Task<Uri> UnknownPersonUriAsync()
     {
-        var householdId = Guid.NewGuid().ToString("N");
+        // Seeded so the 404 is the unknown child, not the unknown household (#295).
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         return new Uri($"/households/{householdId}/people/does-not-exist", UriKind.Relative);
     }
 

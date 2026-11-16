@@ -1,9 +1,12 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.People;
 
 /// <summary>
 /// Creates a person in a household with a server-generated <c>personId</c>.
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the person belongs to.</param>
 /// <param name="DisplayName">The person's display name.</param>
@@ -15,7 +18,7 @@ public sealed record CreatePersonCommand(
     string DisplayName,
     string Role,
     bool IsChild,
-    string? ClaimColor) : IRequest<PersonResponse>;
+    string? ClaimColor) : IRequest<PersonResponse>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="CreatePersonCommand"/> via the application service.</summary>
 public sealed class CreatePersonCommandHandler : IRequestHandler<CreatePersonCommand, PersonResponse>

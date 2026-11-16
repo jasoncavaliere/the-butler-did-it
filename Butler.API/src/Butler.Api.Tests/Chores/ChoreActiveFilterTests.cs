@@ -19,7 +19,7 @@ public sealed class ChoreActiveFilterTests : IClassFixture<ButlerApiFactory>
     public async Task List_filters_on_the_active_query_parameter()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var roomId = await ChoreTestHelper.CreateRoomAsync(client, householdId, "Kitchen", 1);
 
         // Two active chores; deactivate one so the household has one of each.

@@ -34,7 +34,7 @@ public sealed class LastSeenUtcUpdatesOnUseTests
                 services.AddSingleton<TimeProvider>(clock);
             }));
         using var client = factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(factory.Services);
 
         // Pair at PairedAt (dev organizer satisfies the Organizer policy).
         using var pairResponse = await client.PostAsJsonAsync(

@@ -37,7 +37,13 @@ builder.Services.AddControllers();
 
 // MediatR: discover commands/queries and their handlers in this assembly.
 builder.Services.AddMediatR(cfg =>
-    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+{
+    cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
+
+    // Organizer creates and updates (IHouseholdWriteRequest) 404 before their
+    // handler runs when the household does not exist (#295).
+    cfg.AddOpenBehavior(typeof(HouseholdExistsBehavior<,>));
+});
 
 // RFC 7807 problem details for every error path (Section 7.5).
 builder.Services.AddProblemDetails();

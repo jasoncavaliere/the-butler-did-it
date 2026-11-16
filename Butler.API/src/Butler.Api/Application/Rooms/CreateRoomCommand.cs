@@ -1,9 +1,12 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.Rooms;
 
 /// <summary>
 /// Creates a room in a household with a server-generated <c>roomId</c>.
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the room belongs to.</param>
 /// <param name="Name">The room's display name.</param>
@@ -11,7 +14,7 @@ namespace Butler.Api.Application.Rooms;
 public sealed record CreateRoomCommand(
     string HouseholdId,
     string Name,
-    int SortOrder) : IRequest<RoomResponse>;
+    int SortOrder) : IRequest<RoomResponse>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="CreateRoomCommand"/> via the application service.</summary>
 public sealed class CreateRoomCommandHandler : IRequestHandler<CreateRoomCommand, RoomResponse>

@@ -38,7 +38,7 @@ public sealed class DeviceTokenCannotDoSensitiveActionTests : IClassFixture<Butl
     public async Task A_paired_device_token_is_forbidden_at_an_organizer_endpoint()
     {
         using var client = _factory.CreateClient();
-        var householdId = Guid.NewGuid().ToString("N");
+        var householdId = await TestHouseholds.SeedAsync(_factory.Services);
         var token = await PairDeviceAsync(client, householdId);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, OrganizerEndpoint);

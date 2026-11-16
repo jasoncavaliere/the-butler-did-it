@@ -1,3 +1,4 @@
+using Butler.Api.Application.Households;
 using MediatR;
 
 namespace Butler.Api.Application.People;
@@ -8,6 +9,8 @@ namespace Butler.Api.Application.People;
 /// (mapped to <c>404</c>); the <c>If-Match</c> precondition is enforced by the
 /// persistence seam (a missing value is <c>428</c>, a stale one <c>412</c>), and
 /// demoting the last organizer is rejected with a <c>400</c>.
+/// A household that does not exist is a <c>404</c> before the handler runs
+/// (<see cref="IHouseholdWriteRequest"/>, #295).
 /// </summary>
 /// <param name="HouseholdId">The household the person belongs to.</param>
 /// <param name="PersonId">The person id to update.</param>
@@ -23,7 +26,7 @@ public sealed record UpdatePersonCommand(
     string Role,
     bool IsChild,
     string? ClaimColor,
-    string? IfMatch) : IRequest<PersonResponse?>;
+    string? IfMatch) : IRequest<PersonResponse?>, IHouseholdWriteRequest;
 
 /// <summary>Handles <see cref="UpdatePersonCommand"/> via the application service.</summary>
 public sealed class UpdatePersonCommandHandler : IRequestHandler<UpdatePersonCommand, PersonResponse?>

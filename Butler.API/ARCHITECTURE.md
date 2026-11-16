@@ -9,7 +9,8 @@ composition root, and each feature plugs in by creating `Application/<Feature>/`
 `Infrastructure/<Feature>/` and `Domain/<Feature>/` as needed), exposing an `Add<Feature>Feature()`
 extension, and registering it in `Program.cs`. Controllers stay thin - they only call
 `_sender.Send(...)` and return the result. Every unhandled exception or validation failure becomes an
-RFC 7807 problem-details response via `Mediation/ApiExceptionHandler`.
+RFC 7807 problem-details response via `Mediation/ApiExceptionHandler`. MediatR pipeline behaviors live in
+`Mediation/`; the first is `HouseholdExistsBehavior` (#295, see "Households" below).
 
 `System` (`Application/System/`, `Controllers/SystemController`) is the reference vertical slice that
 proves this path end to end - see `GET /api/system/ping`. `GET /health` remains a plain liveness check
@@ -50,7 +51,18 @@ feature registers via `AddHouseholdFeature()` in `Program.cs`.
 | --- | --- |
 | `POST /households` | Creates a `Households` row with a server-generated `householdId` (partition key = row key), the caller's object id as `OrganizerObjectId`, and `CreatedUtc` from the injected clock. In the same operation it seeds the organizer's `People` row (`Role = Organizer`, `IsChild = false`) so a household is never left without a roster owner. Returns `201` with the created household (including `ETag`) and a `Location` pointing at `GET /households/{householdId}`. |
 | `GET /households/{householdId}` | Returns the household (with its current `ETag`) for a known id, or `404` RFC 7807 problem details for an unknown one. Open to the organizer or a paired hub device (`OrganizerOrHubDevice` policy, #105), so a hub with no organizer signed in still shows its household; a participant session is `403`. `POST /households` stays organizer-only. |
-| `DELETE /households/{householdId}` | Tears the household down (#124). Organizer-only. Body `{ "confirmName": "<household name>" }`, which must exactly equal the stored name (ordinal, case-sensitive, no trimming). `HouseholdTeardownService` then runs every registered `IHouseholdPartitionPurger` (no hard-coded table list), deleting every row in the household's partition of every table with the wildcard `If-Match`. It deletes the `Households` row after that first sweep, then sweeps every other table again so a write that lands in an already-purged table mid-teardown is deleted too (#223), and returns `204`. Known limit: a write that authenticated before the `Households` row was deleted but commits after the second sweep can still leave an orphan row. If the `Households` delete or the second sweep throws or is cancelled, the service restores the `Households` row and the response is a `500` RFC 7807 problem with `reason` `teardownIncomplete` and the `householdId`, so a retry of the `DELETE` finishes the purge (#294); only a failure of that restore write itself still leaves the remaining rows unreachable through teardown. A missing, blank, or inexact name (or no body) is a `400` RFC 7807 problem and an unknown id is a `404` problem; a participant session or hub device is `403`; none of these delete anything. Teardown also revokes access: the household's hub-device tokens fail (their `HubDevices` rows are gone) and its participant sessions fail (the handler checks the household still exists), both `401`. This also holds under a race, because the hub touch only replaces an existing row, so a request in flight during the purge cannot re-create it (#222). |
+| `DELETE /households/{householdId}` | Tears the household down (#124). Organizer-only. Body `{ "confirmName": "<household name>" }`, which must exactly equal the stored name (ordinal, case-sensitive, no trimming). `HouseholdTeardownService` then runs every registered `IHouseholdPartitionPurger` (no hard-coded table list), deleting every row in the household's partition of every table with the wildcard `If-Match`. It deletes the `Households` row after that first sweep, then sweeps every other table again so a write that lands in an already-purged table mid-teardown is deleted too (#223), and returns `204`. Organizer creates and updates check that the household exists first and answer `404` after teardown (#295, below). Known limit: that check is not atomic with the write, so a write whose check passed before the `Households` row was deleted and that commits after the second sweep can still leave an orphan row. If the `Households` delete or the second sweep throws or is cancelled, the service restores the `Households` row and the response is a `500` RFC 7807 problem with `reason` `teardownIncomplete` and the `householdId`, so a retry of the `DELETE` finishes the purge (#294); only a failure of that restore write itself still leaves the remaining rows unreachable through teardown. A missing, blank, or inexact name (or no body) is a `400` RFC 7807 problem and an unknown id is a `404` problem; a participant session or hub device is `403`; none of these delete anything. Teardown also revokes access: the household's hub-device tokens fail (their `HubDevices` rows are gone) and its participant sessions fail (the handler checks the household still exists), both `401`. This also holds under a race, because the hub touch only replaces an existing row, so a request in flight during the purge cannot re-create it (#222). |
+
+Organizer writes need an existing household (#295). The organizer creates and updates
+(`CreateRoomCommand`, `UpdateRoomCommand`, `CreatePersonCommand`, `UpdatePersonCommand`,
+`CreateChoreCommand`, `UpdateChoreCommand`, `DeactivateChoreCommand`, `PairHubDeviceCommand`) carry the
+`IHouseholdWriteRequest` marker. The open MediatR pipeline behavior `Mediation/HouseholdExistsBehavior`
+reads the `Households` row for a marked request before its handler runs; when the household does not
+exist (torn down, or never created) it throws `HouseholdNotFoundException`, which `ApiExceptionHandler`
+maps to a `404` RFC 7807 problem titled `Household not found.` with detail
+`No household with id '<id>' exists.` and a `householdId` extension. Nothing is written. Unmarked requests
+pass through with no read. Deletes, tap-to-claim, complete/undo, capture, events and cart writes are not
+marked; assignment generation and cart confirm already return `404` for an unknown household.
 
 Organizer auth in Demo (#105): the organizer signs in with a PIN from `BUTLER_DEMO_PIN` through
 `POST /auth/pin/sign-in` (`OrganizerPinController` -> `SignInWithPinCommand` ->
@@ -73,10 +85,10 @@ shared seam above (7.3) - missing it is `428`, a stale value is `412`. An unknow
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /households/{householdId}/rooms` | Creates a room with a server-generated `roomId`, the given `Name` and `SortOrder`. Returns `201` with the created room (including `ETag`) and a `Location` pointing at `GET .../rooms/{roomId}`. |
+| `POST /households/{householdId}/rooms` | Creates a room with a server-generated `roomId`, the given `Name` and `SortOrder`. Returns `201` with the created room (including `ETag`) and a `Location` pointing at `GET .../rooms/{roomId}`, or `404` `Household not found.` when the household does not exist (#295). |
 | `GET /households/{householdId}/rooms` | Lists the household's rooms ordered ascending by `SortOrder` (ties broken by `roomId` for stable ordering). |
 | `GET /households/{householdId}/rooms/{roomId}` | Returns the room (with its current `ETag`) for a known id, or `404` for an unknown one. |
-| `PUT /households/{householdId}/rooms/{roomId}` | Updates `Name`/`SortOrder` under the `If-Match` precondition. Returns `200` with the updated room, `404` for an unknown room, `428` when `If-Match` is missing, or `412` when it is stale. |
+| `PUT /households/{householdId}/rooms/{roomId}` | Updates `Name`/`SortOrder` under the `If-Match` precondition. Returns `200` with the updated room, `404` for an unknown room (or `Household not found.` for a missing household, #295), `428` when `If-Match` is missing, or `412` when it is stale. |
 | `DELETE /households/{householdId}/rooms/{roomId}` | Deletes the room unconditionally (delete is not concurrency-gated). Returns `204`, or `404` for an unknown room. |
 
 ### People (the household's organizer-managed roster)
@@ -97,11 +109,11 @@ Persistence goes through `TablePersonRepository` (`IPersonRepository`), and the 
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /households/{householdId}/people` | Creates a person with a server-generated `personId`, the given `DisplayName`, `Role` (`Organizer` or `Participant`), `IsChild`, and `ClaimColor`. Returns `201` with the created person (including `ETag`) and a `Location` pointing at `GET .../people/{personId}`. |
+| `POST /households/{householdId}/people` | Creates a person with a server-generated `personId`, the given `DisplayName`, `Role` (`Organizer` or `Participant`), `IsChild`, and `ClaimColor`. Returns `201` with the created person (including `ETag`) and a `Location` pointing at `GET .../people/{personId}`, or `404` `Household not found.` when the household does not exist (#295). |
 | `GET /households/{householdId}/people` | Returns the claimable tap-to-claim roster: `{ personId, displayName, claimColor, isChild }` for every person in the household (open, unauthenticated read - no bearer token needed even when authentication is enabled). It never carries organizer-only fields such as `OrganizerObjectId`, nor `role`/`ETag`. |
 | `GET /households/{householdId}/people/{personId}` | Returns the full person detail (with its current `ETag`) for a known id, or `404` for an unknown one (the organizer CRUD contract; open read). |
 | `POST /households/{householdId}/people/{personId}/claim` | Tap-to-claim (T1): requires no password and no organizer JWT. Issues a participant session scoped to exactly `(householdId, personId)` - see "Participant sessions (tap-to-claim)" above. Returns `200` with `{ householdId, personId, displayName, claimColor, isChild, token }`, or `404` RFC 7807 problem details for an unknown `personId` or `householdId`. |
-| `PUT /households/{householdId}/people/{personId}` | Updates `DisplayName`/`Role`/`IsChild`/`ClaimColor` under the `If-Match` precondition. Returns `200` with the updated person, `404` for an unknown person, `428` when `If-Match` is missing, `412` when it is stale, or `400` when the change would demote the household's last organizer. |
+| `PUT /households/{householdId}/people/{personId}` | Updates `DisplayName`/`Role`/`IsChild`/`ClaimColor` under the `If-Match` precondition. Returns `200` with the updated person, `404` for an unknown person (or `Household not found.` for a missing household, #295), `428` when `If-Match` is missing, `412` when it is stale, or `400` when the change would demote the household's last organizer. |
 | `DELETE /households/{householdId}/people/{personId}` | Deletes the person unconditionally (delete is not concurrency-gated). Returns `204`, `404` for an unknown person, or `400` when the deletion would remove the household's last organizer. |
 
 ### Chores (recurring tasks attached to a room)
@@ -122,11 +134,11 @@ and the feature registers via `AddChoresFeature()` in `Program.cs`.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /households/{householdId}/chores` | Creates a chore with a server-generated `choreId`, the given `Title`, `RoomId`, `Cadence` (`Daily` or `Weekly`), `Effort`, and `MinAge` (nullable). `Active` defaults to `true`. Returns `201` with the created chore (including `ETag`) and a `Location` pointing at `GET .../chores/{choreId}`, `400` for an unknown `RoomId` or non-positive `Effort`. |
+| `POST /households/{householdId}/chores` | Creates a chore with a server-generated `choreId`, the given `Title`, `RoomId`, `Cadence` (`Daily` or `Weekly`), `Effort`, and `MinAge` (nullable). `Active` defaults to `true`. Returns `201` with the created chore (including `ETag`) and a `Location` pointing at `GET .../chores/{choreId}`, `400` for an unknown `RoomId` or non-positive `Effort`, or `404` `Household not found.` when the household does not exist (#295). |
 | `GET /households/{householdId}/chores` | Lists the household's chores, optionally filtered with `?active=true`/`?active=false` (open read). |
 | `GET /households/{householdId}/chores/{choreId}` | Returns the chore (with its current `ETag`) for a known id, or `404` for an unknown one. |
-| `PUT /households/{householdId}/chores/{choreId}` | Updates `Title`/`RoomId`/`Cadence`/`Effort`/`MinAge`/`Active` under the `If-Match` precondition. Returns `200` with the updated chore, `404` for an unknown chore, `400` for an unknown `RoomId` or non-positive `Effort`, `428` when `If-Match` is missing, or `412` when it is stale. |
-| `POST /households/{householdId}/chores/{choreId}/deactivate` | Sets `Active = false` and retains the row. Returns `200` with the updated chore, or `404` for an unknown chore. |
+| `PUT /households/{householdId}/chores/{choreId}` | Updates `Title`/`RoomId`/`Cadence`/`Effort`/`MinAge`/`Active` under the `If-Match` precondition. Returns `200` with the updated chore, `404` for an unknown chore (or `Household not found.` for a missing household, #295), `400` for an unknown `RoomId` or non-positive `Effort`, `428` when `If-Match` is missing, or `412` when it is stale. |
+| `POST /households/{householdId}/chores/{choreId}/deactivate` | Sets `Active = false` and retains the row. Returns `200` with the updated chore, or `404` for an unknown chore (or `Household not found.` for a missing household, #295). |
 
 ### Assignments (weekly fair-assignment generation)
 
