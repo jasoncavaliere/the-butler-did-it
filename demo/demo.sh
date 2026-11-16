@@ -42,6 +42,13 @@ DATASET_URL="$HUB_URL/api/api/system/dataset"
 # reset (#98) signs the organizer in with the PIN, then seeds the demo household.
 PIN_SIGN_IN_URL="$HUB_URL/api/auth/pin/sign-in"
 SEED_URL="$HUB_URL/api/demo/seed"
+# restore (#99) copies a snapshot back, then changes the dataset id through
+# this organizer-only endpoint. Snapshots live in git-ignored demo/.data.
+REGENERATE_URL="$HUB_URL/api/demo/dataset/regenerate"
+SNAPSHOTS_DIR="$DEMO_DIR/.data/snapshots"
+# A snapshot name: a letter or digit, then up to 63 letters, digits, '.', '_'
+# or '-'. Kept in a variable so [[ =~ ]] works the same in bash 3.2.
+SNAPSHOT_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 WAIT_TIMEOUT=300
 
 # The smoke step up runs once the stack is healthy (#103): the smoke suite,
@@ -65,6 +72,9 @@ DEMO_READY="Demo ready: hub $HUB_URL | API $HUB_URL/api/health | Swagger http://
 COMMANDS="up|Build the hub export if needed, start the stack, wait until it is healthy and run the smoke suite
 down|Stop the stack (data in demo/.data/azurite is kept)
 reset|Delete the demo data, restart the stack, re-seed the demo household and change the dataset id
+snapshot|Save a copy of the demo data in demo/.data/snapshots/<name> (stops Azurite while it copies)
+restore|Replace the demo data with a snapshot, restart the stack and change the dataset id
+snapshots|List the snapshots in demo/.data/snapshots with their dates
 status|Show container health, the hub URL and the dataset id
 logs|Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)
 share|Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code
@@ -350,13 +360,14 @@ dataset_id() {
   printf '%s\n' "$dataset"
 }
 
-# reset (#98) deletes data, so it runs only against the local demo stack:
-# a local Docker engine, the butler-demo compose project, an api that stores
-# its data in the azurite service, and Azurite's data in demo/.data/azurite.
-# Prints why to stderr and returns 1 otherwise. The rendered compose config is
-# never printed: it holds BUTLER_DEMO_PIN from demo/.env.
+# reset (#98), snapshot and restore (#99) touch the demo data, so they run
+# only against the local demo stack: a local Docker engine, the butler-demo
+# compose project, an api that stores its data in the azurite service, and
+# Azurite's data in demo/.data/azurite. $1 is the verb for the message. Prints
+# why to stderr and returns 1 otherwise. The rendered compose config is never
+# printed: it holds BUTLER_DEMO_PIN from demo/.env.
 check_local_target() {
-  local endpoint="" config="" reason=""
+  local verb="$1" endpoint="" config="" reason=""
   endpoint="${DOCKER_HOST:-}"
   if [ -z "$endpoint" ]; then
     endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" || endpoint=""
@@ -382,7 +393,7 @@ check_local_target() {
     fi
   fi
   if [ -n "$reason" ]; then
-    echo "Refusing to reset: $reason. reset only runs against the local demo stack." >&2
+    echo "Refusing to $verb: $reason. $verb only runs against the local demo stack." >&2
     return 1
   fi
   return 0
@@ -398,7 +409,7 @@ cmd_reset() {
     echo "curl was not found. Install curl to run reset." >&2
     return 1
   fi
-  check_local_target || return 1
+  check_local_target reset || return 1
   old="$(dataset_id)"
   [ -z "$old" ] && old="unavailable"
 
@@ -445,6 +456,192 @@ cmd_reset() {
   echo "Dataset: $old -> $new"
   echo "Demo reset complete: the demo household is seeded at $HUB_URL"
   echo "Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings."
+}
+
+# snapshot and restore (#99) take exactly one name. $1 is the verb; the rest
+# are the arguments. Prints the usage or the name rule to stderr and returns 2
+# otherwise. The rule also keeps the name safe as a container path.
+check_snapshot_name() {
+  local verb="$1"
+  shift
+  if [ "$#" -ne 1 ]; then
+    echo "Usage: demo $verb <name>" >&2
+    return 2
+  fi
+  if ! [[ $1 =~ $SNAPSHOT_NAME_RE ]]; then
+    echo "Snapshot names use letters, digits, '.', '_' and '-', start with a letter or digit, and are at most 64 characters." >&2
+    return 2
+  fi
+  return 0
+}
+
+# Created on the host before docker mounts it, so docker does not create a
+# root-owned mount point.
+ensure_snapshots_dir() {
+  if ! mkdir -p "$SNAPSHOTS_DIR" 2>/dev/null; then
+    echo "Could not create demo/.data/snapshots." >&2
+    return 1
+  fi
+  return 0
+}
+
+# snapshot (#99): stop only Azurite (it saves its store on SIGINT), copy
+# demo/.data/azurite to demo/.data/snapshots/<name>, start Azurite again. The
+# api and web keep running, so the organizer stays signed in. The copy runs
+# inside an azurite container: on Linux the files are root-owned. cp -R, not
+# -a, so the new folder's date is the snapshot time (snapshots lists it).
+cmd_snapshot() {
+  local name rc=0
+  check_snapshot_name snapshot "$@" || return $?
+  name="$1"
+  if [ -e "$SNAPSHOTS_DIR/$name" ]; then
+    echo "Snapshot $name already exists in demo/.data/snapshots. Pick another name, or delete that folder first." >&2
+    return 1
+  fi
+  check_local_target snapshot || return 1
+  ensure_snapshots_dir || return 1
+
+  echo "Stopping Azurite ..."
+  compose stop azurite || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not stop Azurite. No snapshot was taken." >&2
+    return "$rc"
+  fi
+
+  echo "Copying demo/.data/azurite to demo/.data/snapshots/$name ..."
+  local copy_rc=0
+  compose run --rm --no-deps -T -v "$SNAPSHOTS_DIR:/snapshots" --entrypoint cp azurite -R /data "/snapshots/$name" || copy_rc=$?
+  if [ "$copy_rc" -ne 0 ]; then
+    echo "Could not copy demo/.data/azurite to demo/.data/snapshots/$name." >&2
+    # Best effort: drop the partial copy, then still start Azurite.
+    compose run --rm --no-deps -T -v "$SNAPSHOTS_DIR:/snapshots" --entrypoint rm azurite -rf "/snapshots/$name" || true
+  fi
+
+  echo "Starting Azurite ..."
+  compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" azurite || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Azurite did not become healthy. Run the logs command to see why." >&2
+    return "$rc"
+  fi
+  if [ "$copy_rc" -ne 0 ]; then
+    return "$copy_rc"
+  fi
+  echo "Snapshot saved: demo/.data/snapshots/$name"
+}
+
+# restore (#99): stop the stack (down, so the api container is recreated and
+# provisions its tables against the restored data), replace demo/.data/azurite
+# with the snapshot inside an azurite container, start the stack as reset
+# does, sign in with the PIN and change the dataset id, so the hub drops its
+# offline cache. The snapshot itself is never changed, so restore repeats.
+cmd_restore() {
+  local name snap new returned body token="" rc=0
+  check_snapshot_name restore "$@" || return $?
+  name="$1"
+  check_pin || return 1
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl was not found. Install curl to run restore." >&2
+    return 1
+  fi
+  if [ ! -d "$SNAPSHOTS_DIR/$name" ]; then
+    echo "No snapshot named $name in demo/.data/snapshots. Run the snapshots command to list them." >&2
+    return 1
+  fi
+  check_local_target restore || return 1
+
+  echo "Stopping the demo stack ..."
+  # Never -v. Azurite saves its store on SIGINT, so replace it only after down.
+  compose down || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not stop the demo stack. Nothing was restored." >&2
+    return "$rc"
+  fi
+
+  echo "Restoring demo/.data/azurite from demo/.data/snapshots/$name ..."
+  compose run --rm --no-deps -T --entrypoint find azurite /data -mindepth 1 -delete || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    # "/." copies the snapshot's contents into /data, not a folder named $name.
+    compose run --rm --no-deps -T -v "$SNAPSHOTS_DIR:/snapshots" --entrypoint cp azurite -R "/snapshots/$name/." /data || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not restore demo/.data/azurite from demo/.data/snapshots/$name. Run restore again, or reset." >&2
+    return "$rc"
+  fi
+
+  start_stack || return $?
+
+  # The id the restored data holds (the API reads it from storage).
+  snap="$(dataset_id)"
+  [ -z "$snap" ] && snap="unavailable"
+
+  # Sign in once, after the restart, with no retry: five wrong PINs lock
+  # sign-in. The PIN goes to curl on stdin, not in argv.
+  echo "Signing in with the demo PIN ..."
+  token="$(printf '{"pin":"%s"}' "$(demo_pin)" \
+    | curl -fsS --max-time 30 -X POST "$PIN_SIGN_IN_URL" -H 'Content-Type: application/json' --data-binary @- 2>/dev/null \
+    | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || token=""
+  if [ -z "$token" ]; then
+    echo "PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run restore again." >&2
+    return 1
+  fi
+
+  echo "Changing the dataset id ..."
+  body="$(curl -fsS --max-time 30 -X POST "$REGENERATE_URL" -H "Authorization: Bearer $token" -d '' 2>/dev/null)" || body=""
+  returned="$(sed -n 's/.*"datasetId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$body")" || returned=""
+  if [ -z "$returned" ]; then
+    echo "Changing the dataset id failed. Run the logs command to see why." >&2
+    return 1
+  fi
+
+  new="$(dataset_id)"
+  if [ -z "$new" ] || [ "$new" != "$returned" ] || [ "$new" = "$snap" ]; then
+    echo "The dataset id did not change after the restore. Run the logs command to see why." >&2
+    return 1
+  fi
+  echo "Dataset: $snap -> $new"
+  echo "Restore complete: the demo data matches snapshot $name at $HUB_URL"
+  echo "Sign in with the PIN again: the restore restarted the API. Tablets paired after the snapshot was taken must pair again, and the new dataset id makes the hub drop its offline cache and queued writes."
+}
+
+# Prints the last-modified time of $1 in whole seconds (GNU stat, then BSD).
+mtime_epoch() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
+}
+
+# Prints epoch $1 as local YYYY-MM-DD HH:MM (GNU date, then BSD).
+format_epoch() {
+  date -d "@$1" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r "$1" '+%Y-%m-%d %H:%M'
+}
+
+# snapshots (#99): list the snapshot folders, newest first (ties by name),
+# with their dates. Skips files and folders that are not valid names. Ignores
+# extra arguments, like status.
+cmd_snapshots() {
+  local d name epoch lines="" tab sorted when
+  tab="$(printf '\t')"
+  if [ -d "$SNAPSHOTS_DIR" ]; then
+    for d in "$SNAPSHOTS_DIR"/* "$SNAPSHOTS_DIR"/.[!.]* "$SNAPSHOTS_DIR"/..?*; do
+      [ -d "$d" ] || continue
+      name="$(basename "$d")"
+      [[ $name =~ $SNAPSHOT_NAME_RE ]] || continue
+      epoch="$(mtime_epoch "$d")" || continue
+      lines="$lines$epoch$tab$name
+"
+    done
+  fi
+  if [ -z "$lines" ]; then
+    echo "No snapshots in demo/.data/snapshots. Take one with the snapshot command."
+    return 0
+  fi
+  sorted="$(printf '%s' "$lines" | LC_ALL=C sort -t "$tab" -k1,1nr -k2,2)"
+  echo "Snapshots in demo/.data/snapshots (newest first):"
+  while IFS="$tab" read -r epoch name; do
+    [ -z "$name" ] && continue
+    when="$(format_epoch "$epoch")"
+    echo "  $when  $name"
+  done <<EOF
+$sorted
+EOF
 }
 
 cmd_status() {
