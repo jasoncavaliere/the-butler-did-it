@@ -28,7 +28,7 @@ sources:
   - { id: xda-fire-unlock, resource: https://xdaforums.com/t/unlock-fire-tablet-8-hd-10th-generation-bootloader-is-it-possible.4653382/, title: Fire tablet bootloader unlock status (XDA) }
   - { id: whalesdev-lineageos, resource: https://whalesdev.com/best-tablets-for-lineageos/, title: Tablets with LineageOS support 2026 (WhalesDev) }
   - { id: lineageos-devices, resource: https://wiki.lineageos.org/devices/, title: LineageOS - Devices wiki }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T16:59:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T17:47:15Z }
 ---
 
 # Hub Tablet Kiosk Setup
@@ -99,7 +99,14 @@ The hub is an offline-first PWA, and its service worker only registers over HTTP
 11. Restart the tablet: it should open on Butler with no swipe, and the home and recents buttons should do nothing. Then pair the hub: tap "Pair this tablet" after the organizer signs in (see [Organizer PIN](../../demo/README.md#organizer-pin)).
 12. Optional: add a Google account now if you want Play Store updates for Chrome and WebView.
 
-The provisioning script in [#128](https://github.com/jasoncavaliere/the-butler-did-it/issues/128) will automate steps 3 to 10 once it lands.
+The provisioning script, [provision-tablet.sh](../../demo/tablet/provision-tablet.sh) or its PowerShell twin [provision-tablet.ps1](../../demo/tablet/provision-tablet.ps1) ([#128](https://github.com/jasoncavaliere/the-butler-did-it/issues/128)), runs part of this path for you. Do steps 1 to 3 by hand first. Then see [Provisioning script](../../demo/tablet/README.md#provisioning-script) for how to run it. It checks the tablet before it changes anything, then:
+
+- Installs the EMM APK (step 4).
+- Makes Fully the device owner (step 6). It skips this when Fully is already the device owner.
+- Copies the settings file to the tablet with your start URL filled in. This is only the copy half of step 9: you still import it in Fully.
+- Keeps the screen on while the tablet charges.
+
+**The script does not set the kiosk PIN.** It removes the PIN line from the copy it pushes. After the import, set the PIN by hand in Kiosk Mode > Kiosk Mode PIN. Steps 7 and 8, the import in step 9, and steps 10 to 12 stay manual. That includes Lock Task Mode in step 10.
 
 ## Fire tablet path
 
@@ -204,7 +211,6 @@ If you still want it, find the exact model on the [LineageOS devices wiki](https
 
 ## What this runbook does not cover
 
-- The provisioning script that automates the Android steps ([#128](https://github.com/jasoncavaliere/the-butler-did-it/issues/128)).
 - Running these steps on a real tablet and recording the results ([#132](https://github.com/jasoncavaliere/the-butler-did-it/issues/132)).
 - The reference-device decision and its ADR ([#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163)).
 - A native Android shell (finding [F7](11-hub-hardware-findings.md#f7-adjacent-option-a-real-android-apk), deferred).
