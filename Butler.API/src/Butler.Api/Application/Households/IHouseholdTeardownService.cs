@@ -17,8 +17,14 @@ public interface IHouseholdTeardownService
     /// <param name="confirmName">The household name the organizer typed to confirm.</param>
     /// <param name="cancellationToken">Cancels the teardown.</param>
     /// <exception cref="HouseholdTeardownIncompleteException">
-    /// The household purge or the second sweep failed or was cancelled. The
-    /// <c>Households</c> row has been restored, so a retry finishes the purge (#294).
+    /// The household purge or the second sweep failed, or was cancelled other than
+    /// through <paramref name="cancellationToken"/>. The <c>Households</c> row has
+    /// been restored, so a retry finishes the purge (#294).
+    /// </exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled. If that happened during
+    /// the household purge or the second sweep, the <c>Households</c> row was
+    /// restored first, so a retry finishes the purge (#336).
     /// </exception>
     Task<HouseholdTeardownResult> TeardownAsync(
         string householdId,

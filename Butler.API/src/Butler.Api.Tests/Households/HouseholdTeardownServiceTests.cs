@@ -17,6 +17,10 @@ namespace Butler.Api.Tests.Households;
 /// or is cancelled, the household row is restored (with no request token) and
 /// <see cref="HouseholdTeardownIncompleteException"/> is thrown, so a retry
 /// finishes the purge.
+/// Criteria (#336 AC1a, AC1b, AC3): when the request token is cancelled during
+/// the household purge or the second sweep, the household row is still restored
+/// and the cancellation is rethrown unchanged (not wrapped), so the API answers
+/// <c>499</c> instead of a <c>500</c>.
 /// </summary>
 public sealed class HouseholdTeardownServiceTests
 {
@@ -146,6 +150,7 @@ public sealed class HouseholdTeardownServiceTests
 
         // The rooms purger writes a People row after People was swept, and the
         // People purger fails on its second call (sweep 2), so that row is left.
+        // The cancellation has no request token cancelled, so it is still wrapped (#336).
         Exception failure = cancel ? new OperationCanceledException() : new InvalidOperationException("storage down");
         var failingPeople = new ThrowOnCallPurger(new HouseholdPartitionPurger<PersonEntity>(people), 2, failure);
         var injectingRooms = new WriteInjectingPurger(
@@ -173,12 +178,13 @@ public sealed class HouseholdTeardownServiceTests
     }
 
     [Fact]
-    public async Task The_household_row_is_restored_without_the_request_token()
+    public async Task A_request_cancelled_in_sweep_two_restores_the_household_and_rethrows_the_cancellation()
     {
         var household = new HouseholdEntity { PartitionKey = HouseholdId, RowKey = HouseholdId, Name = "Home" };
         _households.GetAsync(HouseholdId, Arg.Any<CancellationToken>())
             .Returns(household, (HouseholdEntity?)null);
         using var cts = new CancellationTokenSource();
+        var cancellation = new OperationCanceledException(cts.Token);
         var peopleCalls = 0;
         _peoplePurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>())
             .Returns(_ =>
@@ -190,15 +196,39 @@ public sealed class HouseholdTeardownServiceTests
 
                 // The request is aborted mid sweep 2.
                 cts.Cancel();
-                return Task.FromException<int>(new OperationCanceledException(cts.Token));
+                return Task.FromException<int>(cancellation);
             });
 
-        var thrown = await Assert.ThrowsAsync<HouseholdTeardownIncompleteException>(
+        var thrown = await Assert.ThrowsAsync<OperationCanceledException>(
             () => CreateService().TeardownAsync(HouseholdId, "Home", cts.Token));
 
-        Assert.IsType<OperationCanceledException>(thrown.InnerException);
+        Assert.Same(cancellation, thrown);
         await _households.Received(1).GetAsync(HouseholdId, CancellationToken.None);
         await _households.Received(1).AddAsync(household, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_request_cancelled_during_the_household_purge_restores_the_row_and_rethrows_the_cancellation()
+    {
+        var household = new HouseholdEntity { PartitionKey = HouseholdId, RowKey = HouseholdId, Name = "Home" };
+        _households.GetAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(household, (HouseholdEntity?)null);
+        using var cts = new CancellationTokenSource();
+        var cancellation = new OperationCanceledException(cts.Token);
+        _householdPurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                // The request is aborted while the household row is being deleted.
+                cts.Cancel();
+                return Task.FromException<int>(cancellation);
+            });
+
+        var thrown = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => CreateService().TeardownAsync(HouseholdId, "Home", cts.Token));
+
+        Assert.Same(cancellation, thrown);
+        await _households.Received(1).AddAsync(household, CancellationToken.None);
+        await _peoplePurger.Received(1).PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
