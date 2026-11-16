@@ -398,8 +398,9 @@ succeeds:
 | `participant-claimed` | `ClaimPersonCommandHandler` | the claimed person is on the roster |
 
 They live in the handlers, not in `ChoreCompletionService`, `CaptureHandler` or
-`CartConfirmationService`, because the demo seeder calls those services directly and must not write fake
-usage on every seed. For complete, undo and confirm the service returns a result record
+`CartConfirmationService`, so the services stay free of usage recording: the demo seeder calls the first
+two directly (it completes three chores and adds four cart items) and must not write fake usage on every
+seed. For complete, undo and confirm the service returns a result record
 (`CompleteChoreResult`, `UndoChoreResult`, `ConfirmCartResult`) that wraps the response with a
 `Changed` flag, and the handler records only when `Changed` is true, so an idempotent replay counts
 once (#218). The confirm handler also records nothing when the re-read finds the cart gone (for
@@ -418,8 +419,12 @@ minutes; the API does not dedupe them.
 | `POST /households/{householdId}/events` | Records a client usage event (`{ "type": "hub-glanced" }`). Returns `204`. Any other type, or an empty body, is a `400` RFC 7807 document and records nothing; an unknown `householdId` is `404`. Requires only authentication (a paired hub device, participant session or organizer), not the `Organizer` policy. |
 
 Known limits, accepted by design: a glance replayed after an outage is stamped with the server time of
-the replay; and `Events` is not purged by the demo re-seed or by household teardown (#124). The feature
-registers via `AddEventsFeature()` in `Program.cs`, last, so `Events` is the last table provisioned.
+the replay; and `Events` is not purged by the demo re-seed (`DemoHouseholdPurger` wipes only its eight
+named tables), so a re-seed keeps the household's earlier usage events. Household teardown does purge
+`Events` (#124): `AddEventsFeature` registers the table through `AddTableRepository`, which also
+registers its `IHouseholdPartitionPurger`, so `DELETE /households/{householdId}` deletes the household's
+`Events` partition with every other table. The feature registers via `AddEventsFeature()` in
+`Program.cs`, last, so `Events` is the last table provisioned.
 
 ### Insights (organizer read model, #123)
 
