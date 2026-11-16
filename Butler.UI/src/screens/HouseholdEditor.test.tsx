@@ -54,6 +54,39 @@ function problem(status: number, detail: string): ApiResult<never> {
   return { ok: false, error: { kind: 'problem', status, title: 'Problem', detail } };
 }
 
+/** A promise the test resolves by hand, to hold a write in flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** The editor-opening links on the default fixture (rooms r1/r2, chores c1-c3). */
+const EDITOR_LINKS = [
+  'edit-chore-c1',
+  'edit-chore-c2',
+  'edit-chore-c3',
+  'add-chore-r1',
+  'add-chore-r2',
+  'rename-room-r1',
+  'rename-room-r2',
+  'remove-room-r1',
+  'remove-room-r2',
+];
+
+/** Assert each listed link is held (disabled) or live. */
+function expectLinks(ids: string[], held: boolean) {
+  for (const id of ids) {
+    if (held) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+    } else {
+      expect(screen.getByTestId(id)).not.toBeDisabled();
+    }
+  }
+}
+
 /**
  * A client whose reads answer from a mutable server snapshot (so a test can
  * change what a reload sees) and whose writes run the supplied handler.
@@ -411,6 +444,192 @@ describe('HouseholdEditor', () => {
       finish(ok({ ...DISHES, active: false }));
     });
     expect(screen.getByTestId('deactivate-chore-c2')).not.toBeDisabled();
+  });
+
+  it('holds the editor links while a chore save is in flight, then shows the saved chore', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, update } = editorClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('edit-chore-c1');
+    await type('chore-form-title', 'Dishes and pots');
+    await press('chore-form-save');
+
+    // The edit form replaces c1's row, so its Edit link is not rendered.
+    expect(screen.queryByTestId('edit-chore-c1')).toBeNull();
+    expectLinks(
+      EDITOR_LINKS.filter((id) => id !== 'edit-chore-c1'),
+      true,
+    );
+    await press('edit-chore-c2');
+    await press('add-chore-r2');
+    await press('rename-room-r2');
+    await press('remove-room-r1');
+    // Nothing opened: still the one c1 form, unchanged, and no refusal notice.
+    expect(screen.getAllByTestId('chore-form')).toHaveLength(1);
+    expect(screen.getByTestId('chore-form-title').props.value).toBe('Dishes and pots');
+    expect(screen.queryByTestId('rename-room-input-r2')).toBeNull();
+    expect(screen.queryByTestId('household-notice')).toBeNull();
+
+    await act(async () => {
+      held.resolve(ok({ ...DISHES, title: 'Dishes and pots', eTag: 'W/"c1-v2"' }));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('chore-form')).toBeNull();
+    expect(screen.getByTestId('chore-title-c1')).toHaveTextContent('Dishes and pots');
+    expect(screen.getByTestId('chore-title-c2')).toHaveTextContent('Sweep');
+    expectLinks(EDITOR_LINKS, false);
+  });
+
+  it('holds the editor links while an add chore is in flight, then lists the new chore', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, update } = editorClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('add-chore-r2');
+    await type('chore-form-title', 'Oil change');
+    await press('chore-form-save');
+
+    expectLinks(EDITOR_LINKS, true);
+    await press('rename-room-r1');
+    await press('edit-chore-c1');
+    expect(screen.queryByTestId('rename-room-input-r1')).toBeNull();
+    expect(screen.getAllByTestId('chore-form')).toHaveLength(1);
+    expect(screen.getByTestId('chore-form-title').props.value).toBe('Oil change');
+
+    // Cancel while the add is in flight: the form stays closed when it finishes.
+    await press('chore-form-cancel');
+    expect(screen.queryByTestId('chore-form')).toBeNull();
+
+    const created: ChoreResponse = {
+      choreId: 'c9',
+      title: 'Oil change',
+      roomId: 'r2',
+      cadence: 'Weekly',
+      effort: 1,
+      minAge: null,
+      active: true,
+      eTag: 'W/"c9-v1"',
+    };
+    await act(async () => {
+      held.resolve(ok(created, 201));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(within(screen.getByTestId('room-r2')).getByTestId('chore-title-c9')).toHaveTextContent('Oil change');
+    expect(screen.queryByTestId('chore-form')).toBeNull();
+    expectLinks([...EDITOR_LINKS, 'edit-chore-c9'], false);
+  });
+
+  it('holds the editor links while a rename is in flight, then shows the new name', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, update } = editorClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('rename-room-r1');
+    await type('rename-room-input-r1', 'Galley');
+    await press('rename-room-save-r1');
+
+    expectLinks(EDITOR_LINKS, true);
+    await press('add-chore-r2');
+    await press('edit-chore-c3');
+    expect(screen.queryByTestId('chore-form')).toBeNull();
+    expect(screen.getByTestId('rename-room-input-r1').props.value).toBe('Galley');
+
+    // Cancel while the rename is in flight: the input stays closed when it finishes.
+    await press('rename-room-cancel-r1');
+
+    await act(async () => {
+      held.resolve(ok({ ...KITCHEN, name: 'Galley', eTag: 'W/"r1-v2"' }));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('room-name-r1')).toHaveTextContent('Galley');
+    expect(screen.queryByTestId('rename-room-input-r1')).toBeNull();
+    expectLinks(EDITOR_LINKS, false);
+  });
+
+  it('holds the editor links while a room remove is in flight, then drops the room', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, update } = editorClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('remove-room-r2');
+    await press('remove-room-confirm-r2');
+
+    expectLinks(EDITOR_LINKS, true);
+    await press('rename-room-r1');
+    await press('add-chore-r1');
+    await press('edit-chore-c1');
+    expect(screen.queryByTestId('rename-room-input-r1')).toBeNull();
+    expect(screen.queryByTestId('chore-form')).toBeNull();
+    expect(screen.getByTestId('remove-room-confirm-r2')).toBeOnTheScreen();
+
+    // Cancel while the remove is in flight: the confirmation stays closed when it finishes.
+    await press('remove-room-cancel-r2');
+
+    await act(async () => {
+      held.resolve({ ok: true, status: 204, data: undefined, etag: null });
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('room-r2')).toBeNull();
+    expect(within(screen.getByTestId('household-unroomed')).getByTestId('chore-c3')).toBeOnTheScreen();
+    expect(screen.queryByTestId('remove-room-confirm-r2')).toBeNull();
+    expectLinks(['edit-chore-c3', 'rename-room-r1'], false);
+  });
+
+  it('keeps a chore form open and unchanged when an add room finishes', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, update } = editorClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('add-chore-r2');
+    await type('chore-form-title', 'Oil change');
+    await type('new-room-name', 'Den');
+    await press('new-room-save');
+
+    expectLinks(EDITOR_LINKS, true);
+    await press('rename-room-r1');
+    await press('remove-room-r1');
+    await press('edit-chore-c1');
+    await press('add-chore-r1');
+    expect(screen.getAllByTestId('chore-form')).toHaveLength(1);
+    expect(screen.getByTestId('chore-form-room-r2').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.queryByTestId('rename-room-input-r1')).toBeNull();
+    expect(screen.queryByTestId('household-notice')).toBeNull();
+    await type('chore-form-title', 'Oil change soon');
+
+    await act(async () => {
+      held.resolve(ok({ roomId: 'r9', name: 'Den', sortOrder: 2, eTag: 'W/"r9-v1"' }, 201));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('room-name-r9')).toHaveTextContent('Den');
+    expect(screen.getByTestId('new-room-name').props.value).toBe('');
+    expect(screen.getAllByTestId('chore-form')).toHaveLength(1);
+    expect(screen.getByTestId('chore-form-title').props.value).toBe('Oil change soon');
+    expect(screen.getByTestId('chore-form-save')).not.toBeDisabled();
+  });
+
+  it('keeps a rename open and unchanged when a deactivate finishes', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, update } = editorClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('rename-room-r2');
+    await type('rename-room-input-r2', 'Shed');
+    await press('deactivate-chore-c1');
+
+    expectLinks(EDITOR_LINKS, true);
+    await press('edit-chore-c2');
+    await press('add-chore-r1');
+    expect(screen.queryByTestId('chore-form')).toBeNull();
+    expect(screen.getByTestId('rename-room-input-r2').props.value).toBe('Shed');
+
+    await act(async () => {
+      held.resolve(ok({ ...DISHES, active: false, eTag: 'W/"c1-v2"' }));
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('chore-meta-c1')).toHaveTextContent(/Inactive$/);
+    expect(screen.getByTestId('rename-room-input-r2').props.value).toBe('Shed');
+    expect(screen.getByTestId('rename-room-save-r2')).not.toBeDisabled();
   });
 
   it('removes a room with no active chores after confirm and a 204', async () => {

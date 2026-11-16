@@ -87,6 +87,32 @@ function formFor(chore: ChoreResponse): ChoreForm {
   };
 }
 
+/** The item an editor was opened for: its room, its anchor room, or its chore. */
+function editorTarget(editor: Editor): string {
+  switch (editor.kind) {
+    case 'rename-room':
+    case 'remove-room':
+      return editor.roomId;
+    case 'add-chore':
+      return editor.anchorRoomId;
+    case 'edit-chore':
+      return editor.choreId;
+  }
+}
+
+/**
+ * True when `editor` is the `kind` editor for `id` (a room id, an add's anchor
+ * room id, or a chore id). It matches by kind and target, not object identity,
+ * because every keystroke replaces the editor object.
+ */
+function isEditorFor<K extends Editor['kind']>(
+  editor: Editor | null,
+  kind: K,
+  id: string,
+): editor is Extract<Editor, { kind: K }> {
+  return editor?.kind === kind && editorTarget(editor) === id;
+}
+
 /**
  * The organizer's Household editor (#112): the household's rooms, each with its
  * chores, and the edits an organizer makes after setup. Every write goes through
@@ -100,6 +126,10 @@ function formFor(chore: ChoreResponse): ChoreForm {
  * server DELETE does not check, and dropping a room under live chores would
  * strand them. Chores whose room no longer exists are listed under "Not in a
  * room" so they stay reachable.
+ *
+ * Edit chore, Add chore, Rename and Remove room are held while a write is in
+ * flight, and a finishing write changes only the editor it was started for (a
+ * form cancelled meanwhile stays closed) while the list takes the server's result.
  */
 export function HouseholdEditor() {
   const client = useApiClient();
@@ -194,6 +224,16 @@ export function HouseholdEditor() {
   const unroomed = chores.filter((chore) => !roomIds.has(chore.roomId));
   const base = `/households/${householdId}`;
 
+  /** Apply `change` to the latest lists, not the ones captured when a write began. */
+  function updateLists(change: (lists: { rooms: RoomResponse[]; chores: ChoreResponse[] }) => {
+    rooms: RoomResponse[];
+    chores: ChoreResponse[];
+  }) {
+    setLoad((prev) =>
+      prev.phase === 'ready' ? { phase: 'ready', ...change({ rooms: prev.rooms, chores: prev.chores }) } : prev,
+    );
+  }
+
   /** Begin a write: clear the last message and hold every write button. */
   function begin() {
     setNotice(null);
@@ -213,7 +253,8 @@ export function HouseholdEditor() {
       fail(result.error);
       return;
     }
-    setLoad({ phase: 'ready', rooms: [...rooms, result.data], chores });
+    const added = result.data;
+    updateLists((lists) => ({ ...lists, rooms: [...lists.rooms, added] }));
     setNewRoomName('');
   }
 
@@ -229,12 +270,12 @@ export function HouseholdEditor() {
       fail(result.error);
       return;
     }
-    setLoad({
-      phase: 'ready',
-      rooms: rooms.map((r) => (r.roomId === room.roomId ? result.data : r)),
-      chores,
-    });
-    setEditor(null);
+    const renamed = result.data;
+    updateLists((lists) => ({
+      ...lists,
+      rooms: lists.rooms.map((r) => (r.roomId === room.roomId ? renamed : r)),
+    }));
+    setEditor((cur) => (isEditorFor(cur, 'rename-room', room.roomId) ? null : cur));
   }
 
   function requestRemoveRoom(room: RoomResponse) {
@@ -258,8 +299,8 @@ export function HouseholdEditor() {
       fail(result.error);
       return;
     }
-    setLoad({ phase: 'ready', rooms: rooms.filter((r) => r.roomId !== room.roomId), chores });
-    setEditor(null);
+    updateLists((lists) => ({ ...lists, rooms: lists.rooms.filter((r) => r.roomId !== room.roomId) }));
+    setEditor((cur) => (isEditorFor(cur, 'remove-room', room.roomId) ? null : cur));
   }
 
   async function saveChore(current: Extract<Editor, { kind: 'add-chore' | 'edit-chore' }>) {
@@ -280,8 +321,10 @@ export function HouseholdEditor() {
         fail(result.error);
         return;
       }
-      setLoad({ phase: 'ready', rooms, chores: [...chores, result.data] });
-      setEditor(null);
+      const added = result.data;
+      const { anchorRoomId } = current;
+      updateLists((lists) => ({ ...lists, chores: [...lists.chores, added] }));
+      setEditor((cur) => (isEditorFor(cur, 'add-chore', anchorRoomId) ? null : cur));
       return;
     }
     const chore = chores.find((c) => c.choreId === current.choreId) as ChoreResponse;
@@ -295,12 +338,12 @@ export function HouseholdEditor() {
       fail(result.error);
       return;
     }
-    setLoad({
-      phase: 'ready',
-      rooms,
-      chores: chores.map((c) => (c.choreId === chore.choreId ? result.data : c)),
-    });
-    setEditor(null);
+    const saved = result.data;
+    updateLists((lists) => ({
+      ...lists,
+      chores: lists.chores.map((c) => (c.choreId === chore.choreId ? saved : c)),
+    }));
+    setEditor((cur) => (isEditorFor(cur, 'edit-chore', chore.choreId) ? null : cur));
   }
 
   async function deactivateChore(chore: ChoreResponse) {
@@ -315,11 +358,11 @@ export function HouseholdEditor() {
       fail(result.error);
       return;
     }
-    setLoad({
-      phase: 'ready',
-      rooms,
-      chores: chores.map((c) => (c.choreId === chore.choreId ? result.data : c)),
-    });
+    const deactivated = result.data;
+    updateLists((lists) => ({
+      ...lists,
+      chores: lists.chores.map((c) => (c.choreId === chore.choreId ? deactivated : c)),
+    }));
   }
 
   function choreFormValid(form: ChoreForm): boolean {
@@ -432,6 +475,7 @@ export function HouseholdEditor() {
         <View style={styles.links}>
           <LinkButton
             testID={`edit-chore-${chore.choreId}`}
+            disabled={busy}
             onPress={() => {
               setNotice(null);
               setEditor({ kind: 'edit-chore', choreId: chore.choreId, form: formFor(chore) });
@@ -522,6 +566,7 @@ export function HouseholdEditor() {
         <View style={styles.links}>
           <LinkButton
             testID={`add-chore-${room.roomId}`}
+            disabled={busy}
             onPress={() => {
               setNotice(null);
               setEditor({
@@ -535,6 +580,7 @@ export function HouseholdEditor() {
           </LinkButton>
           <LinkButton
             testID={`rename-room-${room.roomId}`}
+            disabled={busy}
             onPress={() => {
               setNotice(null);
               setEditor({ kind: 'rename-room', roomId: room.roomId, name: room.name });
@@ -542,7 +588,11 @@ export function HouseholdEditor() {
           >
             Rename
           </LinkButton>
-          <LinkButton testID={`remove-room-${room.roomId}`} onPress={() => requestRemoveRoom(room)}>
+          <LinkButton
+            testID={`remove-room-${room.roomId}`}
+            disabled={busy}
+            onPress={() => requestRemoveRoom(room)}
+          >
             Remove room
           </LinkButton>
         </View>
