@@ -108,6 +108,8 @@ touching anything under `public/` or `scripts/`.
   enables Delete only when the household's name is typed exactly and the hub is online. On success
   the hub forgets the household (its offline cache and write queue, the hub-device token, and the
   organizer session), shows "Household deleted" for 3 s, and then opens the setup wizard.
+  Tablet setup is wired (#248): it opens a short static page on charging, mounting, and locking down
+  the hub tablet, with a link to the full setup article and a Done button back to the hub.
 - The hub has a hidden organizer menu for the kiosk tablet (`HiddenOrganizerMenu`, #131): hold the
   household name for 3 s, then enter the organizer PIN. It shows the API base URL, whether
   `GET /api/system/ping` answers, the current dataset id, and the hub and API build versions, and

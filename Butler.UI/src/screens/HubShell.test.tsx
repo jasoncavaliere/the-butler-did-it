@@ -941,6 +941,41 @@ describe('HubShell', () => {
       expect(screen.queryByTestId('affordance-your-data')).toBeNull();
     });
 
+    it('passes onShowTabletSetup to the organizer bar', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+      const onShowTabletSetup = jest.fn();
+
+      await renderHubWithOrganizer(fakeProvider(), { onShowTabletSetup });
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+
+      // Hidden until an organizer signs in.
+      expect(screen.queryByTestId('affordance-tablet-setup')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('affordance-tablet-setup'));
+      });
+
+      expect(onShowTabletSetup).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no Tablet setup button when the hub is not given onShowTabletSetup', async () => {
+      const client = interactiveClient();
+      useApiClientMock.mockReturnValue(client);
+
+      await renderHubWithOrganizer(fakeProvider());
+      await waitFor(() => expect(screen.getByTestId('name-tile-p1')).toBeOnTheScreen());
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('organizer-sign-in'));
+      });
+
+      expect(screen.getByTestId('organizer-identity')).toBeOnTheScreen();
+      expect(screen.queryByTestId('affordance-tablet-setup')).toBeNull();
+    });
+
     it('Version opens a panel that renders VersionInfo, and Close hides it', async () => {
       const client = interactiveClient();
       useApiClientMock.mockReturnValue(client);

@@ -256,6 +256,49 @@ describe('RootNavigator', () => {
     expect(await screen.findByTestId('your-data-stored')).toBeOnTheScreen();
   });
 
+  it('opens the Tablet setup screen from the organizer bar (#248)', async () => {
+    useApiClientMock.mockReturnValue(pathAwareClient());
+
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-77">
+        <OrganizerProvider authProvider={organizerAuth}>
+          <RootNavigator />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+
+    expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+    await press('organizer-sign-in');
+    // One tap on the bar opens the screen.
+    await press('affordance-tablet-setup');
+
+    expect(await screen.findByTestId('tablet-setup-screen')).toBeOnTheScreen();
+    expect(screen.getByTestId('tablet-setup-point-charging')).toBeOnTheScreen();
+    expect(screen.getByTestId('tablet-setup-article-link')).toBeOnTheScreen();
+  });
+
+  it('Done on Tablet setup returns to the hub (#248 AC5)', async () => {
+    useApiClientMock.mockReturnValue(pathAwareClient());
+
+    await render(
+      <HouseholdProvider initialHouseholdId="hh-77">
+        <OrganizerProvider authProvider={organizerAuth}>
+          <RootNavigator />
+        </OrganizerProvider>
+      </HouseholdProvider>,
+    );
+
+    expect(await screen.findByTestId('hub-shell')).toBeOnTheScreen();
+    await press('organizer-sign-in');
+    await press('affordance-tablet-setup');
+    expect(await screen.findByTestId('tablet-setup-screen')).toBeOnTheScreen();
+
+    await press('tablet-setup-done');
+
+    await waitFor(() => expect(screen.queryByTestId('tablet-setup-screen')).toBeNull());
+    expect(screen.getByTestId('hub-shell')).toBeOnTheScreen();
+  });
+
   it('opens the Roster screen from the organizer bar', async () => {
     const { client } = rosterServerClient();
     useApiClientMock.mockReturnValue(client);
