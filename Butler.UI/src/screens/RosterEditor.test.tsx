@@ -506,9 +506,9 @@ describe('RosterEditor', () => {
     expect(screen.getByTestId('roster-add-person')).not.toBeDisabled();
   });
 
-  it('keeps the editor closed when a save cancelled in flight comes back 412', async () => {
+  it('tells the organizer and shows the latest person, with the form still closed, when a save cancelled in flight comes back 412', async () => {
     const held = deferred<ApiResult<unknown>>();
-    const { client } = rosterClient(() => held.promise);
+    const { client, server, get, update } = rosterClient(() => held.promise);
     await renderEditor(client);
 
     await press('roster-edit-p1');
@@ -517,13 +517,54 @@ describe('RosterEditor', () => {
     await press('roster-form-cancel');
     expect(screen.queryByTestId('roster-form')).toBeNull();
 
+    server.person.p1 = ok(
+      personRead({ ...ALEX, displayName: 'Alex (other tablet)', isChild: true, claimColor: GRASS }, 'Organizer', 'W/"p1-v5"'),
+    );
     await act(async () => {
       held.resolve({ ok: false, error: { kind: 'problem', status: 412, title: 'Precondition Failed' } });
     });
+
+    // AC1: the organizer is told the person changed elsewhere.
+    expect(screen.getByTestId('roster-notice')).toHaveTextContent(
+      'Someone else changed this person, so your edit was not saved. The list now shows the latest.',
+    );
+    // AC1b: the list shows the person's current data.
+    expect(get).toHaveBeenLastCalledWith('/households/hh-1/people/p1');
+    expect(screen.getByTestId('roster-name-p1')).toHaveTextContent('Alex (other tablet)');
+    expect(screen.getByTestId('roster-child-p1')).toHaveTextContent('Child');
+    expect(StyleSheet.flatten(screen.getByTestId('roster-color-p1').props.style).backgroundColor).toBe(GRASS);
+    // AC2: the cancelled form stays closed and the edit is not re-sent.
     expect(screen.queryByTestId('roster-form')).toBeNull();
     expect(screen.queryByTestId('roster-stale')).toBeNull();
-    expect(screen.getByTestId('roster-name-p1')).toHaveTextContent('Alex');
+    expect(update).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('roster-edit-p1')).not.toBeDisabled();
+    expect(screen.getByTestId('roster-add-person')).not.toBeDisabled();
+  });
+
+  it('shows the read error and re-reads the list when a cancelled save comes back 412 and that person is gone', async () => {
+    const held = deferred<ApiResult<unknown>>();
+    const { client, server, get, update } = rosterClient(() => held.promise);
+    await renderEditor(client);
+
+    await press('roster-edit-p1');
+    await type('input-person-name', 'Alexis');
+    await press('roster-form-save');
+    await press('roster-form-cancel');
+
+    server.person.p1 = problem(404, 'That person is no longer in this household.');
+    server.people = ok([SAM]);
+    await act(async () => {
+      held.resolve({ ok: false, error: { kind: 'problem', status: 412, title: 'Precondition Failed' } });
+    });
+
+    expect(screen.getByTestId('roster-notice')).toHaveTextContent('That person is no longer in this household.');
+    expect(get).toHaveBeenLastCalledWith('/households/hh-1/people');
+    expect(screen.queryByTestId('roster-person-p1')).toBeNull();
+    expect(screen.getByTestId('roster-person-p2')).toBeOnTheScreen();
+    expect(screen.queryByTestId('roster-form')).toBeNull();
+    expect(screen.queryByTestId('roster-stale')).toBeNull();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('roster-add-person')).not.toBeDisabled();
   });
 
   it('keeps what was typed during a save that comes back 412', async () => {

@@ -747,7 +747,9 @@ re-sending the edit; any other failure, such as a `400`, shows the problem-detai
 for a confirmation that names the person, then sends a DELETE with no `If-Match`. While a save, add or
 remove is in flight the Edit, Remove and Add person controls are held, and a finishing write changes only
 the editor it was started for (a form cancelled meanwhile stays closed, and a `412` keeps what was typed)
-while the list takes the server's result. Nothing regenerates the
+while the list takes the server's result. A `412` for a save whose form was cancelled meanwhile shows a
+"changed elsewhere" notice and re-reads that person into the list (or, if that read fails, shows its
+message and re-reads the list); the form stays closed. Nothing regenerates the
 current week: a removed person's assignments stay on the board, where `ChoreBoard` shows an assignee
 missing from the roster as "Unassigned" instead of the raw id. The native stack keeps Home mounted under
 the pushed route, so `RootNavigator`'s Home bumps a `refreshSignal` when it regains focus after a blur, and
