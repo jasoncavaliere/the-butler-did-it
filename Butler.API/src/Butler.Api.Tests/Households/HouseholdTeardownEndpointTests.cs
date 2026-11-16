@@ -26,6 +26,10 @@ namespace Butler.Api.Tests.Households;
 /// Criteria (#223 AC1-AC3): a row written into an already-purged table mid-teardown
 /// is swept again, so the completed teardown leaves no row and the household is
 /// <c>404</c>.
+/// Criteria (#294 AC1-AC3): when the second sweep throws or is cancelled, the
+/// <c>DELETE</c> is an RFC 7807 <c>500</c> with <c>reason</c>
+/// <c>teardownIncomplete</c>, the household is still readable, and a retry
+/// finishes the purge.
 /// </summary>
 public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFactory>
 {
@@ -226,6 +230,40 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_failure_in_sweep_two_is_a_teardown_incomplete_problem_and_a_retry_finishes_the_purge(bool cancel)
+    {
+        SweepTwoFailingPurger? failing = null;
+        using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IHouseholdPartitionPurger>(sp =>
+                    failing = new SweepTwoFailingPurger(sp.GetRequiredService<IEntityRepository<PersonEntity>>(), cancel))));
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+
+        using (var response = await TearDownAsync(client, householdId))
+        {
+            await AssertProblemAsync(response, HttpStatusCode.InternalServerError);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal("Household teardown did not finish.", doc.RootElement.GetProperty("title").GetString());
+            Assert.Equal("teardownIncomplete", doc.RootElement.GetProperty("reason").GetString());
+            Assert.Equal(householdId, doc.RootElement.GetProperty("householdId").GetString());
+        }
+
+        Assert.NotNull(failing);
+        Assert.Equal(2, failing.Calls);
+        Assert.Equal(HttpStatusCode.OK, await GetHouseholdStatusAsync(client, householdId));
+        Assert.Equal(1, await CountRowsAsync(factory.Services, typeof(PersonEntity), householdId));
+
+        using var retry = await TearDownAsync(client, householdId);
+
+        Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, await GetHouseholdStatusAsync(client, householdId));
+        Assert.All(await CountAllAsync(factory.Services, householdId), pair => Assert.Equal(0, pair.Value));
+    }
+
+    [Theory]
     [InlineData("{}")]
     [InlineData("{\"confirmName\":\"\"}")]
     [InlineData("{\"confirmName\":\"   \"}")]
@@ -376,6 +414,38 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // Registered last, so it runs after the real purgers in each sweep. On its
+    // second call (sweep 2 of the first DELETE) it writes a People row and then
+    // fails, so the failure leaves a row behind; every other call is a no-op.
+    private sealed class SweepTwoFailingPurger : IHouseholdPartitionPurger
+    {
+        private readonly IEntityRepository<PersonEntity> _people;
+        private readonly bool _cancel;
+
+        public SweepTwoFailingPurger(IEntityRepository<PersonEntity> people, bool cancel)
+        {
+            _people = people;
+            _cancel = cancel;
+        }
+
+        public int Calls { get; private set; }
+
+        public Type EntityType => typeof(PersonEntity);
+
+        public async Task<int> PurgeAsync(string householdId, CancellationToken cancellationToken = default)
+        {
+            if (++Calls != 2)
+            {
+                return 0;
+            }
+
+            await _people.UpsertAsync(householdId, new PersonEntity { RowKey = "late" }, cancellationToken);
+            throw _cancel
+                ? new OperationCanceledException()
+                : new InvalidOperationException("storage down");
+        }
     }
 
     // Registered after the People purger, so it runs once People is already

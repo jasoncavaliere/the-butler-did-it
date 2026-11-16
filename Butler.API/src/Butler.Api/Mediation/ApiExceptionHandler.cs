@@ -2,6 +2,7 @@ using Butler.Api.Application.Assignments;
 using Butler.Api.Application.Carts;
 using Butler.Api.Application.Concurrency;
 using Butler.Api.Application.Demo;
+using Butler.Api.Application.Households;
 using Butler.Api.Application.People;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
@@ -69,6 +70,14 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
             context.ProblemDetails.Extensions["currentWeekIso"] = weekNotCurrent.CurrentWeekIso;
         }
 
+        // A teardown that stopped after the household row was deleted has put the
+        // row back; the reason tells a client a retry of the DELETE finishes it (#294).
+        if (exception is HouseholdTeardownIncompleteException teardownIncomplete)
+        {
+            context.ProblemDetails.Extensions["reason"] = "teardownIncomplete";
+            context.ProblemDetails.Extensions["householdId"] = teardownIncomplete.HouseholdId;
+        }
+
         return await _problemDetailsService.TryWriteAsync(context);
     }
 
@@ -95,6 +104,10 @@ public sealed partial class ApiExceptionHandler : IExceptionHandler
         // absent (404), not forbidden (#97, #106).
         DemoSeedingNotAllowedException
             => (StatusCodes.Status404NotFound, "Demo seeding is not available in this environment."),
+        // A teardown that failed after the household row was deleted; the row is
+        // restored, so the DELETE can be retried (#294).
+        HouseholdTeardownIncompleteException
+            => (StatusCodes.Status500InternalServerError, "Household teardown did not finish."),
         DataAnnotationsValidationException => (StatusCodes.Status400BadRequest, "Validation failed."),
         // Validators that ship with later features (for example FluentValidation)
         // are surfaced by matching on the type name, so this handler does not

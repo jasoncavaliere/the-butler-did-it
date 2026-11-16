@@ -11,10 +11,14 @@ namespace Butler.Api.Application.Households;
 /// table first, so a teardown that fails part way leaves the household readable
 /// and the organizer can retry. It then deletes the household's own row and
 /// sweeps every other table again, so a row written into an already-purged table
-/// while the first sweep ran is deleted too (#223). Known limits: a write that
+/// while the first sweep ran is deleted too (#223). If the household purge or
+/// the second sweep throws or is cancelled, it puts the household row back and
+/// throws <see cref="HouseholdTeardownIncompleteException"/>, so a retry finds the
+/// household and finishes the purge (#294). Known limits: a write that
 /// authenticated before the household row was deleted but commits after the
-/// second sweep can still leave an orphan row, and a failure in the second sweep
-/// cannot be retried through teardown because the household is already gone.
+/// second sweep can still leave an orphan row, and if restoring the row also
+/// fails, that failure propagates and the remaining rows are unreachable through
+/// teardown.
 /// </summary>
 public sealed class HouseholdTeardownService : IHouseholdTeardownService
 {
@@ -61,10 +65,34 @@ public sealed class HouseholdTeardownService : IHouseholdTeardownService
         // participant sessions and hub-device tokens stop authenticating, so
         // sweep 2 catches what landed in an already-purged table meanwhile.
         await PurgeAllAsync(_partitionPurgers, householdId, cancellationToken).ConfigureAwait(false);
-        await PurgeAllAsync(_householdPurgers, householdId, cancellationToken).ConfigureAwait(false);
-        await PurgeAllAsync(_partitionPurgers, householdId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await PurgeAllAsync(_householdPurgers, householdId, cancellationToken).ConfigureAwait(false);
+            await PurgeAllAsync(_partitionPurgers, householdId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Covers cancellation too. Without the household row a retry would be
+            // a 404 and the rows left behind would be unreachable (#294), so put it
+            // back, then always rethrow. A failed restore propagates on its own.
+            await RestoreHouseholdAsync(householdId, household).ConfigureAwait(false);
+            throw HouseholdTeardownIncompleteException.ForHousehold(householdId, ex);
+        }
 
         return HouseholdTeardownResult.Deleted;
+    }
+
+    // Runs with CancellationToken.None on purpose: the request token may be the
+    // very thing that stopped the teardown, and the restore must still land so
+    // the household stays reachable for a retry. Only re-adds a missing row:
+    // adding over an existing key throws.
+    private async Task RestoreHouseholdAsync(string householdId, HouseholdEntity household)
+    {
+        var current = await _households.GetAsync(householdId, CancellationToken.None).ConfigureAwait(false);
+        if (current is null)
+        {
+            await _households.AddAsync(household, CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     private static async Task PurgeAllAsync(

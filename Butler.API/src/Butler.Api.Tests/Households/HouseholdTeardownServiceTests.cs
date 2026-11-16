@@ -13,6 +13,10 @@ namespace Butler.Api.Tests.Households;
 /// confirmation name; otherwise it runs every registered purger, then the
 /// household row's, then every other purger again, so a write that lands in an
 /// already-purged table mid-teardown does not survive it.
+/// Criteria (#294 AC1, AC3): when the household purge or the second sweep throws
+/// or is cancelled, the household row is restored (with no request token) and
+/// <see cref="HouseholdTeardownIncompleteException"/> is thrown, so a retry
+/// finishes the purge.
 /// </summary>
 public sealed class HouseholdTeardownServiceTests
 {
@@ -125,6 +129,116 @@ public sealed class HouseholdTeardownServiceTests
         Assert.Empty(await householdRows.ListAsync(HouseholdId));
         Assert.Empty(await people.ListAsync(HouseholdId));
         Assert.Empty(await rooms.ListAsync(HouseholdId));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_failure_after_sweep_one_restores_the_household_and_a_retry_finishes_the_purge(bool cancel)
+    {
+        var householdRows = new InMemoryEntityRepository<HouseholdEntity>();
+        var people = new InMemoryEntityRepository<PersonEntity>();
+        var rooms = new InMemoryEntityRepository<RoomEntity>();
+        var households = new TableHouseholdRepository(householdRows);
+        await households.AddAsync(new HouseholdEntity { RowKey = HouseholdId, Name = "Home" });
+        await people.AddAsync(HouseholdId, new PersonEntity { RowKey = "organizer" });
+        await rooms.AddAsync(HouseholdId, new RoomEntity { RowKey = "kitchen" });
+
+        // The rooms purger writes a People row after People was swept, and the
+        // People purger fails on its second call (sweep 2), so that row is left.
+        Exception failure = cancel ? new OperationCanceledException() : new InvalidOperationException("storage down");
+        var failingPeople = new ThrowOnCallPurger(new HouseholdPartitionPurger<PersonEntity>(people), 2, failure);
+        var injectingRooms = new WriteInjectingPurger(
+            new HouseholdPartitionPurger<RoomEntity>(rooms),
+            ct => people.AddAsync(HouseholdId, new PersonEntity { RowKey = "late" }, ct));
+        var service = new HouseholdTeardownService(
+            households,
+            [new HouseholdPartitionPurger<HouseholdEntity>(householdRows), failingPeople, injectingRooms]);
+
+        var thrown = await Assert.ThrowsAsync<HouseholdTeardownIncompleteException>(
+            () => service.TeardownAsync(HouseholdId, "Home"));
+
+        Assert.Same(failure, thrown.InnerException);
+        Assert.Equal(HouseholdId, thrown.HouseholdId);
+        Assert.Equal(2, failingPeople.Calls);
+        Assert.NotNull(await households.GetAsync(HouseholdId));
+        Assert.Single(await people.ListAsync(HouseholdId));
+
+        Assert.Equal(HouseholdTeardownResult.Deleted, await service.TeardownAsync(HouseholdId, "Home"));
+        Assert.Empty(await householdRows.ListAsync(HouseholdId));
+        Assert.Empty(await people.ListAsync(HouseholdId));
+        Assert.Empty(await rooms.ListAsync(HouseholdId));
+
+        Assert.Equal(HouseholdTeardownResult.NotFound, await service.TeardownAsync(HouseholdId, "Home"));
+    }
+
+    [Fact]
+    public async Task The_household_row_is_restored_without_the_request_token()
+    {
+        var household = new HouseholdEntity { PartitionKey = HouseholdId, RowKey = HouseholdId, Name = "Home" };
+        _households.GetAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(household, (HouseholdEntity?)null);
+        using var cts = new CancellationTokenSource();
+        var peopleCalls = 0;
+        _peoplePurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                if (++peopleCalls < 2)
+                {
+                    return Task.FromResult(0);
+                }
+
+                // The request is aborted mid sweep 2.
+                cts.Cancel();
+                return Task.FromException<int>(new OperationCanceledException(cts.Token));
+            });
+
+        var thrown = await Assert.ThrowsAsync<HouseholdTeardownIncompleteException>(
+            () => CreateService().TeardownAsync(HouseholdId, "Home", cts.Token));
+
+        Assert.IsType<OperationCanceledException>(thrown.InnerException);
+        await _households.Received(1).GetAsync(HouseholdId, CancellationToken.None);
+        await _households.Received(1).AddAsync(household, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_household_purge_failure_that_left_the_row_in_place_is_not_re_added()
+    {
+        var failure = new InvalidOperationException("storage down");
+        _householdPurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<int>(failure));
+
+        var thrown = await Assert.ThrowsAsync<HouseholdTeardownIncompleteException>(
+            () => CreateService().TeardownAsync(HouseholdId, "Home"));
+
+        Assert.Same(failure, thrown.InnerException);
+        await _households.DidNotReceiveWithAnyArgs().AddAsync(default!, default);
+        await _peoplePurger.Received(1).PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
+    }
+
+    // Wraps a purger and throws the given exception on one numbered call instead
+    // of delegating; every other call delegates.
+    private sealed class ThrowOnCallPurger : IHouseholdPartitionPurger
+    {
+        private readonly IHouseholdPartitionPurger _inner;
+        private readonly int _throwOnCall;
+        private readonly Exception _exception;
+
+        public ThrowOnCallPurger(IHouseholdPartitionPurger inner, int throwOnCall, Exception exception)
+        {
+            _inner = inner;
+            _throwOnCall = throwOnCall;
+            _exception = exception;
+        }
+
+        public int Calls { get; private set; }
+
+        public Type EntityType => _inner.EntityType;
+
+        public Task<int> PurgeAsync(string householdId, CancellationToken cancellationToken = default) =>
+            ++Calls == _throwOnCall
+                ? Task.FromException<int>(_exception)
+                : _inner.PurgeAsync(householdId, cancellationToken);
     }
 
     // Wraps a purger and, on its first call only, runs a write before delegating,
