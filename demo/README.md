@@ -635,7 +635,9 @@ After a restore:
 - A tablet paired after the snapshot was taken pairs again: its hub-device
   token is not in the restored data. Tablets paired before it stay paired.
 - The new dataset id tells the hub to drop its offline cache and its queue of
-  unsent writes (#100), so nothing from before the restore is replayed.
+  unsent writes (#100). A hub that reconnects in the few seconds between the
+  stack start and the id change can still replay taps queued before the
+  restore (#361), so keep tablets closed or offline during a restore.
 
 `snapshots` lists every snapshot, newest first, with the local date and time
 it was taken (`YYYY-MM-DD HH:MM`).
