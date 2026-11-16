@@ -17,6 +17,9 @@ namespace Butler.Api.Infrastructure.Storage;
 public sealed class TableEntityRepository<TEntity> : IEntityRepository<TEntity>
     where TEntity : class, ITableEntity, new()
 {
+    // The Table service caps an entity-group transaction at 100 actions (#319).
+    private const int MaxTransactionActions = 100;
+
     private readonly TableClient _table;
 
     public TableEntityRepository(TableClient table)
@@ -98,6 +101,54 @@ public sealed class TableEntityRepository<TEntity> : IEntityRepository<TEntity>
             await _table
                 .DeleteEntityAsync(householdId, rowKey, new ETag(validatedIfMatch), cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (RequestFailedException ex) when (IsPreconditionFailure(ex))
+        {
+            throw new PreconditionFailedException();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Each chunk of up to 100 operations is one entity-group transaction, which
+    /// the Table service commits whole or not at all (#319). A precondition
+    /// failure (412, or 404 for a vanished row) inside a transaction surfaces as
+    /// <see cref="PreconditionFailedException"/>; any other failure, such as a 409
+    /// for an add on an existing row, propagates unchanged.
+    /// </remarks>
+    public async Task SubmitBatchAsync(
+        string householdId,
+        IReadOnlyList<EntityBatchOperation<TEntity>> operations,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
+        ArgumentNullException.ThrowIfNull(operations);
+        if (operations.Count == 0)
+        {
+            // The Table service rejects an empty transaction; nothing to write.
+            return;
+        }
+
+        // Every check runs before any call, so a 428 never leaves a chunk behind.
+        var actions = new List<TableTransactionAction>(operations.Count);
+        foreach (var operation in operations)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+            Scope(householdId, operation.Entity);
+            actions.Add(operation.Kind == EntityBatchOperationKind.Update
+                ? new TableTransactionAction(
+                    TableTransactionActionType.UpdateReplace,
+                    operation.Entity,
+                    new ETag(OptimisticConcurrency.RequireIfMatch(operation.IfMatch)))
+                : new TableTransactionAction(TableTransactionActionType.Add, operation.Entity));
+        }
+
+        try
+        {
+            foreach (var chunk in actions.Chunk(MaxTransactionActions))
+            {
+                await _table.SubmitTransactionAsync(chunk, cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (RequestFailedException ex) when (IsPreconditionFailure(ex))
         {

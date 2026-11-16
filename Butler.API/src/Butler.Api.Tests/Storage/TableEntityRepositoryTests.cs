@@ -183,4 +183,134 @@ public sealed class TableEntityRepositoryTests
         await Assert.ThrowsAsync<RequestFailedException>(
             () => _repository.DeleteAsync("house-1", "row-1", "etag-1"));
     }
+
+    // ---- SubmitBatchAsync: one entity-group transaction per 100 operations (#319) ----
+
+    private static Response<IReadOnlyList<Response>> TransactionSucceeded() =>
+        Response.FromValue<IReadOnlyList<Response>>(Array.Empty<Response>(), Substitute.For<Response>());
+
+    private List<List<TableTransactionAction>> CaptureTransactions()
+    {
+        var submitted = new List<List<TableTransactionAction>>();
+        _client
+            .SubmitTransactionAsync(Arg.Any<IEnumerable<TableTransactionAction>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                submitted.Add(call.Arg<IEnumerable<TableTransactionAction>>().ToList());
+                return TransactionSucceeded();
+            });
+        return submitted;
+    }
+
+    [Fact]
+    public async Task Batch_submits_adds_and_updates_in_one_transaction_scoped_to_the_household()
+    {
+        var submitted = CaptureTransactions();
+        var added = new FakeEntity { RowKey = "row-1" };
+        var replaced = new FakeEntity { RowKey = "row-2", PartitionKey = "elsewhere" };
+
+        await _repository.SubmitBatchAsync(
+            "house-1",
+            [
+                new(EntityBatchOperationKind.Add, added),
+                new(EntityBatchOperationKind.Update, replaced, "etag-2"),
+            ]);
+
+        var transaction = Assert.Single(submitted);
+        Assert.Collection(
+            transaction,
+            action =>
+            {
+                Assert.Equal(TableTransactionActionType.Add, action.ActionType);
+                Assert.Same(added, action.Entity);
+                Assert.Equal(default, action.ETag);
+            },
+            action =>
+            {
+                Assert.Equal(TableTransactionActionType.UpdateReplace, action.ActionType);
+                Assert.Same(replaced, action.Entity);
+                Assert.Equal(new ETag("etag-2"), action.ETag);
+            });
+        Assert.Equal("house-1", added.PartitionKey);
+        Assert.Equal("house-1", replaced.PartitionKey);
+    }
+
+    [Fact]
+    public async Task Batch_of_101_operations_is_two_transactions()
+    {
+        var submitted = CaptureTransactions();
+        var operations = Enumerable.Range(0, 101)
+            .Select(i => new EntityBatchOperation<FakeEntity>(
+                EntityBatchOperationKind.Add, new FakeEntity { RowKey = $"row-{i}" }))
+            .ToList();
+
+        await _repository.SubmitBatchAsync("house-1", operations);
+
+        Assert.Collection(
+            submitted,
+            first => Assert.Equal(100, first.Count),
+            second => Assert.Equal("row-100", Assert.Single(second).Entity.RowKey));
+    }
+
+    [Fact]
+    public async Task Batch_with_no_operations_makes_no_call()
+    {
+        await _repository.SubmitBatchAsync("house-1", []);
+
+        await _client.DidNotReceiveWithAnyArgs().SubmitTransactionAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Batch_update_without_an_if_match_is_428_before_any_call()
+    {
+        await Assert.ThrowsAsync<PreconditionRequiredException>(
+            () => _repository.SubmitBatchAsync(
+                "house-1",
+                [
+                    new(EntityBatchOperationKind.Add, new FakeEntity { RowKey = "row-1" }),
+                    new(EntityBatchOperationKind.Update, new FakeEntity { RowKey = "row-2" }),
+                ]));
+
+        await _client.DidNotReceiveWithAnyArgs().SubmitTransactionAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Batch_rejects_a_blank_household_and_null_operations()
+    {
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => _repository.SubmitBatchAsync(" ", []));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => _repository.SubmitBatchAsync("house-1", null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => _repository.SubmitBatchAsync("house-1", [null!]));
+
+        await _client.DidNotReceiveWithAnyArgs().SubmitTransactionAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData(412)]
+    [InlineData(404)]
+    public async Task Batch_translates_a_precondition_failure_to_412(int status)
+    {
+        _client
+            .SubmitTransactionAsync(Arg.Any<IEnumerable<TableTransactionAction>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TableTransactionFailedException(new RequestFailedException(status, "precondition")));
+
+        await Assert.ThrowsAsync<PreconditionFailedException>(
+            () => _repository.SubmitBatchAsync(
+                "house-1", [new(EntityBatchOperationKind.Update, new FakeEntity { RowKey = "row-1" }, "etag-1")]));
+    }
+
+    [Fact]
+    public async Task Batch_rethrows_a_conflicting_add()
+    {
+        _client
+            .SubmitTransactionAsync(Arg.Any<IEnumerable<TableTransactionAction>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TableTransactionFailedException(new RequestFailedException(409, "exists")));
+
+        var ex = await Assert.ThrowsAnyAsync<RequestFailedException>(
+            () => _repository.SubmitBatchAsync(
+                "house-1", [new(EntityBatchOperationKind.Add, new FakeEntity { RowKey = "row-1" })]));
+        Assert.Equal(409, ex.Status);
+    }
 }

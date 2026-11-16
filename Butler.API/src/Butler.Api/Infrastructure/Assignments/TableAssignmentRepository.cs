@@ -1,3 +1,4 @@
+using Butler.Api.Application.Concurrency;
 using Butler.Api.Infrastructure.Storage;
 
 namespace Butler.Api.Infrastructure.Assignments;
@@ -49,5 +50,34 @@ public sealed class TableAssignmentRepository : IAssignmentRepository
         ArgumentNullException.ThrowIfNull(assignment);
         ArgumentException.ThrowIfNullOrWhiteSpace(assignment.RowKey);
         return _assignments.UpdateAsync(householdId, assignment, ifMatch, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task SaveAllAsync(
+        string householdId,
+        IReadOnlyList<AssignmentEntity> added,
+        IReadOnlyList<AssignmentEntity> replaced,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
+        ArgumentNullException.ThrowIfNull(added);
+        ArgumentNullException.ThrowIfNull(replaced);
+
+        var operations = new List<EntityBatchOperation<AssignmentEntity>>(added.Count + replaced.Count);
+        foreach (var assignment in added)
+        {
+            ArgumentNullException.ThrowIfNull(assignment);
+            ArgumentException.ThrowIfNullOrWhiteSpace(assignment.RowKey);
+            operations.Add(new(EntityBatchOperationKind.Add, assignment));
+        }
+
+        foreach (var assignment in replaced)
+        {
+            ArgumentNullException.ThrowIfNull(assignment);
+            ArgumentException.ThrowIfNullOrWhiteSpace(assignment.RowKey);
+            operations.Add(new(EntityBatchOperationKind.Update, assignment, OptimisticConcurrency.Wildcard));
+        }
+
+        return _assignments.SubmitBatchAsync(householdId, operations, cancellationToken);
     }
 }
