@@ -728,7 +728,9 @@ item's fresh `eTag` (the API's `ETag` member serializes as `eTag`, as `Household
 both lists and closes the editor without re-sending the edit (`isPreconditionFailed`). Any other failure
 shows the problem-details message and leaves the list as it was. Deactivate and room DELETE carry no
 `If-Match`. Removing a room is refused on the client while it has active chores (the server DELETE does not
-check). This list/edit/If-Match/412 shape is the pattern for the roster editor (#167).
+check). While a write is in flight the Edit chore, Add chore, Rename and Remove room controls are held, and
+a finishing write changes only the editor it was started for (a form cancelled meanwhile stays closed)
+while the list takes the server's result. This list/edit/If-Match/412 shape is the pattern for the roster editor (#167).
 
 **Roster editor** (`src/screens/RosterEditor.tsx`, #167) is the organizer's after-setup editor for the
 household's people, on the `Roster` route behind `OrganizerGate` (`RosterScreen.tsx`), opened from Edit
