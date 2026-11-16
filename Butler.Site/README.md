@@ -2,7 +2,9 @@
 
 A one-page landing page for the Butler pilot (#134). It tells the Tuesday-at-the-hub story from the
 [Product Vision](../Butler.KnowledgeBase/docs/10-product-vision.md), shows the three v1 capabilities,
-holds a slot for the demo clip, and asks families to join the pilot.
+says Butler works on the tablet a family already owns and links the
+[BYO-Tablet Setup Guidance](../Butler.KnowledgeBase/docs/17-byo-tablet-setup-guidance.md) (#249), holds a
+slot for the demo clip, and asks families to join the pilot.
 
 It is plain, hand-written HTML and CSS. There is no JavaScript, no framework, no build step and no
 external request (no web fonts, analytics or embeds), so the page works straight from disk and from the
@@ -48,9 +50,13 @@ bash Butler.Site/ci/check-site.sh
 ```
 
 It checks that the page is static (no script, style block or inline style, no external loads), that the
-story, capabilities, demo-clip and pilot sections are present, that every colour is a design token, that
-there is exactly one `mailto:` link with the pilot subject, and that every file is plain ASCII. CI runs
-it on every pull request that touches `Butler.Site/`.
+story, capabilities, BYO-tablet, demo-clip and pilot sections are present, that the BYO-tablet section
+sits between capabilities and demo-clip, names Android and iPad, has a one- or two-sentence safety
+paragraph (permanent power, charge cap, kiosk app or single-app mode), names no other brand than the
+article's F4 examples, uses only classes styles.css defines, and links the BYO-tablet setup guidance
+article, that every colour is a design token, that there is exactly one `mailto:` link with the pilot
+subject, and that every file is plain ASCII. CI runs it on every pull request that touches
+`Butler.Site/`.
 
 ```bash
 node Butler.Site/ci/check-layout.mjs
