@@ -7,10 +7,15 @@ using Azure.Data.Tables;
 using Butler.Api.Application.Auth;
 using Butler.Api.Infrastructure.People;
 using Butler.Api.Infrastructure.Storage;
+using Butler.Api.Mediation;
 using Butler.Api.Tests.TestSupport;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Butler.Api.Tests.Households;
 
@@ -29,6 +34,10 @@ namespace Butler.Api.Tests.Households;
 /// Criteria (#294 AC1-AC3): when the second sweep throws or is cancelled, the
 /// <c>DELETE</c> is an RFC 7807 <c>500</c> with <c>reason</c>
 /// <c>teardownIncomplete</c>, the household is still readable, and a retry
+/// finishes the purge.
+/// Criteria (#336 AC1a, AC1b, AC3): when the client aborts the <c>DELETE</c>
+/// during the second sweep, the household row is still restored and the request
+/// ends <c>499</c> with no error logged by the API exception handler, so a retry
 /// finishes the purge.
 /// </summary>
 public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFactory>
@@ -263,6 +272,42 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
         Assert.All(await CountAllAsync(factory.Services, householdId), pair => Assert.Equal(0, pair.Value));
     }
 
+    [Fact]
+    public async Task A_client_abort_in_sweep_two_restores_the_household_and_answers_499_without_an_error_log()
+    {
+        using var abort = new CancellationTokenSource();
+        var deleteStatus = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var logger = new CapturingLogger<ApiExceptionHandler>();
+        using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IHouseholdPartitionPurger>(new SweepTwoAbortingPurger(abort.Cancel));
+                services.AddSingleton<ILogger<ApiExceptionHandler>>(logger);
+                services.AddSingleton<IStartupFilter>(new DeleteStatusRecorder(deleteStatus));
+            }));
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+
+        using (var request = DeleteRequest(householdId, ConfirmBody(HouseholdName)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.SendAsync(request, abort.Token));
+        }
+
+        // The client call returns as soon as it is cancelled; wait for the server
+        // to finish (restore included) before reading the household back.
+        Assert.Equal(
+            StatusCodes.Status499ClientClosedRequest,
+            await deleteStatus.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Level >= LogLevel.Error);
+        Assert.Equal(HttpStatusCode.OK, await GetHouseholdStatusAsync(client, householdId));
+
+        using var retry = await TearDownAsync(client, householdId);
+
+        Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, await GetHouseholdStatusAsync(client, householdId));
+        Assert.All(await CountAllAsync(factory.Services, householdId), pair => Assert.Equal(0, pair.Value));
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"confirmName\":\"\"}")]
@@ -446,6 +491,58 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
                 ? new OperationCanceledException()
                 : new InvalidOperationException("storage down");
         }
+    }
+
+    // Registered last, so it runs after the real purgers in each sweep. On its
+    // second call (sweep 2 of the first DELETE) it aborts the client request and
+    // then fails with the request's cancellation; every other call is a no-op.
+    private sealed class SweepTwoAbortingPurger : IHouseholdPartitionPurger
+    {
+        private readonly Action _abortClient;
+        private int _calls;
+
+        public SweepTwoAbortingPurger(Action abortClient) => _abortClient = abortClient;
+
+        public Type EntityType => typeof(PersonEntity);
+
+        public Task<int> PurgeAsync(string householdId, CancellationToken cancellationToken = default)
+        {
+            if (++_calls != 2)
+            {
+                return Task.FromResult(0);
+            }
+
+            _abortClient();
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+    // Outermost middleware: records the final status of the first DELETE that
+    // finishes, after every other middleware (the exception handler included).
+    private sealed class DeleteStatusRecorder : IStartupFilter
+    {
+        private readonly TaskCompletionSource<int> _deleteStatus;
+
+        public DeleteStatusRecorder(TaskCompletionSource<int> deleteStatus) => _deleteStatus = deleteStatus;
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, nextMiddleware) =>
+            {
+                try
+                {
+                    await nextMiddleware(context);
+                }
+                finally
+                {
+                    if (HttpMethods.IsDelete(context.Request.Method))
+                    {
+                        _deleteStatus.TrySetResult(context.Response.StatusCode);
+                    }
+                }
+            });
+            next(app);
+        };
     }
 
     // Registered after the People purger, so it runs once People is already

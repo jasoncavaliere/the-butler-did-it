@@ -12,9 +12,11 @@ namespace Butler.Api.Application.Households;
 /// and the organizer can retry. It then deletes the household's own row and
 /// sweeps every other table again, so a row written into an already-purged table
 /// while the first sweep ran is deleted too (#223). If the household purge or
-/// the second sweep throws or is cancelled, it puts the household row back and
-/// throws <see cref="HouseholdTeardownIncompleteException"/>, so a retry finds the
-/// household and finishes the purge (#294). Known limits: a write that
+/// the second sweep throws or is cancelled, it puts the household row back, so a
+/// retry finds the household and finishes the purge. A cancellation of the
+/// caller's token is then rethrown unchanged, so an aborted request ends as a
+/// cancellation rather than an error (#336); any other failure is wrapped in
+/// <see cref="HouseholdTeardownIncompleteException"/> (#294). Known limits: a write that
 /// authenticated before the household row was deleted but commits after the
 /// second sweep can still leave an orphan row, and if restoring the row also
 /// fails, that failure propagates and the remaining rows are unreachable through
@@ -74,8 +76,19 @@ public sealed class HouseholdTeardownService : IHouseholdTeardownService
         {
             // Covers cancellation too. Without the household row a retry would be
             // a 404 and the rows left behind would be unreachable (#294), so put it
-            // back, then always rethrow. A failed restore propagates on its own.
+            // back first in every case. A failed restore propagates on its own.
             await RestoreHouseholdAsync(householdId, household).ConfigureAwait(false);
+
+            // The caller cancelled (an aborted request): rethrow as is, so the host
+            // treats it as a client abort (499, no error log), not a failure (#336).
+            // Classify by the caller's token, not the exception's: SDK and linked
+            // token sources carry other tokens. Any other cancellation, such as an
+            // SDK timeout, is a failure and is wrapped like the rest (#294).
+            if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
             throw HouseholdTeardownIncompleteException.ForHousehold(householdId, ex);
         }
 

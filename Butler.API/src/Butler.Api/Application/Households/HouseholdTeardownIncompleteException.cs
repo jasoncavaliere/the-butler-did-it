@@ -1,8 +1,9 @@
 namespace Butler.Api.Application.Households;
 
 /// <summary>
-/// Thrown when a household teardown fails or is cancelled after the household's
-/// own row was deleted (#294). The teardown service restores that row before it
+/// Thrown when a household teardown fails after the household's own row was
+/// deleted (#294), including a cancellation the caller did not request; a
+/// cancelled caller token is rethrown as is instead (#336). The teardown service restores that row before it
 /// throws, so a retry of the same <c>DELETE</c> finds the household and finishes
 /// the purge. The API maps it to <c>500</c> with the problem extensions
 /// <c>reason</c> (<c>teardownIncomplete</c>) and <c>householdId</c>. Use
