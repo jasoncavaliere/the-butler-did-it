@@ -9,7 +9,7 @@ spike: "#163"
 tags: [hub, hardware, tablet, offline, validation, kiosk]
 supersedes: none
 superseded-by: none
-related: [11-hub-hardware-findings]
+related: [11-hub-hardware-findings, 17-byo-tablet-setup-guidance, 40-hub-tablet-kiosk-setup]
 sources:
   - { id: hub-hardware-findings, resource: ../docs/11-hub-hardware-findings.md, title: Hub Hardware Findings - F2, F3 and F4 }
   - { id: spike-163, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/163, title: Spike issue 163 - hub demo device and Chrome validation runtime }

@@ -6,7 +6,7 @@ tags: [byo-tablet, hub, tablet, battery, charge cap, mounting, kiosk, guided acc
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 11-hub-hardware-findings, 40-hub-tablet-kiosk-setup]
+related: [10-product-vision, 11-hub-hardware-findings, 40-hub-tablet-kiosk-setup, ADR-0012]
 sources:
   - { id: issue-166, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/166, title: Spike - BYO-tablet setup guidance for families }
   - { id: hub-hardware-findings, resource: 11-hub-hardware-findings.md, title: Hub Hardware Findings - F4, F5 and F6 }
@@ -103,7 +103,7 @@ Guided Access keeps the iPad in one app until someone enters a passcode ([Apple:
 
 - Showing this guidance inside the app ([#248](https://github.com/jasoncavaliere/the-butler-did-it/issues/248)) or linking it from the landing page ([#249](https://github.com/jasoncavaliere/the-butler-did-it/issues/249)).
 - The step-by-step kiosk setup, which is the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) runbook.
-- The reference tablet Butler tests on, which is its own decision ([#163](https://github.com/jasoncavaliere/the-butler-did-it/issues/163)).
+- The reference tablet Butler tests on, which is its own decision ([ADR-0012](../adr/0012-hub-reference-validation-tablet.md)).
 
 ## Sources
 
@@ -120,3 +120,4 @@ Guided Access keeps the iPad in one app until someone enters a passcode ([Apple:
 - [Product Vision](10-product-vision.md) - the BYO-tablet hardware decision and the tap-to-claim trust trade-off this guidance serves.
 - [Hub Hardware Findings](11-hub-hardware-findings.md) - the research (F4, F5, F6) this guidance is built from.
 - [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) - the step-by-step runbook for the lockdown, connection, charge cap, and recovery.
+- [ADR-0012](../adr/0012-hub-reference-validation-tablet.md) - the ratified demo device and offline-epic validation runtime, which this guidance leaves out of scope.
