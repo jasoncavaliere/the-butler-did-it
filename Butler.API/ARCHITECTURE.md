@@ -389,9 +389,11 @@ They live in the handlers, not in `ChoreCompletionService`, `CaptureHandler` or
 usage on every seed. For complete, undo and confirm the service returns a result record
 (`CompleteChoreResult`, `UndoChoreResult`, `ConfirmCartResult`) that wraps the response with a
 `Changed` flag, and the handler records only when `Changed` is true, so an idempotent replay counts
-once (#218). The flag never reaches the HTTP body. The handlers use `IEventRecorder.TryRecordAsync`,
-which is best effort: a storage failure is logged as a warning and swallowed (cancellation is not), so a
-usage event can never fail the action it describes.
+once (#218). The confirm handler also records nothing when the re-read finds the cart gone (for
+example after a re-seed), and the endpoint returns that read's `404` (#289). The flag never reaches the
+HTTP body. The handlers use `IEventRecorder.TryRecordAsync`, which is best effort: a storage failure is
+logged as a warning and swallowed (cancellation is not), so a usage event can never fail the action it
+describes.
 
 The one client-posted type is `hub-glanced`. `EventTypes.IsClientAllowed` accepts only that exact
 string (ordinal, case-sensitive); any other type, including `participant-claimed`, is a `400` before any

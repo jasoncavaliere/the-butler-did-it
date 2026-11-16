@@ -297,6 +297,28 @@ public sealed class CartConfirmationServiceTests
     }
 
     [Fact]
+    public async Task The_command_handler_records_nothing_when_the_re_read_finds_no_cart()
+    {
+        // #289: the write happened (Changed), but the cart vanished before the
+        // re-read, so the handler returns the read as-is and records nothing.
+        var service = Substitute.For<ICartConfirmationService>();
+        service
+            .ConfirmAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new ConfirmCartResult(new CartReadResult(HouseholdExists: true, Cart: null), Changed: true));
+        var recorder = Substitute.For<IEventRecorder>();
+        var handler = new ConfirmCartCommandHandler(service, recorder);
+
+        var result = await handler.Handle(
+            new ConfirmCartCommand(HouseholdId, CurrentWeek, OrganizerObjectId, "*"),
+            CancellationToken.None);
+
+        Assert.True(result.HouseholdExists);
+        Assert.Null(result.Cart);
+        Assert.Empty(recorder.ReceivedCalls());
+    }
+
+    [Fact]
     public async Task The_command_handler_delegates_to_the_service()
     {
         var fixture = await SeededAsync();

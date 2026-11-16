@@ -32,7 +32,8 @@ public sealed record ConfirmCartCommand(
 /// records a <c>cart-confirmed</c> usage event (#122) only when the service
 /// reports an actual transition to <c>Confirmed</c>: an idempotent replay on an
 /// already-confirmed cart, an unknown household and a week with no cart all
-/// record nothing (#218).
+/// record nothing (#218), as does a confirm whose re-read finds the cart gone
+/// (#289).
 /// </summary>
 public sealed class ConfirmCartCommandHandler : IRequestHandler<ConfirmCartCommand, CartReadResult>
 {
@@ -58,10 +59,10 @@ public sealed class ConfirmCartCommandHandler : IRequestHandler<ConfirmCartComma
                 request.IfMatch,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (result.Changed)
+        // The cart can vanish between the write and the re-read (for example a
+        // re-seed). Then nothing is recorded and the absence returns as a 404 (#289).
+        if (result.Changed && result.Read.Cart is { } cart)
         {
-            // A state change implies the re-read returned the cart.
-            var cart = result.Read.Cart!;
             await _events.TryRecordAsync(
                     request.HouseholdId,
                     EventTypes.CartConfirmed,
