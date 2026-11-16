@@ -55,6 +55,9 @@ public interface IAssignmentGenerationService
     /// Generation runs the same C2/C3 path as <see cref="GenerateAsync"/> under a
     /// per-household lock that <see cref="GenerateAsync"/> also takes, and the
     /// week is re-read inside the lock, so concurrent first reads persist one set.
+    /// The generated week is persisted in one all-or-nothing write, so an
+    /// interrupted first read leaves no rows and the next read generates the full
+    /// week (#319).
     /// </para>
     /// <para>
     /// <b>Stored projection.</b> <c>Done</c> rows are always returned; <c>Open</c>

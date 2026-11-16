@@ -157,4 +157,74 @@ public sealed class AssignmentRepositoryTests
         await Assert.ThrowsAnyAsync<ArgumentException>(
             () => repository.ListAsync(string.Empty, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task SaveAll_adds_and_replaces_in_one_write()
+    {
+        var repository = NewRepository();
+        await repository.AddAsync("house-1", Assignment("2026-W29", "chore-1", "person-1"), CancellationToken.None);
+
+        // The replaced row is a fresh object, so the wildcard If-Match is what lets
+        // it through (#319).
+        var replaced = Assignment("2026-W29", "chore-1", "person-2");
+        await repository.SaveAllAsync(
+            "house-1",
+            [Assignment("2026-W29", "chore-2", "person-1")],
+            [replaced],
+            CancellationToken.None);
+
+        var rows = (await repository.ListAsync("house-1", CancellationToken.None))
+            .OrderBy(row => row.RowKey, StringComparer.Ordinal)
+            .Select(row => (row.RowKey, row.AssignedPersonId, row.PartitionKey))
+            .ToList();
+        Assert.Equal(
+            new List<(string, string, string)>
+            {
+                ("2026-W29_chore-1", "person-2", "house-1"),
+                ("2026-W29_chore-2", "person-1", "house-1"),
+            },
+            rows);
+    }
+
+    [Fact]
+    public async Task SaveAll_writes_nothing_when_one_add_conflicts()
+    {
+        var repository = NewRepository();
+        await repository.AddAsync("house-1", Assignment("2026-W29", "chore-2", "person-1"), CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => repository.SaveAllAsync(
+                "house-1",
+                [Assignment("2026-W29", "chore-1", "person-1"), Assignment("2026-W29", "chore-2", "person-2")],
+                [],
+                CancellationToken.None));
+
+        var row = Assert.Single(await repository.ListAsync("house-1", CancellationToken.None));
+        Assert.Equal("2026-W29_chore-2", row.RowKey);
+    }
+
+    [Fact]
+    public async Task SaveAll_rejects_null_lists_and_blank_row_keys()
+    {
+        var repository = NewRepository();
+        var blank = Assignment("2026-W29", "chore-1", "p");
+        blank.RowKey = string.Empty;
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => repository.SaveAllAsync(" ", [], [], CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => repository.SaveAllAsync("house-1", null!, [], CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => repository.SaveAllAsync("house-1", [], null!, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => repository.SaveAllAsync("house-1", [null!], [], CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => repository.SaveAllAsync("house-1", [], [null!], CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => repository.SaveAllAsync("house-1", [blank], [], CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => repository.SaveAllAsync("house-1", [], [blank], CancellationToken.None));
+
+        Assert.Empty(await repository.ListAsync("house-1", CancellationToken.None));
+    }
 }

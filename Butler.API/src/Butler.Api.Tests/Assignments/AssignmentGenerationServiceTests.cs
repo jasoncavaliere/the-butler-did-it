@@ -8,6 +8,7 @@ using Butler.Api.Infrastructure.ChoreCompletions;
 using Butler.Api.Infrastructure.Chores;
 using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.People;
+using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
 using NSubstitute;
 
@@ -175,6 +176,34 @@ public sealed class AssignmentGenerationServiceTests
         Status = status,
     };
 
+    // The rows the one SaveAllAsync call wrote (#319): the week is persisted in a
+    // single all-or-nothing write, never row by row.
+    private static async Task<(IReadOnlyList<AssignmentEntity> Added, IReadOnlyList<AssignmentEntity> Replaced)> SavedWeekAsync(
+        Harness harness)
+    {
+        await harness.Assignments.Received(1).SaveAllAsync(
+            Household,
+            Arg.Any<IReadOnlyList<AssignmentEntity>>(),
+            Arg.Any<IReadOnlyList<AssignmentEntity>>(),
+            Arg.Any<CancellationToken>());
+        await harness.Assignments.DidNotReceiveWithAnyArgs().AddAsync(default!, default!, default);
+        await harness.Assignments.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default, default);
+
+        var call = Assert.Single(
+            harness.Assignments.ReceivedCalls(),
+            received => received.GetMethodInfo().Name == nameof(IAssignmentRepository.SaveAllAsync));
+        var arguments = call.GetArguments();
+        return ((IReadOnlyList<AssignmentEntity>)arguments[1]!, (IReadOnlyList<AssignmentEntity>)arguments[2]!);
+    }
+
+    // No write of any kind reached the assignments table.
+    private static async Task AssertNothingSavedAsync(Harness harness)
+    {
+        await harness.Assignments.DidNotReceiveWithAnyArgs().SaveAllAsync(default!, default!, default!, default);
+        await harness.Assignments.DidNotReceiveWithAnyArgs().AddAsync(default!, default!, default);
+        await harness.Assignments.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default, default);
+    }
+
     [Fact]
     public async Task Generate_places_active_chores_and_skips_inactive_ones()
     {
@@ -198,13 +227,11 @@ public sealed class AssignmentGenerationServiceTests
             response.Assignments.Select(a => a.ChoreId).ToList());
         Assert.All(response.Assignments, a => Assert.Equal(AssignmentStatus.Open, a.Status));
 
-        // Two rows added, none for the inactive chore.
-        await harness.Assignments.Received(2).AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.RowKey.EndsWith("_chore-inactive", StringComparison.Ordinal)),
-            Arg.Any<CancellationToken>());
+        // Two rows added in one write, none for the inactive chore.
+        var (added, replaced) = await SavedWeekAsync(harness);
+        Assert.Equal(2, added.Count);
+        Assert.Empty(replaced);
+        Assert.DoesNotContain(added, e => e.RowKey.EndsWith("_chore-inactive", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -246,10 +273,8 @@ public sealed class AssignmentGenerationServiceTests
         // No row is ever persisted against the organizer, and nothing is left
         // unassigned - the participant absorbs the whole week.
         Assert.Empty(response.Unassigned);
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.AssignedPersonId == "aaa-organizer"),
-            Arg.Any<CancellationToken>());
+        var (added, _) = await SavedWeekAsync(harness);
+        Assert.Equal("p1", Assert.Single(added).AssignedPersonId);
     }
 
     [Fact]
@@ -276,8 +301,7 @@ public sealed class AssignmentGenerationServiceTests
             u => Assert.Equal(UnassignedReasons.NoEligiblePerson, u.Reason));
 
         // Nothing was persisted for an unassignable chore.
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -300,31 +324,15 @@ public sealed class AssignmentGenerationServiceTests
 
         Assert.NotNull(response);
 
-        // The Done chore is never touched: not re-added, not updated.
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.RowKey.EndsWith("_chore-done", StringComparison.Ordinal)),
-            Arg.Any<CancellationToken>());
-        await harness.Assignments.DidNotReceive().UpdateAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.RowKey.EndsWith("_chore-done", StringComparison.Ordinal)),
-            Arg.Any<string?>(),
-            Arg.Any<CancellationToken>());
-
-        // The Open chore is replaced in place - updated, not added - and rebalanced
-        // to p2, since p1 already carries the completed chore-done effort.
-        await harness.Assignments.Received(1).UpdateAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e =>
-                e.RowKey == $"{Week29}_chore-open" &&
-                e.AssignedPersonId == "p2" &&
-                e.Status == AssignmentStatus.Open),
-            OptimisticConcurrency.Wildcard,
-            Arg.Any<CancellationToken>());
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.RowKey.EndsWith("_chore-open", StringComparison.Ordinal)),
-            Arg.Any<CancellationToken>());
+        // The Done chore is never touched: not re-added, not replaced. The Open
+        // chore is replaced in place - replaced, not added - and rebalanced to p2,
+        // since p1 already carries the completed chore-done effort.
+        var (added, replaced) = await SavedWeekAsync(harness);
+        Assert.Empty(added);
+        var replacedRow = Assert.Single(replaced);
+        Assert.Equal($"{Week29}_chore-open", replacedRow.RowKey);
+        Assert.Equal("p2", replacedRow.AssignedPersonId);
+        Assert.Equal(AssignmentStatus.Open, replacedRow.Status);
 
         // The response reflects the whole week: the preserved Done plus the new Open.
         var done = Assert.Single(response!.Assignments, a => a.ChoreId == "chore-done");
@@ -348,10 +356,10 @@ public sealed class AssignmentGenerationServiceTests
         Assert.NotNull(response);
         Assert.Equal(Week29, response!.WeekIso);
         Assert.Equal(Week29, response.CurrentWeekIso);
-        await harness.Assignments.Received(1).AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.WeekIso == Week29 && e.RowKey == $"{Week29}_chore-a"),
-            Arg.Any<CancellationToken>());
+        var (added, _) = await SavedWeekAsync(harness);
+        var row = Assert.Single(added);
+        Assert.Equal(Week29, row.WeekIso);
+        Assert.Equal($"{Week29}_chore-a", row.RowKey);
     }
 
     [Fact]
@@ -368,10 +376,8 @@ public sealed class AssignmentGenerationServiceTests
 
         // The server's own week rides along, even when another week was asked for.
         Assert.Equal(Week29, response.CurrentWeekIso);
-        await harness.Assignments.Received(1).AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.WeekIso == "2026-W30"),
-            Arg.Any<CancellationToken>());
+        var (added, _) = await SavedWeekAsync(harness);
+        Assert.Equal("2026-W30", Assert.Single(added).WeekIso);
     }
 
     [Fact]
@@ -384,11 +390,8 @@ public sealed class AssignmentGenerationServiceTests
         await harness.Service.GenerateAsync(Household, Week29, CancellationToken.None);
 
         // 2026-W29 ends Sunday 2026-07-19; the weekly chore is due 23:59 UTC that day.
-        await harness.Assignments.Received(1).AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e =>
-                e.DueDateUtc == new DateTimeOffset(2026, 7, 19, 23, 59, 0, TimeSpan.Zero)),
-            Arg.Any<CancellationToken>());
+        var (added, _) = await SavedWeekAsync(harness);
+        Assert.Equal(new DateTimeOffset(2026, 7, 19, 23, 59, 0, TimeSpan.Zero), Assert.Single(added).DueDateUtc);
     }
 
     [Fact]
@@ -521,8 +524,7 @@ public sealed class AssignmentGenerationServiceTests
         var response = await harness.Service.GenerateAsync(Household, weekIso: null, CancellationToken.None);
 
         Assert.Null(response);
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -590,10 +592,10 @@ public sealed class AssignmentGenerationServiceTests
         Assert.Equal(
             new List<string> { "chore-a", "chore-b" },
             response.Assignments.Select(a => a.ChoreId).ToList());
-        await harness.Assignments.Received(2).AddAsync(
-            Household,
-            Arg.Is<AssignmentEntity>(e => e.WeekIso == Week29),
-            Arg.Any<CancellationToken>());
+        var (added, replaced) = await SavedWeekAsync(harness);
+        Assert.Equal(2, added.Count);
+        Assert.All(added, e => Assert.Equal(Week29, e.WeekIso));
+        Assert.Empty(replaced);
     }
 
     [Fact]
@@ -631,10 +633,7 @@ public sealed class AssignmentGenerationServiceTests
             response.Assignments.ToList());
         Assert.Empty(response.Unassigned);
 
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
-        await harness.Assignments.DidNotReceive().UpdateAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Theory]
@@ -653,8 +652,7 @@ public sealed class AssignmentGenerationServiceTests
         Assert.Equal(Week29, response.CurrentWeekIso);
         Assert.Empty(response.Assignments);
         Assert.Empty(response.Unassigned);
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -667,8 +665,7 @@ public sealed class AssignmentGenerationServiceTests
         var response = await harness.Service.GetOrGenerateAsync(Household, Week29, CancellationToken.None);
 
         Assert.Null(response);
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -701,8 +698,7 @@ public sealed class AssignmentGenerationServiceTests
         Assert.NotNull(response);
         Assert.Empty(response!.Assignments);
         Assert.Empty(response.Unassigned);
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -719,8 +715,7 @@ public sealed class AssignmentGenerationServiceTests
         Assert.NotNull(response);
         Assert.Empty(response!.Assignments);
         Assert.Equal("chore-a", Assert.Single(response.Unassigned).ChoreId);
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -743,10 +738,7 @@ public sealed class AssignmentGenerationServiceTests
         Assert.Equal(
             new AssignmentView("chore-a", "p1", 5, AssignmentStatus.Open),
             Assert.Single(response!.Assignments));
-        await harness.Assignments.DidNotReceive().AddAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<CancellationToken>());
-        await harness.Assignments.DidNotReceive().UpdateAsync(
-            Household, Arg.Any<AssignmentEntity>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await AssertNothingSavedAsync(harness);
     }
 
     [Fact]
@@ -780,12 +772,56 @@ public sealed class AssignmentGenerationServiceTests
             ServiceOver(second).GetOrGenerateAsync(Household, Week29, CancellationToken.None));
 
         Assert.Equal(2, shared.Adds);
+        Assert.Equal(1, shared.Batches);
         Assert.Equal(
             new[] { $"{Week29}_chore-a", $"{Week29}_chore-b" },
             shared.Rows.Select(row => row.RowKey).Order(StringComparer.Ordinal).ToArray());
         Assert.All(results, response => Assert.Equal(
             new List<string> { "chore-a", "chore-b" },
             response!.Assignments.Select(a => a.ChoreId).ToList()));
+    }
+
+    [Fact]
+    public async Task GetOrGenerate_interrupted_part_way_through_persist_leaves_no_rows_and_the_next_read_completes_the_week()
+    {
+        // AC2 (#319): the real assignments seam over an in-memory table, with a
+        // decorator that fails the write once one row has gone through.
+        var harness = new Harness();
+        harness.SetChores(Chore("chore-a", effort: 5), Chore("chore-b", effort: 3), Chore("chore-c", effort: 1));
+        harness.SetPeople(Person("p1"), Person("p2"));
+
+        var table = new InMemoryEntityRepository<AssignmentEntity>();
+        var interrupting = new InterruptingEntityRepository<AssignmentEntity>(table) { RowsBeforeInterrupt = 1 };
+        var service = new AssignmentGenerationService(
+            harness.Households,
+            harness.Chores,
+            harness.People,
+            harness.Completions,
+            new TableAssignmentRepository(interrupting),
+            new FairAssignmentEngine(),
+            harness.Clock,
+            harness.Gate);
+
+        await Assert.ThrowsAsync<IOException>(
+            () => service.GetOrGenerateAsync(Household, Week29, CancellationToken.None));
+
+        // The interrupted run leaves no rows behind, so the week is still empty.
+        Assert.DoesNotContain(await table.ListAsync(Household), row => row.WeekIso == Week29);
+
+        interrupting.RowsBeforeInterrupt = null;
+        var response = await service.GetOrGenerateAsync(Household, Week29, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(
+            new List<string> { "chore-a", "chore-b", "chore-c" },
+            response!.Assignments.Select(a => a.ChoreId).ToList());
+        Assert.Equal(
+            new[] { $"{Week29}_chore-a", $"{Week29}_chore-b", $"{Week29}_chore-c" },
+            (await table.ListAsync(Household))
+                .Where(row => row.WeekIso == Week29)
+                .Select(row => row.RowKey)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
     }
 
     // A shared in-memory assignments table whose first N ListAsync calls wait for
@@ -801,6 +837,8 @@ public sealed class AssignmentGenerationServiceTests
         public BarrierAssignmentRepository(int pendingReaders) => _pendingReaders = pendingReaders;
 
         public int Adds { get; private set; }
+
+        public int Batches { get; private set; }
 
         public IReadOnlyList<AssignmentEntity> Rows
         {
@@ -856,5 +894,33 @@ public sealed class AssignmentGenerationServiceTests
 
         public Task UpdateAsync(string householdId, AssignmentEntity assignment, string? ifMatch, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        // All or nothing, like a Table transaction: one existing RowKey rejects
+        // the whole call before any row is added.
+        public Task SaveAllAsync(
+            string householdId,
+            IReadOnlyList<AssignmentEntity> added,
+            IReadOnlyList<AssignmentEntity> replaced,
+            CancellationToken cancellationToken = default)
+        {
+            if (replaced.Count > 0)
+            {
+                throw new NotSupportedException();
+            }
+
+            lock (_sync)
+            {
+                if (added.Any(assignment => _rows.Any(row => row.RowKey == assignment.RowKey)))
+                {
+                    throw new InvalidOperationException("Duplicate RowKey in the batch.");
+                }
+
+                _rows.AddRange(added);
+                Adds += added.Count;
+                Batches++;
+            }
+
+            return Task.CompletedTask;
+        }
     }
 }

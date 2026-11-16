@@ -143,7 +143,8 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
     }
 
     // The C2/C3 body shared by POST generate and the lazy GET: fetch the active
-    // chores, members, and the week's rows, run the engine, persist, and respond.
+    // chores, members, and the week's rows, run the engine, persist the week in
+    // one all-or-nothing write (#319), and respond.
     // The caller holds the household's lock.
     private async Task<AssignmentSetResponse> GenerateWeekAsync(
         string householdId,
@@ -321,9 +322,12 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
     private static DateTimeOffset DueDateFor(string targetWeek) =>
         WeekIso.StartOfWeekUtc(targetWeek).AddDays(6).AddHours(23).AddMinutes(59);
 
-    // Persist the engine's placements: an Open row for a chore is replaced in
-    // place under a wildcard precondition; a chore with no row yet is added. Done
-    // rows are never touched here - their chores were excluded from the request.
+    // Persist the engine's placements as one all-or-nothing write (#319): an Open
+    // row for a chore is replaced in place under a wildcard precondition; a chore
+    // with no row yet is added. Done rows are never touched here - their chores
+    // were excluded from the request. An interrupted write leaves no rows, so the
+    // next lazy read still sees an empty week and generates it in full. Nothing to
+    // place means no write at all.
     private async Task PersistAsync(
         string householdId,
         string targetWeek,
@@ -332,6 +336,8 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
         Dictionary<string, AssignmentEntity> openByChoreId,
         CancellationToken cancellationToken)
     {
+        var added = new List<AssignmentEntity>();
+        var replaced = new List<AssignmentEntity>();
         foreach (var placement in result.Assignments)
         {
             if (openByChoreId.TryGetValue(placement.ChoreId, out var existing))
@@ -340,13 +346,11 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
                 existing.WeekIso = targetWeek;
                 existing.DueDateUtc = dueDateUtc;
                 existing.Status = AssignmentStatus.Open;
-                await _assignments
-                    .UpdateAsync(householdId, existing, OptimisticConcurrency.Wildcard, cancellationToken)
-                    .ConfigureAwait(false);
+                replaced.Add(existing);
                 continue;
             }
 
-            var assignment = new AssignmentEntity
+            added.Add(new AssignmentEntity
             {
                 PartitionKey = householdId,
                 RowKey = RowKeyFor(targetWeek, placement.ChoreId),
@@ -354,9 +358,15 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
                 WeekIso = targetWeek,
                 DueDateUtc = dueDateUtc,
                 Status = AssignmentStatus.Open,
-            };
-            await _assignments.AddAsync(householdId, assignment, cancellationToken).ConfigureAwait(false);
+            });
         }
+
+        if (added.Count == 0 && replaced.Count == 0)
+        {
+            return;
+        }
+
+        await _assignments.SaveAllAsync(householdId, added, replaced, cancellationToken).ConfigureAwait(false);
     }
 
     // The response is the full week: the freshly-placed Open assignments plus the

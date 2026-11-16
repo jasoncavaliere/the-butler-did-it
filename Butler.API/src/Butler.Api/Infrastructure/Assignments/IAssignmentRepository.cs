@@ -34,4 +34,17 @@ public interface IAssignmentRepository
     /// match the stored version (<c>412</c> when stale).
     /// </summary>
     Task UpdateAsync(string householdId, AssignmentEntity assignment, string? ifMatch, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes a generated week as one all-or-nothing unit (#319): every row in
+    /// <paramref name="added"/> is inserted (failing on an existing
+    /// <c>RowKey</c>) and every row in <paramref name="replaced"/> is replaced
+    /// under a wildcard <c>If-Match</c>, or none of them is written. The two lists
+    /// must not share a <c>RowKey</c>.
+    /// </summary>
+    Task SaveAllAsync(
+        string householdId,
+        IReadOnlyList<AssignmentEntity> added,
+        IReadOnlyList<AssignmentEntity> replaced,
+        CancellationToken cancellationToken = default);
 }

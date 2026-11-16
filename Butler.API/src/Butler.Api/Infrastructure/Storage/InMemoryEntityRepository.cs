@@ -19,6 +19,11 @@ public sealed class InMemoryEntityRepository<TEntity> : IEntityRepository<TEntit
 {
     private readonly ConcurrentDictionary<(string Household, string RowKey), TEntity> _store = new();
 
+    // Serializes every write, so a batch validates and applies against a store no
+    // other write can change between its checks and its writes (#319). Reads stay
+    // lock-free on the concurrent dictionary.
+    private readonly Lock _writeLock = new();
+
     /// <inheritdoc />
     public Task<TEntity?> GetAsync(string householdId, string rowKey, CancellationToken cancellationToken = default)
     {
@@ -44,11 +49,14 @@ public sealed class InMemoryEntityRepository<TEntity> : IEntityRepository<TEntit
     /// <inheritdoc />
     public Task AddAsync(string householdId, TEntity entity, CancellationToken cancellationToken = default)
     {
-        var prepared = Prepare(householdId, entity);
-        if (!_store.TryAdd((householdId, prepared.RowKey), prepared))
+        lock (_writeLock)
         {
-            throw new InvalidOperationException(
-                $"An entity with RowKey '{prepared.RowKey}' already exists in household '{householdId}'.");
+            var prepared = Prepare(householdId, entity);
+            if (!_store.TryAdd((householdId, prepared.RowKey), prepared))
+            {
+                throw new InvalidOperationException(
+                    $"An entity with RowKey '{prepared.RowKey}' already exists in household '{householdId}'.");
+            }
         }
 
         return Task.CompletedTask;
@@ -57,8 +65,12 @@ public sealed class InMemoryEntityRepository<TEntity> : IEntityRepository<TEntit
     /// <inheritdoc />
     public Task UpsertAsync(string householdId, TEntity entity, CancellationToken cancellationToken = default)
     {
-        var prepared = Prepare(householdId, entity);
-        _store[(householdId, prepared.RowKey)] = prepared;
+        lock (_writeLock)
+        {
+            var prepared = Prepare(householdId, entity);
+            _store[(householdId, prepared.RowKey)] = prepared;
+        }
+
         return Task.CompletedTask;
     }
 
@@ -70,11 +82,15 @@ public sealed class InMemoryEntityRepository<TEntity> : IEntityRepository<TEntit
         ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
         ArgumentException.ThrowIfNullOrWhiteSpace(entity.RowKey);
 
-        var current = RequireExisting(householdId, entity.RowKey);
-        OptimisticConcurrency.EnsureCurrent(current.ETag.ToString(), validatedIfMatch);
+        lock (_writeLock)
+        {
+            var current = RequireExisting(householdId, entity.RowKey);
+            OptimisticConcurrency.EnsureCurrent(current.ETag.ToString(), validatedIfMatch);
 
-        var prepared = Prepare(householdId, entity);
-        _store[(householdId, prepared.RowKey)] = prepared;
+            var prepared = Prepare(householdId, entity);
+            _store[(householdId, prepared.RowKey)] = prepared;
+        }
+
         return Task.CompletedTask;
     }
 
@@ -85,10 +101,77 @@ public sealed class InMemoryEntityRepository<TEntity> : IEntityRepository<TEntit
         ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
         ArgumentException.ThrowIfNullOrWhiteSpace(rowKey);
 
-        var current = RequireExisting(householdId, rowKey);
-        OptimisticConcurrency.EnsureCurrent(current.ETag.ToString(), validatedIfMatch);
+        lock (_writeLock)
+        {
+            var current = RequireExisting(householdId, rowKey);
+            OptimisticConcurrency.EnsureCurrent(current.ETag.ToString(), validatedIfMatch);
 
-        _store.TryRemove((householdId, rowKey), out _);
+            _store.TryRemove((householdId, rowKey), out _);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Validate-then-apply (#319): every check runs before any write, under the
+    /// write lock, so a failing operation leaves the store exactly as it was.
+    /// </remarks>
+    public Task SubmitBatchAsync(
+        string householdId,
+        IReadOnlyList<EntityBatchOperation<TEntity>> operations,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(householdId);
+        ArgumentNullException.ThrowIfNull(operations);
+
+        // Argument and If-Match checks need no store state (428 before 412).
+        var ifMatches = new string?[operations.Count];
+        for (var i = 0; i < operations.Count; i++)
+        {
+            var operation = operations[i];
+            ArgumentNullException.ThrowIfNull(operation);
+            ArgumentNullException.ThrowIfNull(operation.Entity);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operation.Entity.RowKey);
+            if (operation.Kind == EntityBatchOperationKind.Update)
+            {
+                ifMatches[i] = OptimisticConcurrency.RequireIfMatch(operation.IfMatch);
+            }
+        }
+
+        lock (_writeLock)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < operations.Count; i++)
+            {
+                var rowKey = operations[i].Entity.RowKey;
+                if (!seen.Add(rowKey))
+                {
+                    throw new InvalidOperationException(
+                        $"RowKey '{rowKey}' appears more than once in the batch for household '{householdId}'.");
+                }
+
+                if (ifMatches[i] is { } ifMatch)
+                {
+                    var current = RequireExisting(householdId, rowKey);
+                    OptimisticConcurrency.EnsureCurrent(current.ETag.ToString(), ifMatch);
+                }
+                else
+                {
+                    ThrowIfExists(householdId, rowKey);
+                }
+            }
+
+            // Every check passed: apply the whole batch.
+            foreach (var operation in operations)
+            {
+                var prepared = Prepare(householdId, operation.Entity);
+                _store[(householdId, prepared.RowKey)] = prepared;
+            }
+        }
+
         return Task.CompletedTask;
     }
 
@@ -103,6 +186,16 @@ public sealed class InMemoryEntityRepository<TEntity> : IEntityRepository<TEntit
         entity.PartitionKey = householdId;
         entity.ETag = new ETag(Guid.NewGuid().ToString("N"));
         return entity;
+    }
+
+    // An add never overwrites: an existing RowKey is a conflict, as in Table storage.
+    private void ThrowIfExists(string householdId, string rowKey)
+    {
+        if (_store.ContainsKey((householdId, rowKey)))
+        {
+            throw new InvalidOperationException(
+                $"An entity with RowKey '{rowKey}' already exists in household '{householdId}'.");
+        }
     }
 
     private TEntity RequireExisting(string householdId, string rowKey)

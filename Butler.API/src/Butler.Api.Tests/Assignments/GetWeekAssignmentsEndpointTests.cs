@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
 using Butler.Api.Infrastructure.Assignments;
+using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Tests.TestSupport;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -29,12 +30,22 @@ public sealed class GetWeekAssignmentsEndpointTests
     private const string Week29 = "2026-W29";
     private const string Week30 = "2026-W30";
 
-    private static WebApplicationFactory<Program> CreateFactory(BarrierAssignmentRepository? barrier = null) =>
+    private static WebApplicationFactory<Program> CreateFactory(
+        BarrierAssignmentRepository? barrier = null,
+        InterruptingEntityRepository<AssignmentEntity>? interrupting = null) =>
         new ButlerApiFactory().WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(new MutableClock(MidWeek29));
+                if (interrupting is not null)
+                {
+                    // Swap the assignments table for one whose writes can be
+                    // interrupted part way (#319).
+                    services.RemoveAll<IEntityRepository<AssignmentEntity>>();
+                    services.AddSingleton<IEntityRepository<AssignmentEntity>>(interrupting);
+                }
+
                 if (barrier is not null)
                 {
                     // Route the host's assignment reads through the barrier, over
@@ -244,9 +255,37 @@ public sealed class GetWeekAssignmentsEndpointTests
         Assert.Equal(3, rows.Count);
         Assert.Equal(3, rows.Select(row => row.RowKey).Distinct(StringComparer.Ordinal).Count());
 
-        // One reader generated; the rest returned its set. No row was rewritten.
+        // One reader generated, in one write; the rest returned its set. No row
+        // was rewritten.
         Assert.Equal(3, barrier.Adds);
         Assert.Equal(0, barrier.Updates);
+        Assert.Equal(1, barrier.Batches);
+    }
+
+    [Fact]
+    public async Task An_interrupted_first_read_leaves_no_partial_week_and_the_next_read_returns_the_full_set()
+    {
+        // AC1 (#319): the first read's write fails once one row has gone through.
+        var interrupting = new InterruptingEntityRepository<AssignmentEntity>(
+            new InMemoryEntityRepository<AssignmentEntity>());
+        using var factory = CreateFactory(interrupting: interrupting);
+        using var client = factory.CreateClient();
+        var (householdId, _) = await SeedAsync(client, "Dishes", "Trash", "Vacuum");
+
+        interrupting.RowsBeforeInterrupt = 1;
+        using (var failed = await client.GetAsync(ReadUri(householdId, Week29)))
+        {
+            Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        }
+
+        // The interrupted run left no rows, so the week is not stuck partial.
+        Assert.Empty(await PersistedAsync(factory, householdId, Week29));
+
+        interrupting.RowsBeforeInterrupt = null;
+        var set = await ReadWeekAsync(client, householdId, Week29);
+
+        Assert.Equal(3, set.GetProperty("assignments").GetArrayLength());
+        Assert.Equal(3, (await PersistedAsync(factory, householdId, Week29)).Count);
     }
 
     // An IAssignmentRepository decorator whose next N ListAsync calls, once
@@ -260,8 +299,11 @@ public sealed class GetWeekAssignmentsEndpointTests
         private int _pending;
         private int _adds;
         private int _updates;
+        private int _batches;
 
         public int Adds => Volatile.Read(ref _adds);
+
+        public int Batches => Volatile.Read(ref _batches);
 
         public int Updates => Volatile.Read(ref _updates);
 
@@ -322,6 +364,18 @@ public sealed class GetWeekAssignmentsEndpointTests
             {
                 Interlocked.Increment(ref barrier._updates);
                 return inner.UpdateAsync(householdId, assignment, ifMatch, cancellationToken);
+            }
+
+            public Task SaveAllAsync(
+                string householdId,
+                IReadOnlyList<AssignmentEntity> added,
+                IReadOnlyList<AssignmentEntity> replaced,
+                CancellationToken cancellationToken = default)
+            {
+                Interlocked.Add(ref barrier._adds, added.Count);
+                Interlocked.Add(ref barrier._updates, replaced.Count);
+                Interlocked.Increment(ref barrier._batches);
+                return inner.SaveAllAsync(householdId, added, replaced, cancellationToken);
             }
         }
     }

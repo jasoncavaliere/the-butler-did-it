@@ -23,7 +23,10 @@ holds an `ITableClientFactory` that resolves an `Azure.Data.Tables` `TableClient
 envs), plus an `IEntityRepository<TEntity>` base with two implementations - a Table-backed one and an
 in-memory seed/fallback one - both scoping every read and write to `PartitionKey = householdId` and
 sharing the optimistic-concurrency rules in `Application/Concurrency/` (`If-Match` required -> `428` when
-missing, `412` when stale). A feature registers its table with
+missing, `412` when stale). `IEntityRepository<TEntity>.SubmitBatchAsync` (#319) writes a list of Add and
+Update operations all or nothing: the Table store submits one entity-group transaction per 100
+operations (atomic per chunk; an empty list makes no call), and the in-memory store validates every
+operation under a write lock before it applies any. A feature registers its table with
 `services.AddTableRepository<TEntity>("<TableName>")`; the flag picks in-memory vs Table automatically. Each
 call also records the table name, and in Table mode `TableProvisioningHostedService` (an `IHostedService`,
 so the host awaits it before serving) creates every distinct registered table with `CreateIfNotExists` at
@@ -184,7 +187,10 @@ eligible people, and each person's trailing load into an assignment set per Engi
   Generation runs the same C2/C3 body as `GenerateAsync` under a per-household in-process lock
   (`AssignmentGenerationGate`, a singleton `SemaphoreSlim` per household) that `GenerateAsync` also
   takes, and the week is re-read inside the lock, so concurrent first reads persist one set. The lock
-  guards one process only (the demo runs one API instance). The stored projection returns every `Done`
+  guards one process only (the demo runs one API instance). The generated week (lazy GET and POST
+  generate alike) is persisted in one all-or-nothing `IAssignmentRepository.SaveAllAsync` write over
+  `SubmitBatchAsync` (#319), so an interrupted first read leaves no rows and the next read generates
+  the full week instead of returning a partial one as stored. The stored projection returns every `Done`
   row and the `Open` rows of chores that are still active (effort from the chore, `0` if it is gone);
   `unassigned` is always empty because unplaced chores are never persisted. A household with no active
   chores or no eligible members reads as an empty week and nothing is persisted.

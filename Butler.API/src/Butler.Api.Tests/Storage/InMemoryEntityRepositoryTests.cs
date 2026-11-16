@@ -108,4 +108,143 @@ public sealed class InMemoryEntityRepositoryTests
         await Assert.ThrowsAsync<PreconditionFailedException>(
             () => _repository.DeleteAsync("house-1", "ghost", ifMatch: "*"));
     }
+
+    // ---- SubmitBatchAsync: validate everything, then apply everything (#319) ----
+
+    private static EntityBatchOperation<FakeEntity> Add(string rowKey, string payload = "new") =>
+        new(EntityBatchOperationKind.Add, new FakeEntity { RowKey = rowKey, Payload = payload });
+
+    private static EntityBatchOperation<FakeEntity> Update(string rowKey, string? ifMatch, string payload = "replaced") =>
+        new(EntityBatchOperationKind.Update, new FakeEntity { RowKey = rowKey, Payload = payload }, ifMatch);
+
+    // RowKey -> Payload, captured now: the store hands out live references.
+    private async Task<Dictionary<string, string>> SnapshotAsync(string householdId = "house-1") =>
+        (await _repository.ListAsync(householdId)).ToDictionary(row => row.RowKey, row => row.Payload);
+
+    private async Task<string> SeedAsync(string rowKey, string payload = "old")
+    {
+        await _repository.AddAsync("house-1", new FakeEntity { RowKey = rowKey, Payload = payload });
+        return (await _repository.GetAsync("house-1", rowKey))!.ETag.ToString();
+    }
+
+    [Fact]
+    public async Task Batch_applies_every_add_and_update_together()
+    {
+        var etag = await SeedAsync("row-1");
+        await SeedAsync("row-2");
+
+        await _repository.SubmitBatchAsync(
+            "house-1",
+            [Add("row-3"), Update("row-1", etag), Update("row-2", OptimisticConcurrency.Wildcard)]);
+
+        Assert.Equal(
+            new Dictionary<string, string> { ["row-1"] = "replaced", ["row-2"] = "replaced", ["row-3"] = "new" },
+            await SnapshotAsync());
+        var added = (await _repository.GetAsync("house-1", "row-3"))!;
+        Assert.Equal("house-1", added.PartitionKey);
+        Assert.NotEqual(default, added.ETag);
+        Assert.NotEqual(etag, (await _repository.GetAsync("house-1", "row-1"))!.ETag.ToString());
+    }
+
+    [Fact]
+    public async Task Batch_with_a_conflicting_add_writes_nothing()
+    {
+        await SeedAsync("row-c");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add("row-a"), Add("row-b"), Add("row-c")]));
+
+        Assert.Equal(new Dictionary<string, string> { ["row-c"] = "old" }, await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_with_a_duplicate_row_key_writes_nothing()
+    {
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add("row-a"), Add("row-a", "again")]));
+
+        Assert.Empty(await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_updating_a_missing_row_is_412_and_writes_nothing()
+    {
+        await Assert.ThrowsAsync<PreconditionFailedException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add("row-a"), Update("ghost", "*")]));
+
+        Assert.Empty(await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_with_a_stale_etag_is_412_and_writes_nothing()
+    {
+        await SeedAsync("row-1");
+
+        await Assert.ThrowsAsync<PreconditionFailedException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add("row-a"), Update("row-1", "stale-etag")]));
+
+        Assert.Equal(new Dictionary<string, string> { ["row-1"] = "old" }, await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_update_without_an_if_match_is_428_and_writes_nothing()
+    {
+        await SeedAsync("row-1");
+
+        await Assert.ThrowsAsync<PreconditionRequiredException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add("row-a"), Update("row-1", ifMatch: null)]));
+
+        Assert.Equal(new Dictionary<string, string> { ["row-1"] = "old" }, await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_with_no_operations_is_a_no_op()
+    {
+        await SeedAsync("row-1");
+
+        await _repository.SubmitBatchAsync("house-1", []);
+
+        Assert.Equal(new Dictionary<string, string> { ["row-1"] = "old" }, await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_with_a_cancelled_token_writes_nothing()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add("row-a")], cancellation.Token));
+
+        Assert.Empty(await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_rejects_a_blank_household_null_operations_and_blank_row_keys()
+    {
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => _repository.SubmitBatchAsync(" ", [Add("row-a")]));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => _repository.SubmitBatchAsync("house-1", null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => _repository.SubmitBatchAsync("house-1", [null!]));
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => _repository.SubmitBatchAsync(
+                "house-1", [new EntityBatchOperation<FakeEntity>(EntityBatchOperationKind.Add, null!)]));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => _repository.SubmitBatchAsync("house-1", [Add(" ")]));
+
+        Assert.Empty(await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task Batch_is_isolated_by_household()
+    {
+        await _repository.AddAsync("house-2", new FakeEntity { RowKey = "row-1", Payload = "two" });
+
+        await _repository.SubmitBatchAsync("house-1", [Add("row-1")]);
+
+        Assert.Equal(new Dictionary<string, string> { ["row-1"] = "new" }, await SnapshotAsync());
+        Assert.Equal(new Dictionary<string, string> { ["row-1"] = "two" }, await SnapshotAsync("house-2"));
+    }
 }
