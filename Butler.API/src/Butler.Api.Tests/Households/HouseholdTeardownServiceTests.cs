@@ -3,6 +3,8 @@ using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.People;
 using Butler.Api.Infrastructure.Rooms;
 using Butler.Api.Infrastructure.Storage;
+using Butler.Api.Tests.TestSupport;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 
 namespace Butler.Api.Tests.Households;
@@ -21,6 +23,9 @@ namespace Butler.Api.Tests.Households;
 /// the household purge or the second sweep, the household row is still restored
 /// and the cancellation is rethrown unchanged (not wrapped), so the API answers
 /// <c>499</c> instead of a <c>500</c>.
+/// Criteria (#337 AC1, AC3): when restoring the household row also fails, the
+/// original failure (a sweep-two failure or a request cancellation) is logged at
+/// Error with the household id, and the restore failure propagates unchanged.
 /// </summary>
 public sealed class HouseholdTeardownServiceTests
 {
@@ -30,6 +35,7 @@ public sealed class HouseholdTeardownServiceTests
     private readonly IHouseholdPartitionPurger _householdPurger = PurgerFor(typeof(HouseholdEntity));
     private readonly IHouseholdPartitionPurger _peoplePurger = PurgerFor(typeof(PersonEntity));
     private readonly IHouseholdPartitionPurger _roomsPurger = PurgerFor(typeof(RoomEntity));
+    private readonly CapturingLogger<HouseholdTeardownService> _logger = new();
 
     public HouseholdTeardownServiceTests()
     {
@@ -47,7 +53,7 @@ public sealed class HouseholdTeardownServiceTests
     // The household purger is registered first on purpose, so the test proves the
     // service reorders it rather than relying on registration order.
     private HouseholdTeardownService CreateService() =>
-        new(_households, [_householdPurger, _peoplePurger, _roomsPurger]);
+        new(_households, [_householdPurger, _peoplePurger, _roomsPurger], _logger);
 
     private async Task AssertNothingPurgedAsync()
     {
@@ -124,7 +130,8 @@ public sealed class HouseholdTeardownServiceTests
             ct => people.AddAsync(HouseholdId, new PersonEntity { RowKey = "late" }, ct));
         var service = new HouseholdTeardownService(
             households,
-            [new HouseholdPartitionPurger<HouseholdEntity>(householdRows), new HouseholdPartitionPurger<PersonEntity>(people), injectingRooms]);
+            [new HouseholdPartitionPurger<HouseholdEntity>(householdRows), new HouseholdPartitionPurger<PersonEntity>(people), injectingRooms],
+            _logger);
 
         var result = await service.TeardownAsync(HouseholdId, "Home");
 
@@ -158,7 +165,8 @@ public sealed class HouseholdTeardownServiceTests
             ct => people.AddAsync(HouseholdId, new PersonEntity { RowKey = "late" }, ct));
         var service = new HouseholdTeardownService(
             households,
-            [new HouseholdPartitionPurger<HouseholdEntity>(householdRows), failingPeople, injectingRooms]);
+            [new HouseholdPartitionPurger<HouseholdEntity>(householdRows), failingPeople, injectingRooms],
+            _logger);
 
         var thrown = await Assert.ThrowsAsync<HouseholdTeardownIncompleteException>(
             () => service.TeardownAsync(HouseholdId, "Home"));
@@ -175,6 +183,7 @@ public sealed class HouseholdTeardownServiceTests
         Assert.Empty(await rooms.ListAsync(HouseholdId));
 
         Assert.Equal(HouseholdTeardownResult.NotFound, await service.TeardownAsync(HouseholdId, "Home"));
+        Assert.Empty(_logger.Entries);
     }
 
     [Fact]
@@ -205,6 +214,7 @@ public sealed class HouseholdTeardownServiceTests
         Assert.Same(cancellation, thrown);
         await _households.Received(1).GetAsync(HouseholdId, CancellationToken.None);
         await _households.Received(1).AddAsync(household, CancellationToken.None);
+        Assert.Empty(_logger.Entries);
     }
 
     [Fact]
@@ -244,6 +254,60 @@ public sealed class HouseholdTeardownServiceTests
         Assert.Same(failure, thrown.InnerException);
         await _households.DidNotReceiveWithAnyArgs().AddAsync(default!, default);
         await _peoplePurger.Received(1).PurgeAsync(HouseholdId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_failed_restore_after_a_sweep_two_failure_logs_the_original_failure_and_propagates_the_restore_error()
+    {
+        var household = new HouseholdEntity { PartitionKey = HouseholdId, RowKey = HouseholdId, Name = "Home" };
+        _households.GetAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(household, (HouseholdEntity?)null);
+        var restoreFailure = new InvalidOperationException("restore down");
+        _households.AddAsync(household, CancellationToken.None)
+            .Returns(Task.FromException(restoreFailure));
+        var failure = new InvalidOperationException("storage down");
+        var peopleCalls = 0;
+        _peoplePurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(_ => ++peopleCalls < 2 ? Task.FromResult(0) : Task.FromException<int>(failure));
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CreateService().TeardownAsync(HouseholdId, "Home"));
+
+        Assert.Same(restoreFailure, thrown);
+        AssertOriginalFailureLogged(failure);
+    }
+
+    [Fact]
+    public async Task A_failed_restore_after_a_request_cancellation_logs_the_cancellation_and_propagates_the_restore_error()
+    {
+        var household = new HouseholdEntity { PartitionKey = HouseholdId, RowKey = HouseholdId, Name = "Home" };
+        _households.GetAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(household, (HouseholdEntity?)null);
+        var restoreFailure = new InvalidOperationException("restore down");
+        _households.AddAsync(household, CancellationToken.None)
+            .Returns(Task.FromException(restoreFailure));
+        using var cts = new CancellationTokenSource();
+        var cancellation = new OperationCanceledException(cts.Token);
+        _householdPurger.PurgeAsync(HouseholdId, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                cts.Cancel();
+                return Task.FromException<int>(cancellation);
+            });
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CreateService().TeardownAsync(HouseholdId, "Home", cts.Token));
+
+        Assert.Same(restoreFailure, thrown);
+        AssertOriginalFailureLogged(cancellation);
+    }
+
+    private void AssertOriginalFailureLogged(Exception original)
+    {
+        var entry = Assert.Single(_logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Same(original, entry.Exception);
+        Assert.Contains(HouseholdId, entry.Message, StringComparison.Ordinal);
     }
 
     // Wraps a purger and throws the given exception on one numbered call instead
@@ -304,8 +368,9 @@ public sealed class HouseholdTeardownServiceTests
     [Fact]
     public async Task Teardown_guards_its_arguments()
     {
-        Assert.Throws<ArgumentNullException>(() => new HouseholdTeardownService(null!, []));
-        Assert.Throws<ArgumentNullException>(() => new HouseholdTeardownService(_households, null!));
+        Assert.Throws<ArgumentNullException>(() => new HouseholdTeardownService(null!, [], _logger));
+        Assert.Throws<ArgumentNullException>(() => new HouseholdTeardownService(_households, null!, _logger));
+        Assert.Throws<ArgumentNullException>(() => new HouseholdTeardownService(_households, [], null!));
         Assert.Throws<ArgumentNullException>(() => new DeleteHouseholdCommandHandler(null!));
 
         await Assert.ThrowsAsync<ArgumentException>(() => CreateService().TeardownAsync(" ", "Home"));

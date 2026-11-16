@@ -1,5 +1,6 @@
 using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace Butler.Api.Application.Households;
 
@@ -19,22 +20,28 @@ namespace Butler.Api.Application.Households;
 /// <see cref="HouseholdTeardownIncompleteException"/> (#294). Known limits: a write that
 /// authenticated before the household row was deleted but commits after the
 /// second sweep can still leave an orphan row, and if restoring the row also
-/// fails, that failure propagates and the remaining rows are unreachable through
-/// teardown.
+/// fails, the remaining rows are unreachable through teardown. In that case the
+/// original failure is logged at Error and the restore failure propagates on its
+/// own, so the API answers a generic <c>500</c> problem and both failures are in
+/// the logs (#337).
 /// </summary>
-public sealed class HouseholdTeardownService : IHouseholdTeardownService
+public sealed partial class HouseholdTeardownService : IHouseholdTeardownService
 {
     private readonly IHouseholdRepository _households;
     private readonly IHouseholdPartitionPurger[] _partitionPurgers;
     private readonly IHouseholdPartitionPurger[] _householdPurgers;
+    private readonly ILogger<HouseholdTeardownService> _logger;
 
     public HouseholdTeardownService(
         IHouseholdRepository households,
-        IEnumerable<IHouseholdPartitionPurger> purgers)
+        IEnumerable<IHouseholdPartitionPurger> purgers,
+        ILogger<HouseholdTeardownService> logger)
     {
         ArgumentNullException.ThrowIfNull(households);
         ArgumentNullException.ThrowIfNull(purgers);
+        ArgumentNullException.ThrowIfNull(logger);
         _households = households;
+        _logger = logger;
 
         // The household row is the only one named, and only to order it between
         // the two sweeps of every other table (kept in registration order).
@@ -76,8 +83,17 @@ public sealed class HouseholdTeardownService : IHouseholdTeardownService
         {
             // Covers cancellation too. Without the household row a retry would be
             // a 404 and the rows left behind would be unreachable (#294), so put it
-            // back first in every case. A failed restore propagates on its own.
-            await RestoreHouseholdAsync(householdId, household).ConfigureAwait(false);
+            // back first in every case. A failed restore propagates on its own,
+            // so log the original failure first or it would be lost (#337).
+            try
+            {
+                await RestoreHouseholdAsync(householdId, household).ConfigureAwait(false);
+            }
+            catch
+            {
+                LogOriginalFailureWhenRestoreFailed(ex, householdId);
+                throw;
+            }
 
             // The caller cancelled (an aborted request): rethrow as is, so the host
             // treats it as a client abort (499, no error log), not a failure (#336).
@@ -118,4 +134,10 @@ public sealed class HouseholdTeardownService : IHouseholdTeardownService
             await purger.PurgeAsync(householdId, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Error,
+        Message = "Teardown of household {HouseholdId} failed and restoring its Households row also failed; this is the original failure, the restore failure propagates")]
+    private partial void LogOriginalFailureWhenRestoreFailed(Exception exception, string householdId);
 }

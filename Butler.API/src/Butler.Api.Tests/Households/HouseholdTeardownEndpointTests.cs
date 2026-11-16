@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using Azure.Data.Tables;
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Households;
+using Butler.Api.Infrastructure.Households;
 using Butler.Api.Infrastructure.People;
 using Butler.Api.Infrastructure.Storage;
 using Butler.Api.Mediation;
@@ -39,6 +41,11 @@ namespace Butler.Api.Tests.Households;
 /// during the second sweep, the household row is still restored and the request
 /// ends <c>499</c> with no error logged by the API exception handler, so a retry
 /// finishes the purge.
+/// Criteria (#337 AC1, AC2): when restoring the household row also fails after a
+/// second-sweep failure, the <c>DELETE</c> is still an RFC 7807 <c>500</c>
+/// problem (the generic one, with no <c>reason</c>), the teardown service logs
+/// the original failure at Error with the household id, and the API exception
+/// handler logs the restore failure, so neither failure is lost.
 /// </summary>
 public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFactory>
 {
@@ -308,6 +315,49 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
         Assert.All(await CountAllAsync(factory.Services, householdId), pair => Assert.Equal(0, pair.Value));
     }
 
+    [Fact]
+    public async Task A_failed_restore_after_a_sweep_two_failure_is_a_problem_and_logs_both_failures()
+    {
+        RestoreFailingHouseholdRepository? restoring = null;
+        var teardownLogger = new CapturingLogger<HouseholdTeardownService>();
+        var handlerLogger = new CapturingLogger<ApiExceptionHandler>();
+        using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IHouseholdPartitionPurger>(sp =>
+                    new SweepTwoFailingPurger(sp.GetRequiredService<IEntityRepository<PersonEntity>>(), cancel: false));
+                services.AddSingleton<IHouseholdRepository>(sp =>
+                    restoring = new RestoreFailingHouseholdRepository(
+                        new TableHouseholdRepository(sp.GetRequiredService<IEntityRepository<HouseholdEntity>>())));
+                services.AddSingleton<ILogger<HouseholdTeardownService>>(teardownLogger);
+                services.AddSingleton<ILogger<ApiExceptionHandler>>(handlerLogger);
+            }));
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+        Assert.NotNull(restoring);
+
+        // Armed only now: creating the household above also adds a row.
+        restoring.FailAdds = true;
+        using (var response = await TearDownAsync(client, householdId))
+        {
+            await AssertProblemAsync(response, HttpStatusCode.InternalServerError);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal("An unexpected error occurred.", doc.RootElement.GetProperty("title").GetString());
+            Assert.False(doc.RootElement.TryGetProperty("reason", out _));
+        }
+
+        var original = Assert.Single(teardownLogger.Entries, entry => entry.Level == LogLevel.Error);
+        var originalFailure = Assert.IsType<InvalidOperationException>(original.Exception);
+        Assert.Equal("storage down", originalFailure.Message);
+        Assert.Contains(householdId, original.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            handlerLogger.Entries,
+            entry => entry.Level == LogLevel.Error && ReferenceEquals(entry.Exception, restoring.Failure));
+
+        // The documented limit: the row was not restored, so the household is gone.
+        Assert.Equal(HttpStatusCode.NotFound, await GetHouseholdStatusAsync(client, householdId));
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"confirmName\":\"\"}")]
@@ -543,6 +593,26 @@ public sealed class HouseholdTeardownEndpointTests : IClassFixture<ButlerApiFact
             });
             next(app);
         };
+    }
+
+    // Delegates to the real repository, except that once FailAdds is set every
+    // add throws the same Failure, simulating a failed restore of the
+    // Households row.
+    private sealed class RestoreFailingHouseholdRepository : IHouseholdRepository
+    {
+        private readonly IHouseholdRepository _inner;
+
+        public RestoreFailingHouseholdRepository(IHouseholdRepository inner) => _inner = inner;
+
+        public bool FailAdds { get; set; }
+
+        public InvalidOperationException Failure { get; } = new("restore down");
+
+        public Task AddAsync(HouseholdEntity household, CancellationToken cancellationToken = default) =>
+            FailAdds ? Task.FromException(Failure) : _inner.AddAsync(household, cancellationToken);
+
+        public Task<HouseholdEntity?> GetAsync(string householdId, CancellationToken cancellationToken = default) =>
+            _inner.GetAsync(householdId, cancellationToken);
     }
 
     // Registered after the People purger, so it runs once People is already
