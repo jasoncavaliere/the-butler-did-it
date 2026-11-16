@@ -140,8 +140,9 @@ import { WidgetEmpty, WidgetError, WidgetSkeleton } from './WidgetState';
  *   already in flight when the tap is made (that confirm refetch, a week retry,
  *   the boundary reload) still answers with the row as it was, and the board
  *   stays tappable while it loads. So each live tap is remembered while its POST
- *   is in flight and until a load that started after it settled has landed, and
- *   every load overlays those taps last, over the queue's
+ *   is in flight and until a live load that started after it settled has
+ *   landed; a cache fallback keeps it, because the cached week predates it
+ *   (#244). Every load overlays those taps last, over the queue's
  *   ({@link applyLiveTaps}, {@link pruneLiveTaps}, #147). The board does not
  *   refetch again for it - that would cost a request and still redraw a tap
  *   whose POST had not settled yet.
@@ -303,6 +304,10 @@ export type LiveTap = {
  * server's answer already carries it. A tap still in flight, or one that
  * settled while that load (or a later one) was running, may be missing from
  * the snapshot and is kept. Returns a new map; the input is not changed.
+ *
+ * Only a live load calls this: a load that falls back to the cached week has
+ * no server answer, and the cached week predates any tap that settled since the
+ * last live load, so it keeps every record (#244).
  */
 export function pruneLiveTaps(taps: Map<string, LiveTap>, load: number): Map<string, LiveTap> {
   return new Map(
@@ -567,9 +572,11 @@ export function ChoreBoard({
           setWeekIso(cached.board.weekIso);
           // The cache is re-read from storage on every load, so a queued tap that
           // happened after the record was last written is still shown as done.
-          // Live taps go on top, pruned exactly as on a live load (#147/#154), so a
-          // tap still in flight is not redrawn as the cached snapshot had it.
-          liveTapsRef.current = pruneLiveTaps(liveTapsRef.current, load);
+          // Live taps go on top (#147/#154), so a tap still in flight is not
+          // redrawn as the cached snapshot had it. They go on unpruned, because
+          // the cached week predates them: it was written by the last live load,
+          // so a tap that settled since is missing from it. Only a live load
+          // prunes them (#244).
           setItems(
             applyLiveTaps(
               applyQueuedWrites(cached.board.items, cached.board.weekIso, readWriteQueue(householdId)),
@@ -744,7 +751,9 @@ export function ChoreBoard({
   // whatever happens next unless the service itself refuses the write.
   // - Offline, from a cached board: there is no live network to try, so the write
   //   goes straight to the durable queue (O3) and replays when the network is
-  //   back. The row stays done.
+  //   back. The row stays done. A settled live tap kept on the chore is dropped
+  //   first: fallback loads overlay live taps above the queue, so it would
+  //   otherwise redraw this newer tap until a live load (#244).
   // - Live, but the network drops between the load and the tap: the API answers
   //   `unreachable`, which is the same situation arriving a moment later, so the
   //   write is queued too and the row still stays done. Reverting here would tell
@@ -802,6 +811,7 @@ export function ChoreBoard({
         body,
       };
       const queueWrite = () => enqueue(request);
+      const tapKey = assignmentDedupeKey(weekIso, choreId);
 
       setItems((prev) =>
         prev.map((item) => (item.choreId === choreId ? { ...item, status: optimistic } : item)),
@@ -813,6 +823,14 @@ export function ChoreBoard({
       }
 
       if (fromCache) {
+        // A settled live record on this chore is older than this tap, and would
+        // overlay it on every cache fallback until a live load prunes it (#244).
+        // Settled records never carry an `overtook` chain, so dropping one loses
+        // nothing. A pending record is left alone: its POST is still deciding.
+        const settledTap = liveTapsRef.current.get(tapKey);
+        if (settledTap !== undefined && settledTap.settledAtLoad !== null) {
+          liveTapsRef.current.delete(tapKey);
+        }
         queueWrite();
         return;
       }
@@ -823,7 +841,6 @@ export function ChoreBoard({
       // a response for a tap that has since been overtaken leaves the row alone
       // (#153). The record it replaces is kept on it as `overtook`, so a refusal
       // can hand the record back instead of dropping it (#241).
-      const tapKey = assignmentDedupeKey(weekIso, choreId);
       const tap = ++tapSeqRef.current;
       const overtook = liveTapsRef.current.get(tapKey);
       liveTapsRef.current.set(tapKey, { status: optimistic, settledAtLoad: null, tap, overtook });

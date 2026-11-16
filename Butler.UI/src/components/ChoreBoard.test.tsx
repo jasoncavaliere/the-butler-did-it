@@ -2472,6 +2472,7 @@ describe('ChoreBoard offline write queue', () => {
     await act(async () => {
       emitOnline();
     });
+    return emitOnline;
   }
 
   it('sync-refetch: a drain that confirms queued writes refetches the board exactly once and renders the post-sync server state', async () => {
@@ -2972,12 +2973,14 @@ describe('ChoreBoard offline write queue', () => {
     await screen.unmount();
   });
 
-  it('live-tap-cache-fallback: a live tap that settled before the falling-back load started is pruned, as on a live load', async () => {
-    // #154: the tap settles before the drain confirms, so the confirm refetch is
-    // a load the tap predates and prunes it, just as a successful load would.
-    // That load finds the network gone and falls back to the cached week.
-    const fake = serverClient({ holdComplete: true, extra: ['c2'] });
-    await goOnlineWithQueuedTap(fake);
+  /**
+   * #244: c2 is tapped on the live board and its POST settles before the drain
+   * confirms, so the confirm refetch is a load the tap predates. That load finds
+   * the network gone and falls back to the cached week, which the reconnect
+   * load wrote before the tap. Returns the reconnect emitter, for a later load.
+   */
+  async function settledTapThenFallback(fake: ReturnType<typeof serverClient>) {
+    const emitOnline = await goOnlineWithQueuedTap(fake);
     await waitFor(() => expect(screen.getByTestId('chore-item-c2')).toBeOnTheScreen());
     await waitFor(() => expect(fake.server.onlineReads).toBe(1));
     // The drain's c1 complete must be on the wire before releaseComplete can answer it.
@@ -2997,9 +3000,82 @@ describe('ChoreBoard offline write queue', () => {
     await waitFor(() => expect(readWriteQueue('hh-1')).toEqual([]));
     await waitFor(() => expect(readCalls(fake.client)).toBe(3));
     await flush();
+    return emitOnline;
+  }
 
-    // The cache was written by the reconnect load, before the tap, so it holds
-    // c2 Open, and the pruned tap no longer covers it. Pinned by #154 AC2.
+  const cachedC2 = () => readGlance('hh-1')?.board?.items.find((item) => item.choreId === 'c2')?.status;
+
+  it('live-tap-cache-fallback: a live tap that settled before the falling-back load started is kept, because the cached week predates it (#244)', async () => {
+    // The cache holds c2 Open, but the server recorded the tap: the cached week
+    // is older than the tap, so the tap stays on top of it. This inverts the
+    // #154 AC2 pin, which pruned the tap as if the cached week were a live answer.
+    const fake = serverClient({ holdComplete: true, extra: ['c2'] });
+    await settledTapThenFallback(fake);
+
+    expectC2('Done');
+    expect(cachedC2()).toBe('Open');
+    expect(fake.server.status.c2).toBe('Done');
+
+    await screen.unmount();
+  });
+
+  it('live-tap-cache-fallback: a settled tap kept on a fallback is pruned by the next live load, which shows the server\'s data (#244)', async () => {
+    // Once a live load lands, it is the server's answer: the settled tap is
+    // pruned as before, so the board shows what the server holds now, even when
+    // that disagrees with the tap (another device undid it meanwhile).
+    const fake = serverClient({ holdComplete: true, extra: ['c2'] });
+    const emitOnline = await settledTapThenFallback(fake);
+    expectC2('Done');
+
+    fake.server.status.c2 = 'Open';
+    fake.server.offline = false;
+    await act(async () => {
+      emitOnline();
+    });
+    await flush();
+
+    await waitFor(() => expect(cachedC2()).toBe('Open'));
+    expectC2('Open');
+  });
+
+  it('live-tap-cache-fallback: a refused live tap is not redrawn when a load falls back to the cached week (#244)', async () => {
+    // The service refuses c2's tap, so the row reverts and the record is
+    // dropped; the fallback that follows draws the cached week as it is.
+    const fake = await liveBoardWithParkedTaps();
+
+    await tapC2();
+    await settle(() => fake.releaseLive(0, refused));
+    expectC2('Open');
+
+    await settle(() => fake.releaseRead(unreachable));
+    expectC2('Open');
+    expect(readWriteQueue('hh-1')).toEqual([]);
+
+    await screen.unmount();
+  });
+
+  it('live-tap-cache-fallback: a tap on the cached board is not hidden by a settled live tap kept on that chore (#244)', async () => {
+    // From the kept-tap state, c2 is tapped again on the cached board: the undo
+    // goes to the queue. Live taps overlay above the queue, so the settled Done
+    // record would redraw c2 as Done on every fallback until a live load; the
+    // cached-board tap drops it instead.
+    const fake = serverClient({ holdComplete: true, extra: ['c2'] });
+    const emitOnline = await settledTapThenFallback(fake);
+    expectC2('Done');
+
+    await tapC2();
+    expectC2('Open');
+    expect(readWriteQueue('hh-1')).toEqual([
+      expect.objectContaining({ kind: 'chore-undo', dedupeKey: assignmentDedupeKey(thisWeek, 'c2') }),
+    ]);
+
+    // Still offline: the reconnect's load falls back to the cached week again.
+    const reads = readCalls(fake.client);
+    await act(async () => {
+      emitOnline();
+    });
+    await waitFor(() => expect(readCalls(fake.client)).toBeGreaterThan(reads));
+    await flush();
     expectC2('Open');
 
     await screen.unmount();
