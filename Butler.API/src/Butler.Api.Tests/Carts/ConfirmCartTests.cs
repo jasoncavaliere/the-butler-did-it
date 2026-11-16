@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Butler.Api.Application.Auth;
+using Butler.Api.Application.Carts;
 using Butler.Api.Application.Events;
 using Butler.Api.Application.Grocery;
 using Butler.Api.Infrastructure.Carts;
@@ -412,5 +413,35 @@ public sealed class ConfirmCartTests
             .ListAsync(householdId, CancellationToken.None);
         var recorded = Assert.Single(events);
         Assert.Equal(EventTypes.CartConfirmed, recorded.Type);
+    }
+
+    [Fact]
+    public async Task A_confirm_whose_cart_vanishes_before_the_re_read_is_a_404_not_a_500()
+    {
+        var clock = new MutableClock(ConfirmedAt);
+        // #289: the confirm's write lands, but the cart is gone (for example a
+        // re-seed) by the time the service re-reads it.
+        var confirmations = Substitute.For<ICartConfirmationService>();
+        confirmations
+            .ConfirmAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new ConfirmCartResult(new CartReadResult(HouseholdExists: true, Cart: null), Changed: true));
+        using var factory = new ButlerApiFactory().WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(clock);
+                services.RemoveAll<ICartConfirmationService>();
+                services.AddSingleton(confirmations);
+            }));
+        using var client = factory.CreateClient();
+        var householdId = await CreateHouseholdAsync(client);
+
+        using var response = await ConfirmAsync(client, householdId, "*");
+
+        await AssertProblemAsync(response, HttpStatusCode.NotFound, "Cart not found.");
+        var events = await factory.Services.GetRequiredService<IEventRepository>()
+            .ListAsync(householdId, CancellationToken.None);
+        Assert.DoesNotContain(events, e => e.Type == EventTypes.CartConfirmed);
     }
 }
