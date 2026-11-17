@@ -25,6 +25,7 @@ okf_version: "0.2"
 # Operations
 
 * [40 Hub Tablet Kiosk Setup](docs/40-hub-tablet-kiosk-setup.md) - How to turn a tablet into the Butler hub, step by step: stock Android with Fully Kiosk EMM as device owner, a reclaimed Fire tablet, or an iPad with Guided Access, plus connecting it to the demo desktop, keeping it awake, capping its charge, and getting back out.
+* [41 On-Device Acceptance Checklist](docs/41-on-device-acceptance-checklist.md) - The checks a person runs on the real hub hardware after setup and before a demo: five kiosk checks on the Fire + Fully Kiosk demo device, the offline-epic (#31-#34) checks in Chrome only, and a blank results table.
 
 # Reference
 

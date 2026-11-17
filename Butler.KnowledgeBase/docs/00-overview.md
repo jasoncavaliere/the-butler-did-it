@@ -7,7 +7,7 @@ category: Start Here
 lifecycle: Living
 owner: agent-managed
 related: [10-product-vision, 90-glossary]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T18:59:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T03:09:30Z }
 ---
 
 # Overview - What Butler Is and How This Knowledge Base Works
@@ -28,7 +28,7 @@ Butler is a tech experiment and a build-in-public blog series. We ship in the op
 
 ## How this knowledge base is organized
 
-The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [index](../index.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - twelve articles, with the first Architecture and Operations spokes now in place - and it keeps growing along the reserved ranges below.
+The docs are a **knowledge graph**, not a folder of files. Each article is a node, each cross-link is an edge, and this map plus the [index](../index.md) is how you move between them. The shape is **hub-and-spoke**: the [Product Vision](10-product-vision.md) is the hub, and strategy, architecture, and operations articles are spokes that grow around it over time. The graph is still small - thirteen articles, with the first Architecture and Operations spokes now in place - and it keeps growing along the reserved ranges below.
 
 **The five categories (fixed):**
 
@@ -48,7 +48,7 @@ The docs are a **knowledge graph**, not a folder of files. Each article is a nod
 | --- | --- |
 | **New to Butler** | This overview, then the [Glossary](90-glossary.md). |
 | **Product / leadership** | The [Product Vision](10-product-vision.md), especially What winning looks like and What we are NOT building in v1. For the hub hardware question, the [Hub Hardware Findings](11-hub-hardware-findings.md). For pricing and the pilot-to-paid offer, the [Pricing Hypothesis](12-pricing-hypothesis.md). For post-demo customer conversations, the [Customer Interview Guide](13-customer-interview-guide.md) and the [Feedback Log Template](14-feedback-log-template.md). For the week-4 build-more, change-course, or stop decision on a pilot, the [Pilot Success Criteria](15-pilot-success-criteria.md). For the offer made to pilot families, the [Pilot One-Pager](16-pilot-one-pager.md). For what a family is told about choosing, powering, mounting, and locking down its own tablet, the [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md). |
-| **Engineer / agent** | The [Architecture Overview](20-architecture-overview.md), then only the Engineering Contract clause and ticket file your work needs (see the [BRD index](../brd/index.md)). Read [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md) before you edit these docs. Check the [decision log](../adr/README.md) before proposing design work. To turn a tablet into the hub for a demo, the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) runbook. |
+| **Engineer / agent** | The [Architecture Overview](20-architecture-overview.md), then only the Engineering Contract clause and ticket file your work needs (see the [BRD index](../brd/index.md)). Read [HOW-TO-MAINTAIN](../HOW-TO-MAINTAIN.md) before you edit these docs. Check the [decision log](../adr/README.md) before proposing design work. To turn a tablet into the hub for a demo, the [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) runbook. To check the tablet before a demo, the [On-Device Acceptance Checklist](41-on-device-acceptance-checklist.md). |
 | **Investor / partner** | The [Product Vision](10-product-vision.md): the problem, the moat, why now, and the business model, all sourced. |
 
 - To understand the product and the strategy: read the [Product Vision](10-product-vision.md). It is the centerpiece and every other article hangs off it.
