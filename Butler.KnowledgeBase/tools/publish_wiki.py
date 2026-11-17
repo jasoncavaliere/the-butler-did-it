@@ -384,14 +384,22 @@ class Converter:
         trailer = []
         related = fm.get("related")
         if isinstance(related, list) and related:
+            # fm_lines["related"] is one int (the key line) for a flow list, or a
+            # list of per-item lines for a block list.
+            rel_lines = fm_lines.get("related")
             items = []
-            for slug in related:
+            for idx, slug in enumerate(related):
                 if not isinstance(slug, str):
                     continue
                 target = self.resolve_slug(slug)
                 if target is None:
-                    self.report(rel, fm_lines.get("related", 0),
-                                "broken link '%s' (related)" % slug)
+                    if isinstance(rel_lines, list):
+                        lineno = rel_lines[idx] if idx < len(rel_lines) else 0
+                    elif isinstance(rel_lines, int):
+                        lineno = rel_lines
+                    else:
+                        lineno = 0
+                    self.report(rel, lineno, "broken link '%s' (related)" % slug)
                     continue
                 items.append("- [%s](%s)" % (self.link_text(self.page_title(target)),
                                              self.names[target]))
