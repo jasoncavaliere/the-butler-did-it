@@ -373,6 +373,73 @@ class BrokenLinkTests(unittest.TestCase):
             self.assertIn("1 broken link(s)", text)
             self.assertIn("- [Doc A](a)", (out / "blocky.md").read_text())
 
+    # #387: a flow-style sources: list parses as maps and reports the key line, not a TypeError.
+    def test_flow_sources_parse_as_maps_and_report_key_line(self):
+        fm, lines, _ = publish_wiki.parse_page(
+            '---\nsources: [{ id: a, resource: a.md, title: A }, '
+            '{ id: n, title: "N, with comma" }]\n---\n')
+        self.assertEqual(fm["sources"], [
+            {"id": "a", "resource": "a.md", "title": "A"},
+            {"id": "n", "title": "N, with comma"}])
+        self.assertEqual(lines["sources"], 2)
+        extra = {
+            "Butler.KnowledgeBase/docs/flowsrc.md": (
+                "---\ntype: Guide\ntitle: Flow Sources\n"
+                "sources: [{ id: ok, resource: a.md, title: OK }, "
+                "{ id: gone, resource: gone.md, title: Gone }, "
+                '{ id: note, title: "Note, with comma" }]\n'
+                "---\n\n# Flow Sources\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            kb = build_fixture(root, extra)
+            out = Path(tmp) / "out"
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = publish_wiki.main([
+                    "--out", str(out), "--kb", str(kb), "--repo-root", str(root)])
+            self.assertEqual(code, 1)
+            text = err.getvalue()
+            self.assertIn(
+                "Butler.KnowledgeBase/docs/flowsrc.md:4: broken link 'gone.md' (source)", text)
+            self.assertIn("1 broken link(s)", text)
+            page = (out / "flowsrc.md").read_text()
+            sources = page[page.index("**Sources**"):]
+            self.assertIn("- [OK](a)\n", sources)
+            self.assertIn("- Gone\n", sources)
+            self.assertIn("- Note, with comma\n", sources)
+            self.assertNotIn("{", sources)
+
+    # #387: a flow-style sources: list renders exactly like the same list block-style.
+    def test_flow_and_block_sources_render_the_same(self):
+        extra = {
+            "Butler.KnowledgeBase/docs/flowtwin.md": (
+                "---\ntype: Guide\ntitle: Twin\n"
+                "sources: [{ id: a, resource: a.md#doc-a-heading, title: Doc A }, "
+                "{ id: web, resource: https://example.com/x, title: Example }, "
+                "{ id: note, title: Just a note }]\n"
+                "---\n\nIntro.\n"
+            ),
+            "Butler.KnowledgeBase/docs/blocktwin.md": (
+                "---\ntype: Guide\ntitle: Twin\nsources:\n"
+                "  - { id: a, resource: a.md#doc-a-heading, title: Doc A }\n"
+                "  - { id: web, resource: https://example.com/x, title: Example }\n"
+                "  - { id: note, title: Just a note }\n"
+                "---\n\nIntro.\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            kb = build_fixture(root, extra)
+            out = Path(tmp) / "out"
+            broken = publish_wiki.convert(kb, out, root)
+            self.assertEqual(broken, [])
+            flow = (out / "flowtwin.md").read_text()
+            self.assertIn("**Sources**", flow)
+            self.assertIn("- [Doc A](a#doc-a-heading)", flow)
+            self.assertEqual(flow, (out / "blocktwin.md").read_text())
+
     def test_non_empty_out_is_usage_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
