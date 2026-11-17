@@ -58,9 +58,12 @@
 #            And snapshots (#99, demo/ci/check-snapshot.sh static): with a
 #            stub docker, snapshot stops only Azurite, copies in a container
 #            and starts Azurite again; restore stops the stack, wipes and
-#            copies in containers; bad names, a missing PIN and non-local
-#            targets make no docker call; snapshots lists newest first; the
-#            same bytes and docker calls through both scripts.
+#            copies in containers, then starts only Azurite and the API and
+#            keeps the hub down until the dataset id changes (#361): a failed
+#            API start or sign-in makes no web call; bad names, a missing PIN
+#            and non-local targets make no docker call; snapshots lists
+#            newest first; the same bytes and docker calls through both
+#            scripts.
 #            And the smoke step (#103): Azurite's Table port is published
 #            only on 127.0.0.1:10012 while the api keeps azurite:10002, and
 #            demo/ci/check-smoke-step.sh (stub dotnet and docker) shows both
@@ -100,7 +103,8 @@
 #            (#99, demo/ci/check-snapshot.sh stack): demo.sh snapshot keeps
 #            the organizer signed in; demo.sh restore and demo.ps1 restore
 #            recreate the api, bring back the snapshot's data and change the
-#            dataset id. And the smoke
+#            dataset id, and the hub stays down until the id has changed
+#            (#361, a hub watcher checks every answer). And the smoke
 #            step (#103): with the SDK from Butler.API/global.json, demo up
 #            runs the real Liveness and Rooms smoke tests through the proxy
 #            (signing in with the PIN, reading Azurite on 127.0.0.1:10012),
@@ -410,9 +414,10 @@ jobs:
       # #99 AC1, AC2, AC6b, AC7, AC8: snapshot stops only Azurite and copies
       # in a container; restore stops the stack (down) and wipes and copies
       # in containers; bad names, a missing PIN and non-local targets make no
-      # docker call; snapshots lists newest first; documented. demo.sh and
-      # demo.ps1 print the same bytes and make the same docker calls. Stub
-      # docker.
+      # docker call; snapshots lists newest first; documented. #361: restore
+      # keeps the hub (web) down until the dataset id changes, so a failed
+      # API start or sign-in makes no web call. demo.sh and demo.ps1 print
+      # the same bytes and make the same docker calls. Stub docker.
       - name: "demo CLI: snapshot, restore and snapshots (#99)"
         run: bash demo/ci/check-snapshot.sh static
 
@@ -941,7 +946,9 @@ jobs:
       # #99 AC1, AC2, AC6, AC6b + review F1: demo.sh snapshot keeps the
       # organizer signed in; demo.sh restore and demo.ps1 restore (stdin
       # closed) recreate the api, bring the snapshot's data back and change
-      # the dataset id, with the same own lines. Starts with the stack up.
+      # the dataset id, with the same own lines. #361: a hub watcher shows
+      # the hub stays down until the dataset id has changed. Starts with the
+      # stack up.
       - name: "demo CLI: snapshot and restore round trip (#99)"
         run: bash demo/ci/check-snapshot.sh stack
 
