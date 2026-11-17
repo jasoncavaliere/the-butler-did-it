@@ -119,7 +119,13 @@ touching anything under `public/` or `scripts/`.
   default through `EXPO_PUBLIC_DISABLE_AUTH`), `entra`, or `pin` (#105, the demo stack). With `pin`,
   `OrganizerGate` and `OrganizerBar` show a PIN pad and the API returns a short-lived organizer token
   (15 idle minutes). Build the demo export with
-  `EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web` (`demo/demo.sh up` does).
+  `EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household npm run build:web`
+  (`demo/demo.sh up` does).
+- `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID` (#316) is the household the hub opens when nothing is stored:
+  `HubPairingProvider` starts on it (via `resolveDemoHouseholdId` in `src/api/config.ts`) instead of
+  the setup wizard, unpaired, and a stored pairing (#188) still wins. `demo/demo.sh up` sets it to
+  `demo-household`, the household `demo reset` seeds ("The Parker Household"). Unset or blank, startup
+  is unchanged: nothing stored shows the setup wizard.
 - `EXPO_PUBLIC_BUILD_SHA` stamps the export with the git short SHA it was built from (#126). The
   organizer's Version panel (`VersionInfo`) shows it next to the API's SHA from
   `GET /api/system/version` and flags a mismatch. Unset or blank, the hub reports `dev`.

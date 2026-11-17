@@ -50,7 +50,7 @@ pwsh demo/demo.ps1 unshare
 
 | Command | What it does |
 | --- | --- |
-| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and waits until every service reports healthy. Then it runs the smoke suite with the host .NET SDK and prints `Demo ready: <urls>` and exits 0 only when every smoke check passes (see [Smoke step](#smoke-step)); it checks for the SDK first, before running npm or docker. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_AUTH_PROVIDER` values it used), so an export built another way, such as by hand, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
+| `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin`, `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and waits until every service reports healthy. Then it runs the smoke suite with the host .NET SDK and prints `Demo ready: <urls>` and exits 0 only when every smoke check passes (see [Smoke step](#smoke-step)); it checks for the SDK first, before running npm or docker. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_AUTH_PROVIDER` and `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID` values it used), so an export built another way, such as by hand, or by an older `up` without `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID`, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
 | `demo.sh snapshot` | `snapshot <name>` saves a copy of the demo data: refuses to run unless the target is the local demo stack, stops only Azurite, copies `demo/.data/azurite` to `demo/.data/snapshots/<name>` and starts Azurite again. The API and the hub keep running, so the organizer stays signed in. Refuses a name that is already taken. See [Snapshots](#snapshots). |
@@ -88,13 +88,13 @@ therefore rebuilt once by the next `up`.
 
 The `web` service serves the export from `Butler.UI/dist`, which is built on
 the host. Build it once, and again after any UI change, with the API base set
-to `/api` so the hub calls the API on its own origin, and the organizer
-sign-in set to the PIN pad:
+to `/api` so the hub calls the API on its own origin, the organizer sign-in
+set to the PIN pad, and the demo household as the hub's starting household:
 
 ```bash
 cd Butler.UI
 npm ci
-EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin npm run build:web
+EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household npm run build:web
 cd ..
 ```
 
@@ -103,7 +103,7 @@ PowerShell:
 ```powershell
 cd Butler.UI
 npm ci
-$env:EXPO_PUBLIC_API_BASE_URL = '/api'; $env:EXPO_PUBLIC_AUTH_PROVIDER = 'pin'; npm run build:web
+$env:EXPO_PUBLIC_API_BASE_URL = '/api'; $env:EXPO_PUBLIC_AUTH_PROVIDER = 'pin'; $env:EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = 'demo-household'; npm run build:web
 cd ..
 ```
 
@@ -113,6 +113,15 @@ hub calls `http://localhost:5108` directly, a different origin, and the
 browser blocks those calls with CORS errors. Without
 `EXPO_PUBLIC_AUTH_PROVIDER=pin` the hub shows no PIN pad and cannot sign the
 organizer in against the Demo API.
+
+`EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household` (#316) is the household the hub
+opens when its browser has no stored pairing: the one `reset` seeds ("The
+Parker Household"). A fresh tablet, or one whose pairing a reset removed, then
+opens the demo family instead of the setup screens; it shows the family once
+the organizer signs in with the PIN. A stored pairing still wins. Leave the
+variable out to get the setup screens on a fresh browser, as before. The id
+must exist: on a stack that was never reset the household is missing, and the
+hub shows an error instead of setup, so run `demo/demo.sh reset` once.
 
 `demo.sh up` also stamps both builds with the git short SHA (#126): it sets
 `BUTLER_BUILD_SHA` (unless your shell already set it), which compose passes to
@@ -238,13 +247,17 @@ PowerShell:
 
 The demo flow:
 
-1. **Sign in with the PIN.** Run `demo/demo.sh up` and open
-   http://localhost:8080. The setup screen asks for the organizer PIN: type it
-   on the PIN pad and tap Sign in. A wrong PIN says "That PIN is not right.";
-   after 5 wrong PINs in a row every attempt is refused for 60 s.
-2. **Set up the household** on the setup screens, or run `demo/demo.sh reset`
-   to start from the seeded demo household instead (see
-   [Reset the demo](#reset-the-demo)).
+1. **Open the demo household.** Run `demo/demo.sh up`, and on a fresh stack
+   run `demo/demo.sh reset` once to seed the demo household (see
+   [Reset the demo](#reset-the-demo)). Open http://localhost:8080. With
+   nothing stored in the browser, the hub opens "The Parker Household"
+   (`demo-household`, #316) instead of the setup screens.
+2. **Sign in with the PIN.** Tap "Organizer sign in", type the PIN on the PIN
+   pad and tap Sign in. The hub then shows Maria, Dan, Ava and Leo. A wrong
+   PIN says "That PIN is not right."; after 5 wrong PINs in a row every
+   attempt is refused for 60 s. To set up your own household on the setup
+   screens instead, build the export without `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID`
+   (see [Build the hub export](#build-the-hub-export)).
 3. **Pair the hub.** On the hub, tap "Pair this tablet". The tablet now
    reads and writes as the hub: name tiles, chores, completions, the grocery
    list. The hub stays paired across page reloads, including automatic ones
@@ -287,7 +300,10 @@ storage under `butler.hubPairing.v1`. To unpair it, do one of these:
   `localStorage.removeItem('butler.hubPairing.v1')` and reload.
 - After `reset` (see [Reset the demo](#reset-the-demo)) or "Wipe the demo
   data" below, the API no longer knows the device token, so the hub unpairs
-  itself on its next load and shows setup.
+  itself on its next load. A hub built by `up` (#316) then returns to the
+  demo household and shows the re-seeded family once the organizer signs in
+  with the PIN; a hub built without `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID` shows
+  setup.
 
 ## URLs
 
@@ -332,13 +348,25 @@ To check it end to end, `demo/ci/check-household-flow.cjs` (run by demo-ci)
 opens the hub in a headless browser, creates a household through the setup
 screens and waits for the hub to read it back. It fails if any API call is not
 under `http://localhost:8080/api/`, any request leaves that origin, or the
-console shows a CORS error. It needs Playwright, which is not a repo
-dependency:
+console shows a CORS error. It needs the setup screens, so run it against an
+export built without `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID` (see
+[Build the hub export](#build-the-hub-export)), not the one `up` builds.
+
+`demo/ci/check-demo-household.cjs` (#316, also run by demo-ci) fits the export
+`up` builds. Run it after `demo/demo.sh up` and `demo/demo.sh reset`: it opens
+the hub in a fresh browser, checks that the setup screens are not shown, signs
+the organizer in with `BUTLER_DEMO_PIN`, and waits for "The Parker Household"
+and "Maria". It fails if the hub creates a household, makes no same-origin 200
+`GET /api/households/demo-household`, sends a request to another origin, has a
+request fail, or the console shows a CORS error.
+
+Both need Playwright, which is not a repo dependency:
 
 ```bash
 npm install --no-save --prefix /tmp/pw playwright@1.64.1
 /tmp/pw/node_modules/.bin/playwright install chromium
 NODE_PATH=/tmp/pw/node_modules node demo/ci/check-household-flow.cjs http://localhost:8080/
+NODE_PATH=/tmp/pw/node_modules node demo/ci/check-demo-household.cjs http://localhost:8080/
 ```
 
 ## Connecting a tablet
@@ -562,10 +590,11 @@ After a reset:
 - The organizer signs in with the PIN again: the restart dropped every
   organizer session.
 - The tablet pairs again: the delete removed every hub-device token, so a
-  paired hub unpairs itself on its next load and shows setup.
+  paired hub unpairs itself on its next load. A hub built by `up` returns to
+  the seeded demo household (#316) and shows the Parker family once the
+  organizer signs in with the PIN; pair it again from there.
 - The new dataset id tells the hub to drop its offline cache and its queue of
   unsent writes (#100), so nothing from before the reset is replayed.
-- The hub does not open the seeded household by itself yet; that is #316.
 
 ## Snapshots
 

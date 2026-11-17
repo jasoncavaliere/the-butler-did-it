@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
+import { resolveDemoHouseholdId } from '../api/config';
 import { HouseholdProvider, useHousehold } from './HouseholdContext';
 import { HubDeviceProvider, useHubDevice } from './HubDeviceContext';
 import { clearHubPairing, readHubPairing, writeHubPairing } from './hubPairingStorage';
@@ -20,30 +21,57 @@ import { clearHubPairing, readHubPairing, writeHubPairing } from './hubPairingSt
  *
  * When storage is missing or throws, the read yields nothing and the writes are
  * no-ops, so the hub pairs in memory for the session exactly as it did before.
+ *
+ * A demo hub (#316) is built with `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID`. When nothing
+ * is stored it starts on that household (the seeded `demo-household`) instead of
+ * the setup wizard, unpaired, so it reads the household once the organizer signs
+ * in with the PIN. A stored pairing still wins. `demoHouseholdId` defaults to
+ * {@link resolveDemoHouseholdId}, read at render time; tests pass it directly.
+ * Without the variable it is `null` and startup is unchanged.
  */
-export function HubPairingProvider({ children }: { children: ReactNode }) {
+export function HubPairingProvider({
+  children,
+  demoHouseholdId = resolveDemoHouseholdId(),
+}: {
+  children: ReactNode;
+  demoHouseholdId?: string | null;
+}) {
   const [restored] = useState(() => readHubPairing());
 
   return (
-    <HouseholdProvider initialHouseholdId={restored?.householdId ?? null}>
-      <PairedDevice initialDeviceToken={restored?.deviceToken ?? null}>{children}</PairedDevice>
+    <HouseholdProvider initialHouseholdId={restored?.householdId ?? demoHouseholdId}>
+      <PairedDevice
+        initialDeviceToken={restored?.deviceToken ?? null}
+        fallbackHouseholdId={demoHouseholdId}
+      >
+        {children}
+      </PairedDevice>
     </HouseholdProvider>
   );
 }
 
 /**
- * The device half: a rejected device token also forgets the household, which
- * returns the navigator to the unpaired setup route.
+ * The device half: a rejected device token also forgets the household. Without
+ * a demo household that returns the navigator to the unpaired setup route. On a
+ * demo hub (#316) it falls back to the demo household instead, so after `demo
+ * reset` wipes the device tokens the hub returns to the re-seeded family and
+ * waits for PIN sign-in. An explicit `setHouseholdId(null)` (household teardown)
+ * still clears to none.
  */
 function PairedDevice({
   children,
   initialDeviceToken,
+  fallbackHouseholdId,
 }: {
   children: ReactNode;
   initialDeviceToken: string | null;
+  fallbackHouseholdId: string | null;
 }) {
   const { setHouseholdId } = useHousehold();
-  const forget = useCallback(() => setHouseholdId(null), [setHouseholdId]);
+  const forget = useCallback(
+    () => setHouseholdId(fallbackHouseholdId),
+    [setHouseholdId, fallbackHouseholdId],
+  );
 
   return (
     <HubDeviceProvider initialDeviceToken={initialDeviceToken} onDeviceRejected={forget}>

@@ -209,3 +209,103 @@ describe('HubPairingProvider (#188)', () => {
     }
   });
 });
+
+describe('HubPairingProvider demo household (#316)', () => {
+  const DEMO = 'demo-household';
+  const savedEnv = process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID;
+
+  afterEach(() => {
+    if (savedEnv === undefined) {
+      delete process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID;
+    } else {
+      process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = savedEnv;
+    }
+  });
+
+  it('starts on the demo household when nothing is stored, unpaired, and stores nothing', async () => {
+    const storage = fakeStorage();
+    setGlobalStorage(storage);
+
+    await render(
+      <HubPairingProvider demoHouseholdId={DEMO}>
+        <Probe />
+      </HubPairingProvider>,
+    );
+
+    expect(screen.getByTestId('household')).toHaveTextContent(`hh:${DEMO}`);
+    expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
+    expect(stored(storage)).toBeUndefined();
+  });
+
+  it('reads EXPO_PUBLIC_DEMO_HOUSEHOLD_ID by default', async () => {
+    setGlobalStorage(fakeStorage());
+    process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = ` ${DEMO} `;
+
+    await render(
+      <HubPairingProvider>
+        <Probe />
+      </HubPairingProvider>,
+    );
+
+    expect(screen.getByTestId('household')).toHaveTextContent(`hh:${DEMO}`);
+  });
+
+  it('an explicit null demoHouseholdId overrides the env and starts unpaired with no household', async () => {
+    setGlobalStorage(fakeStorage());
+    process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = DEMO;
+
+    await render(
+      <HubPairingProvider demoHouseholdId={null}>
+        <Probe />
+      </HubPairingProvider>,
+    );
+
+    expect(screen.getByTestId('household')).toHaveTextContent('hh:none');
+  });
+
+  it('a stored pairing wins over the demo household', async () => {
+    const storage = fakeStorage({ [HUB_PAIRING_KEY]: PAIRED });
+    setGlobalStorage(storage);
+
+    await render(
+      <HubPairingProvider demoHouseholdId={DEMO}>
+        <Probe />
+      </HubPairingProvider>,
+    );
+
+    expect(screen.getByTestId('household')).toHaveTextContent('hh:hh-1');
+    expect(screen.getByTestId('token')).toHaveTextContent('tok:dev-1');
+    expect(stored(storage)).toEqual({ householdId: 'hh-1', deviceToken: 'dev-1' });
+  });
+
+  it('rejectDevice falls back to the demo household and clears storage', async () => {
+    const storage = fakeStorage({ [HUB_PAIRING_KEY]: PAIRED });
+    setGlobalStorage(storage);
+
+    await render(
+      <HubPairingProvider demoHouseholdId={DEMO}>
+        <Probe />
+      </HubPairingProvider>,
+    );
+    await press('reject');
+
+    expect(screen.getByTestId('household')).toHaveTextContent(`hh:${DEMO}`);
+    expect(screen.getByTestId('token')).toHaveTextContent('tok:none');
+    expect(stored(storage)).toBeUndefined();
+  });
+
+  it('an explicit setHouseholdId(null) still clears to none with a demo household', async () => {
+    const storage = fakeStorage({ [HUB_PAIRING_KEY]: PAIRED });
+    setGlobalStorage(storage);
+
+    await render(
+      <HubPairingProvider demoHouseholdId={DEMO}>
+        <Probe />
+      </HubPairingProvider>,
+    );
+    await press('forget-household');
+
+    expect(screen.getByTestId('household')).toHaveTextContent('hh:none');
+    expect(stored(storage)).toBeUndefined();
+  });
+});

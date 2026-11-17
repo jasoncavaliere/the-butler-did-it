@@ -36,7 +36,8 @@ docker compose -f demo/docker-compose.yml up -d --wait azurite
 demo/demo.sh up
 ```
 
-`demo/demo.sh up` builds `Butler.UI/dist` with `EXPO_PUBLIC_API_BASE_URL=/api` when the export is
+`demo/demo.sh up` builds `Butler.UI/dist` with `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin`
+and `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household` (#316) when the export is
 missing, stale, or lacks up's build stamp (`Butler.UI/dist/.demo-build-env`, #184), runs `docker compose -f demo/docker-compose.yml up -d --build --wait
 --wait-timeout 300`, and recreates `web` after a rebuild so Caddy serves the new export. Then (#103) it
 runs the smoke suite (Liveness + Endpoints) with the host .NET 10 SDK and ends with a `Demo ready:` line.

@@ -78,12 +78,14 @@ $ExportMarker = Join-Path (Join-Path $UiDir 'dist') 'index.html'
 # The EXPO_PUBLIC_* values up builds the hub export with.
 $DemoApiBaseUrl = '/api'
 $DemoAuthProvider = 'pin'
+# The household a hub with nothing stored opens (#316): the one demo reset seeds.
+$DemoHouseholdId = 'demo-household'
 # up writes this stamp after each successful build (#184), so an export built
 # another way (for example by hand, without EXPO_PUBLIC_API_BASE_URL=/api) is
-# rebuilt instead of served. demo.sh writes the same bytes: these two lines,
+# rebuilt instead of served. demo.sh writes the same bytes: these three lines,
 # LF only, with a final LF.
 $ExportStamp = Join-Path (Join-Path $UiDir 'dist') '.demo-build-env'
-$ExportStampText = ("EXPO_PUBLIC_API_BASE_URL=$DemoApiBaseUrl", "EXPO_PUBLIC_AUTH_PROVIDER=$DemoAuthProvider") -join "`n"
+$ExportStampText = ("EXPO_PUBLIC_API_BASE_URL=$DemoApiBaseUrl", "EXPO_PUBLIC_AUTH_PROVIDER=$DemoAuthProvider", "EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=$DemoHouseholdId") -join "`n"
 # Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
 $EnvFile = Join-Path $PSScriptRoot '.env'
 
@@ -222,13 +224,16 @@ function Invoke-ExportBuild {
         # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin,
         # and pin makes the hub sign the organizer in on the PIN pad (#105).
         # EXPO_PUBLIC_BUILD_SHA stamps the hub with the same git SHA as the API (#126).
+        # EXPO_PUBLIC_DEMO_HOUSEHOLD_ID opens the seeded demo household when nothing is stored (#316).
         $previous = $env:EXPO_PUBLIC_API_BASE_URL
         $previousProvider = $env:EXPO_PUBLIC_AUTH_PROVIDER
+        $previousHousehold = $env:EXPO_PUBLIC_DEMO_HOUSEHOLD_ID
         $previousSha = $env:EXPO_PUBLIC_BUILD_SHA
         # The stamp is written only after a successful build (#184).
         Remove-Item -LiteralPath $ExportStamp -Force -ErrorAction SilentlyContinue
         $env:EXPO_PUBLIC_API_BASE_URL = $DemoApiBaseUrl
         $env:EXPO_PUBLIC_AUTH_PROVIDER = $DemoAuthProvider
+        $env:EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = $DemoHouseholdId
         $env:EXPO_PUBLIC_BUILD_SHA = $env:BUTLER_BUILD_SHA
         try {
             & npm run build:web
@@ -237,6 +242,7 @@ function Invoke-ExportBuild {
         finally {
             $env:EXPO_PUBLIC_API_BASE_URL = $previous
             $env:EXPO_PUBLIC_AUTH_PROVIDER = $previousProvider
+            $env:EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = $previousHousehold
             $env:EXPO_PUBLIC_BUILD_SHA = $previousSha
         }
         if ($script:ExitCode -ne 0) {

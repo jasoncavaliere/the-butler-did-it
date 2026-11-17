@@ -47,6 +47,23 @@ export function resolveUiBuildSha(
 }
 
 /**
+ * Resolve the household a hub opens when nothing is stored (#316), from
+ * `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID`. `demo up` builds the hub export with
+ * `demo-household`, the id the demo seed (#98) creates, so a fresh demo hub
+ * opens the seeded family instead of the setup wizard. A provided value is
+ * returned trimmed; a missing or blank one is `null`, which keeps today's
+ * startup (the setup wizard). A stored pairing (#188) always wins over it.
+ * The default argument is a direct `process.env` member read, which is what
+ * lets Expo inline it.
+ */
+export function resolveDemoHouseholdId(
+  rawEnv: string | undefined = process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID,
+): string | null {
+  const configured = rawEnv?.trim();
+  return configured ? configured : null;
+}
+
+/**
  * Which organizer sign-in the UI uses:
  * - `dev` -- the F6 dev organizer (no live tenant, no token; the API's bypass).
  * - `entra` -- Entra External ID over OIDC/PKCE.

@@ -144,7 +144,7 @@ STARTED=1
 # reports it up to date and never calls npm.
 mkdir -p "$DIST"
 echo '<!doctype html><title>stub export</title>' > "$DIST/index.html"
-printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' > "$DIST/.demo-build-env"
+printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' > "$DIST/.demo-build-env"
 touch -d "@$(( $(date +%s) + 60 ))" "$DIST/.demo-build-env"
 
 STUB_DIR="$WORK/bin"

@@ -249,6 +249,8 @@ jobs:
           # #96: the /api build and the doubled system prefix are documented.
           grep -F 'EXPO_PUBLIC_API_BASE_URL=/api' demo/README.md
           grep -F '/api/api/system/ping' demo/README.md
+          # #316 AC5: up builds the hub with the demo household id.
+          grep -F 'EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household' demo/README.md
           # #101 AC8: the tablet section covers Tailscale, a local CA and adb reverse.
           grep -F '## Connecting a tablet' demo/README.md
           grep -F 'tailscale serve --bg 8080' demo/README.md
@@ -779,9 +781,12 @@ jobs:
           [ "$(printf '%s\n' "$out" | tail -n 1)" = 'Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger' ]
           grep -rqF '"/api"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the /api base" >&2; exit 1; }
           # #184: the rebuild wrote up's build stamp, byte for byte.
-          printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' | cmp - Butler.UI/dist/.demo-build-env
-          # #105: the rebuilt hub still offers the PIN pad (the script set the provider).
-          NODE_PATH="$RUNNER_TEMP/pw/node_modules" PW_CHANNEL=chrome node demo/ci/check-household-flow.cjs "$HUB_URL/"
+          printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' | cmp - Butler.UI/dist/.demo-build-env
+          # #316: the script built the hub with the demo household id. The hub
+          # now opens demo-household instead of the setup wizard, so
+          # check-household-flow.cjs does not fit this export; the PIN pad and
+          # the demo household are checked after the reset step below.
+          grep -rqF '"demo-household"' Butler.UI/dist/_expo/static/js/web/ || { echo "rebuilt bundle lacks the demo household id" >&2; exit 1; }
           health="$(docker compose -f "$COMPOSE_FILE_PATH" ps --format '{{.Service}} {{.Health}}')"
           echo "$health"
           [ "$(printf '%s\n' "$health" | grep -c ' healthy$')" -eq 3 ] || { echo "not every service is healthy right after up" >&2; exit 1; }
@@ -922,6 +927,16 @@ jobs:
       # from a stopped stack works too. Starts with the stack up.
       - name: "demo CLI: reset wipes and re-seeds the demo (#98)"
         run: bash demo/ci/check-reset.sh stack
+
+      # #316 AC6: after the reset re-seeded The Parker Household, a fresh
+      # browser (nothing stored) on the demo-built hub opens demo-household,
+      # not the setup wizard, and shows the family once the organizer signs
+      # in on the PIN pad. No household is created.
+      - name: "Hub opens the seeded demo household (#316)"
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PW_CHANNEL: chrome
+        run: node demo/ci/check-demo-household.cjs "$HUB_URL/"
 
       # #99 AC1, AC2, AC6, AC6b + review F1: demo.sh snapshot keeps the
       # organizer signed in; demo.sh restore and demo.ps1 restore (stdin
