@@ -101,9 +101,17 @@ $DatasetUrl = "$HubUrl/api/api/system/dataset"
 # reset (#98) signs the organizer in with the PIN, then seeds the demo household.
 $PinSignInUrl = "$HubUrl/api/auth/pin/sign-in"
 $SeedUrl = "$HubUrl/api/demo/seed"
+# restore keeps the hub (web) stopped until the dataset id has changed (#361),
+# so it signs in, changes the id and reads it straight from the API on its
+# loopback port. Caddy strips /api, so these paths have no /api prefix except
+# the system route, which keeps its own. 127.0.0.1, not localhost: the port is
+# bound on IPv4 only.
+$ApiUrl = 'http://127.0.0.1:5108'
+$ApiDatasetUrl = "$ApiUrl/api/system/dataset"
+$ApiPinSignInUrl = "$ApiUrl/auth/pin/sign-in"
 # restore (#99) copies a snapshot back, then changes the dataset id through
 # this organizer-only endpoint. Snapshots live in git-ignored demo/.data.
-$RegenerateUrl = "$HubUrl/api/demo/dataset/regenerate"
+$RegenerateUrl = "$ApiUrl/demo/dataset/regenerate"
 $SnapshotsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'snapshots'
 # A snapshot name: a letter or digit, then up to 63 letters, digits, '.', '_'
 # or '-'. \z, not $: .NET's $ also matches before a trailing newline.
@@ -373,41 +381,81 @@ function Test-DotnetSdk {
     return $false
 }
 
-# Builds the hub export if needed, starts the stack and waits until every
-# service is healthy. up runs the smoke suite after it; reset does not.
-function Start-DemoStack {
+# Set by Update-HubExport: $true when it built the hub export.
+$script:ExportRebuilt = $false
+
+# Builds the hub export if it is missing, stale or unstamped. Sets
+# $script:ExportRebuilt to $true when it built; the build leaves its exit code
+# in $script:ExitCode. Same as ensure_export in demo.sh.
+function Update-HubExport {
     Set-BuildSha
-    $rebuilt = $false
+    $script:ExportRebuilt = $false
     switch (Get-ExportState) {
         'fresh' {
             Write-Out 'Hub export is up to date (Butler.UI/dist).'
         }
         'missing' {
             Write-Out 'Hub export is missing; building Butler.UI/dist ...'
-            $rebuilt = $true
+            $script:ExportRebuilt = $true
         }
         'stale' {
             Write-Out 'Hub export is older than its sources; building Butler.UI/dist ...'
-            $rebuilt = $true
+            $script:ExportRebuilt = $true
         }
         'unstamped' {
             Write-Out 'Hub export was not built with the demo settings; building Butler.UI/dist ...'
-            $rebuilt = $true
+            $script:ExportRebuilt = $true
         }
     }
-    if ($rebuilt) {
+    if ($script:ExportRebuilt) {
         Invoke-ExportBuild
-        if ($script:ExitCode -ne 0) { return }
     }
+}
+
+# Builds the hub export if needed, starts the stack and waits until every
+# service is healthy. up runs the smoke suite after it; reset does not.
+function Start-DemoStack {
+    Update-HubExport
+    if ($script:ExportRebuilt -and $script:ExitCode -ne 0) { return }
 
     Initialize-LogsDir
     Write-Out 'Starting the demo stack ...'
     Invoke-Compose @('up', '-d', '--build', '--wait', '--wait-timeout', $WaitTimeout)
-    if ($script:ExitCode -eq 0 -and $rebuilt) {
+    if ($script:ExitCode -eq 0 -and $script:ExportRebuilt) {
         # A build replaces the dist folder; a running Caddy keeps serving the old one.
         Write-Out 'Recreating web to serve the new export ...'
         Invoke-Compose @('up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', $WaitTimeout, 'web')
     }
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Demo stack did not become healthy. Run the logs command to see why.'
+        return
+    }
+    Write-Out "Demo stack is up and healthy: $HubUrl"
+}
+
+# restore (#361): builds the hub export if needed, then starts only Azurite
+# and the API, so the hub (web) cannot serve before the dataset id changes.
+# Same as start_api in demo.sh.
+function Start-DemoApi {
+    Update-HubExport
+    if ($script:ExportRebuilt -and $script:ExitCode -ne 0) { return }
+
+    Initialize-LogsDir
+    Write-Out 'Starting Azurite and the API (the hub starts after the dataset id changes) ...'
+    Invoke-Compose @('up', '-d', '--build', '--wait', '--wait-timeout', $WaitTimeout, 'azurite', 'api')
+    if ($script:ExitCode -ne 0) {
+        Write-Err 'Demo stack did not become healthy. Run the logs command to see why.'
+        return
+    }
+    Write-Out 'Azurite and the API are up and healthy.'
+}
+
+# restore (#361): starts the hub (web) once the dataset id has changed. down
+# removed the web container, so it is created fresh and serves the current
+# export. Same as start_hub in demo.sh.
+function Start-DemoHub {
+    Write-Out 'Starting the hub ...'
+    Invoke-Compose @('up', '-d', '--no-deps', '--wait', '--wait-timeout', $WaitTimeout, 'web')
     if ($script:ExitCode -ne 0) {
         Write-Err 'Demo stack did not become healthy. Run the logs command to see why.'
         return
@@ -488,11 +536,13 @@ function Invoke-DemoDown {
     Write-Out 'Demo stack stopped.'
 }
 
-# Returns the API's current dataset id, or '' when the API is not there.
-function Get-DatasetId {
+# Returns the API's current dataset id, or '' when the API is not there. -Url
+# is the URL to read (default: through the hub); restore reads the API
+# directly.
+function Get-DatasetId([string]$Url = $DatasetUrl) {
     $dataset = ''
     try {
-        $response = Invoke-RestMethod -Uri $DatasetUrl -TimeoutSec 3
+        $response = Invoke-RestMethod -Uri $Url -TimeoutSec 3
         if ($response -and $response.PSObject.Properties['datasetId'] -and $response.datasetId) {
             $dataset = [string]$response.datasetId
         }
@@ -774,9 +824,13 @@ function Invoke-DemoSnapshot([string[]]$SnapshotArgs) {
 
 # restore (#99): stop the stack (down, so the api container is recreated and
 # provisions its tables against the restored data), replace demo/.data/azurite
-# with the snapshot inside an azurite container, start the stack as reset
-# does, sign in with the PIN and change the dataset id, so the hub drops its
-# offline cache. The snapshot itself is never changed, so restore repeats.
+# with the snapshot inside an azurite container, start Azurite and the API
+# only, sign in with the PIN and change the dataset id directly on the API's
+# loopback port, then start the hub (web). The hub stays stopped until the
+# dataset id has changed (#361): a hub that served the restored data under the
+# snapshot's old id would replay its queued offline writes into it. With the
+# new id it drops its offline cache instead. On any failure before that, the
+# hub stays stopped. The snapshot itself is never changed, so restore repeats.
 function Invoke-DemoRestore([string[]]$RestoreArgs) {
     if (-not (Test-SnapshotName -Verb 'restore' -NameArgs $RestoreArgs)) { return }
     $name = [string]$RestoreArgs[0]
@@ -807,11 +861,11 @@ function Invoke-DemoRestore([string[]]$RestoreArgs) {
         return
     }
 
-    Start-DemoStack
+    Start-DemoApi
     if ($script:ExitCode -ne 0) { return }
 
     # The id the restored data holds (the API reads it from storage).
-    $snap = Get-DatasetId
+    $snap = Get-DatasetId -Url $ApiDatasetUrl
     if (-not $snap) { $snap = 'unavailable' }
 
     # Sign in once, after the restart, with no retry: five wrong PINs lock
@@ -820,7 +874,7 @@ function Invoke-DemoRestore([string[]]$RestoreArgs) {
     $token = ''
     try {
         $body = @{ pin = [string](Get-DemoPin) } | ConvertTo-Json -Compress
-        $response = Invoke-RestMethod -Method Post -Uri $PinSignInUrl -ContentType 'application/json' -Body $body -TimeoutSec 30
+        $response = Invoke-RestMethod -Method Post -Uri $ApiPinSignInUrl -ContentType 'application/json' -Body $body -TimeoutSec 30
         if ($response -and $response.PSObject.Properties['token'] -and $response.token) {
             $token = [string]$response.token
         }
@@ -851,13 +905,17 @@ function Invoke-DemoRestore([string[]]$RestoreArgs) {
         return
     }
 
-    $new = Get-DatasetId
+    $new = Get-DatasetId -Url $ApiDatasetUrl
     if (-not $new -or $new -cne $returned -or $new -ceq $snap) {
         Write-Err 'The dataset id did not change after the restore. Run the logs command to see why.'
         $script:ExitCode = 1
         return
     }
     Write-Out "Dataset: $snap -> $new"
+
+    # Only now, with the new id in storage, may the hub serve (#361).
+    Start-DemoHub
+    if ($script:ExitCode -ne 0) { return }
     Write-Out "Restore complete: the demo data matches snapshot $name at $HubUrl"
     Write-Out 'Sign in with the PIN again: the restore restarted the API. Tablets paired after the snapshot was taken must pair again, and the new dataset id makes the hub drop its offline cache and queued writes.'
 }

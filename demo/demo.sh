@@ -47,14 +47,24 @@ DATASET_URL="$HUB_URL/api/api/system/dataset"
 # reset (#98) signs the organizer in with the PIN, then seeds the demo household.
 PIN_SIGN_IN_URL="$HUB_URL/api/auth/pin/sign-in"
 SEED_URL="$HUB_URL/api/demo/seed"
+# restore keeps the hub (web) stopped until the dataset id has changed (#361),
+# so it signs in, changes the id and reads it straight from the API on its
+# loopback port. Caddy strips /api, so these paths have no /api prefix except
+# the system route, which keeps its own. 127.0.0.1, not localhost: the port is
+# bound on IPv4 only.
+API_URL="http://127.0.0.1:5108"
+API_DATASET_URL="$API_URL/api/system/dataset"
+API_PIN_SIGN_IN_URL="$API_URL/auth/pin/sign-in"
 # restore (#99) copies a snapshot back, then changes the dataset id through
 # this organizer-only endpoint. Snapshots live in git-ignored demo/.data.
-REGENERATE_URL="$HUB_URL/api/demo/dataset/regenerate"
+REGENERATE_URL="$API_URL/demo/dataset/regenerate"
 SNAPSHOTS_DIR="$DEMO_DIR/.data/snapshots"
 # A snapshot name: a letter or digit, then up to 63 letters, digits, '.', '_'
 # or '-'. Kept in a variable so [[ =~ ]] works the same in bash 3.2.
 SNAPSHOT_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 WAIT_TIMEOUT=300
+# Set by ensure_export: 1 when it built the hub export, 0 otherwise.
+EXPORT_REBUILT=0
 
 # The smoke step up runs once the stack is healthy (#103): the smoke suite,
 # run with the host .NET SDK from Butler.API/ (so global.json applies), through
@@ -266,10 +276,11 @@ check_dotnet_sdk() {
   return 1
 }
 
-# Builds the hub export if needed, starts the stack and waits until every
-# service is healthy. up runs the smoke suite after it; reset does not.
-start_stack() {
-  local state rebuilt=0 rc=0
+# Builds the hub export if it is missing, stale or unstamped. Sets
+# EXPORT_REBUILT to 1 when it built, and returns the build's exit code.
+ensure_export() {
+  local state
+  EXPORT_REBUILT=0
   ensure_build_sha
   state="$(export_state)"
   case "$state" in
@@ -278,29 +289,67 @@ start_stack() {
       ;;
     missing)
       echo "Hub export is missing; building Butler.UI/dist ..."
+      EXPORT_REBUILT=1
       build_export || return $?
-      rebuilt=1
       ;;
     stale)
       echo "Hub export is older than its sources; building Butler.UI/dist ..."
+      EXPORT_REBUILT=1
       build_export || return $?
-      rebuilt=1
       ;;
     unstamped)
       echo "Hub export was not built with the demo settings; building Butler.UI/dist ..."
+      EXPORT_REBUILT=1
       build_export || return $?
-      rebuilt=1
       ;;
   esac
+  return 0
+}
+
+# Builds the hub export if needed, starts the stack and waits until every
+# service is healthy. up runs the smoke suite after it; reset does not.
+start_stack() {
+  local rc=0
+  ensure_export || return $?
 
   ensure_logs_dir
   echo "Starting the demo stack ..."
   compose up -d --build --wait --wait-timeout "$WAIT_TIMEOUT" || rc=$?
-  if [ "$rc" -eq 0 ] && [ "$rebuilt" -eq 1 ]; then
+  if [ "$rc" -eq 0 ] && [ "$EXPORT_REBUILT" -eq 1 ]; then
     # A build replaces the dist folder; a running Caddy keeps serving the old one.
     echo "Recreating web to serve the new export ..."
     compose up -d --no-deps --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT" web || rc=$?
   fi
+  if [ "$rc" -ne 0 ]; then
+    echo "Demo stack did not become healthy. Run the logs command to see why." >&2
+    return "$rc"
+  fi
+  echo "Demo stack is up and healthy: $HUB_URL"
+}
+
+# restore (#361): builds the hub export if needed, then starts only Azurite
+# and the API, so the hub (web) cannot serve before the dataset id changes.
+start_api() {
+  local rc=0
+  ensure_export || return $?
+
+  ensure_logs_dir
+  echo "Starting Azurite and the API (the hub starts after the dataset id changes) ..."
+  compose up -d --build --wait --wait-timeout "$WAIT_TIMEOUT" azurite api || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Demo stack did not become healthy. Run the logs command to see why." >&2
+    return "$rc"
+  fi
+  echo "Azurite and the API are up and healthy."
+}
+
+# restore (#361): starts the hub (web) once the dataset id has changed. down
+# removed the web container, so it is created fresh and serves the current
+# export.
+start_hub() {
+  local rc=0
+  echo "Starting the hub ..."
+  compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" web || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "Demo stack did not become healthy. Run the logs command to see why." >&2
     return "$rc"
@@ -359,11 +408,12 @@ cmd_down() {
 }
 
 # Prints the API's current dataset id, or nothing when the API (or curl) is
-# not there. No jq: sed picks the one field out of {"datasetId":"..."}.
+# not there. No jq: sed picks the one field out of {"datasetId":"..."}. $1 is
+# the URL to read (default: through the hub); restore reads the API directly.
 dataset_id() {
-  local dataset=""
+  local dataset="" url="${1:-$DATASET_URL}"
   if command -v curl >/dev/null 2>&1; then
-    dataset="$(curl -fsS --max-time 3 "$DATASET_URL" 2>/dev/null \
+    dataset="$(curl -fsS --max-time 3 "$url" 2>/dev/null \
       | sed -n 's/.*"datasetId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || dataset=""
   fi
   printf '%s\n' "$dataset"
@@ -576,9 +626,13 @@ cmd_snapshot() {
 
 # restore (#99): stop the stack (down, so the api container is recreated and
 # provisions its tables against the restored data), replace demo/.data/azurite
-# with the snapshot inside an azurite container, start the stack as reset
-# does, sign in with the PIN and change the dataset id, so the hub drops its
-# offline cache. The snapshot itself is never changed, so restore repeats.
+# with the snapshot inside an azurite container, start Azurite and the API
+# only, sign in with the PIN and change the dataset id directly on the API's
+# loopback port, then start the hub (web). The hub stays stopped until the
+# dataset id has changed (#361): a hub that served the restored data under the
+# snapshot's old id would replay its queued offline writes into it. With the
+# new id it drops its offline cache instead. On any failure before that, the
+# hub stays stopped. The snapshot itself is never changed, so restore repeats.
 cmd_restore() {
   local name snap new returned body token="" rc=0
   check_snapshot_name restore "$@" || return $?
@@ -613,17 +667,17 @@ cmd_restore() {
     return "$rc"
   fi
 
-  start_stack || return $?
+  start_api || return $?
 
   # The id the restored data holds (the API reads it from storage).
-  snap="$(dataset_id)"
+  snap="$(dataset_id "$API_DATASET_URL")"
   [ -z "$snap" ] && snap="unavailable"
 
   # Sign in once, after the restart, with no retry: five wrong PINs lock
   # sign-in. The PIN goes to curl on stdin, not in argv.
   echo "Signing in with the demo PIN ..."
   token="$(printf '{"pin":"%s"}' "$(demo_pin)" \
-    | curl -fsS --max-time 30 -X POST "$PIN_SIGN_IN_URL" -H 'Content-Type: application/json' --data-binary @- 2>/dev/null \
+    | curl -fsS --max-time 30 -X POST "$API_PIN_SIGN_IN_URL" -H 'Content-Type: application/json' --data-binary @- 2>/dev/null \
     | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || token=""
   if [ -z "$token" ]; then
     echo "PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run restore again." >&2
@@ -638,12 +692,15 @@ cmd_restore() {
     return 1
   fi
 
-  new="$(dataset_id)"
+  new="$(dataset_id "$API_DATASET_URL")"
   if [ -z "$new" ] || [ "$new" != "$returned" ] || [ "$new" = "$snap" ]; then
     echo "The dataset id did not change after the restore. Run the logs command to see why." >&2
     return 1
   fi
   echo "Dataset: $snap -> $new"
+
+  # Only now, with the new id in storage, may the hub serve (#361).
+  start_hub || return $?
   echo "Restore complete: the demo data matches snapshot $name at $HUB_URL"
   echo "Sign in with the PIN again: the restore restarted the API. Tablets paired after the snapshot was taken must pair again, and the new dataset id makes the hub drop its offline cache and queued writes."
 }

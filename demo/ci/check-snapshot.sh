@@ -12,12 +12,18 @@
 #            Azurite again (AC1); a failed copy is removed and Azurite still
 #            starts. restore stops the whole stack (down), then wipes and
 #            copies in containers (AC2); a failed down, wipe or copy does not
-#            start the stack. snapshots lists valid-named folders newest
-#            first with their local dates (AC7). Also checks that
-#            demo/README.md documents the three commands (AC8). Refuses to
-#            run when demo/.env exists (these cases need control of the PIN)
-#            or when demo/.data/snapshots exists (it creates and deletes
-#            fake snapshots there).
+#            start the stack. Then it starts only Azurite and the API, and the
+#            hub (web) only once the dataset id has changed (#361): a failed
+#            API start, or a failed PIN sign-in (no API answers on
+#            127.0.0.1:5108 here), ends restore with no web call. A fake fresh
+#            hub export and a failing npm stub keep the build out of these
+#            cases. snapshots lists valid-named folders newest first with
+#            their local dates (AC7). Also checks that demo/README.md
+#            documents the three commands and the restore order (AC8, #361).
+#            Refuses to run when demo/.env exists (these cases need control
+#            of the PIN), when demo/.data/snapshots exists (it creates and
+#            deletes fake snapshots there), or when something answers on
+#            127.0.0.1:5108 (the PIN must not reach a real API).
 #   stack  - needs the stack up (demo/demo.sh up) and BUTLER_DEMO_PIN (from
 #            the shell or demo/.env). REPLACES THE LOCAL DEMO DATA. Takes
 #            snapshot ci-snap-sh with demo.sh (the PIN token keeps working:
@@ -26,14 +32,17 @@
 #            After each restore: the dataset id is new and differs from the
 #            snapshot's (AC6), the api container was recreated and the old
 #            token gets 401 (review F1), the household from before the
-#            snapshot is back and the later one is gone (AC2). Also takes
-#            ci-snap-ps with demo.ps1. Deletes both snapshots on exit.
+#            snapshot is back and the later one is gone (AC2). A background
+#            watcher polls the hub during each restore: once the hub has gone
+#            down, every answer it gives must be 200 with the new dataset id
+#            (#361). Also takes ci-snap-ps with demo.ps1. Deletes both
+#            snapshots on exit.
 #
 # static runs both scripts in every case and fails unless their output
 # (stdout and stderr together), exit code and docker calls are identical.
 # stack compares the lines the scripts print themselves (docker and npm
 # output varies run to run), with the dataset ids and snapshot names masked.
-# Needs bash, pwsh (PowerShell 7) and docker; stack also needs curl and jq.
+# Needs bash, pwsh (PowerShell 7), docker and curl; stack also needs jq.
 set -euo pipefail
 
 mode="${1:-}"
@@ -50,8 +59,11 @@ COMPOSE_YML="$REPO_ROOT/demo/docker-compose.yml"
 README="$REPO_ROOT/demo/README.md"
 DATA_DIR="$REPO_ROOT/demo/.data"
 SNAP_DIR="$DATA_DIR/snapshots"
+LOGS_DIR="$DATA_DIR/logs"
+DIST="$REPO_ROOT/Butler.UI/dist"
 MOUNT="$SNAP_DIR:/snapshots"
 HUB_URL="http://localhost:8080"
+API_URL="http://127.0.0.1:5108"
 
 PIN_MSG='demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.'
 NAME_RULE="Snapshot names use letters, digits, '.', '_' and '-', start with a letter or digit, and are at most 64 characters."
@@ -61,7 +73,14 @@ STOP_FAILED='Could not stop Azurite. No snapshot was taken.'
 UP_FAILED='Azurite did not become healthy. Run the logs command to see why.'
 STOPPING='Stopping the demo stack ...'
 DOWN_FAILED='Could not stop the demo stack. Nothing was restored.'
+EXPORT_FRESH='Hub export is up to date (Butler.UI/dist).'
+STARTING_API='Starting Azurite and the API (the hub starts after the dataset id changes) ...'
+API_UP='Azurite and the API are up and healthy.'
+STARTING_HUB='Starting the hub ...'
+HUB_UP='Demo stack is up and healthy: http://localhost:8080'
+STACK_FAILED='Demo stack did not become healthy. Run the logs command to see why.'
 SIGNING_IN='Signing in with the demo PIN ...'
+SIGN_IN_FAILED='PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run restore again.'
 CHANGING='Changing the dataset id ...'
 SIGN_IN_AGAIN='Sign in with the PIN again: the restore restarted the API. Tablets paired after the snapshot was taken must pair again, and the new dataset id makes the hub drop its offline cache and queued writes.'
 NONE='No snapshots in demo/.data/snapshots. Take one with the snapshot command.'
@@ -83,16 +102,37 @@ fail() {
 
 command -v docker >/dev/null 2>&1 || fail "docker must be on PATH"
 command -v pwsh >/dev/null 2>&1 || fail "pwsh (PowerShell 7) must be on PATH"
+command -v curl >/dev/null 2>&1 || fail "curl must be on PATH"
 
 WORK="$(mktemp -d)"
+DIST_SAVED="$WORK/dist-saved"
 CLEANUP_STATIC=0
 CLEANUP_STACK=0
 DATA_CREATED=0
+LOGS_EXISTED=0
+DIST_FAKED=0
+WATCH_PID=""
 cleanup() {
+  set +e
+  if [ -n "$WATCH_PID" ]; then
+    kill "$WATCH_PID" 2>/dev/null
+    wait "$WATCH_PID" 2>/dev/null
+  fi
+  if [ "$DIST_FAKED" -eq 1 ]; then
+    # Drop the fake export and put back any real one.
+    rm -rf "$DIST"
+    if [ -d "$DIST_SAVED" ]; then
+      mv "$DIST_SAVED" "$DIST"
+    fi
+  fi
   rm -rf "$WORK"
   if [ "$CLEANUP_STATIC" -eq 1 ]; then
     # Everything under it was created by this script, as this user.
     rm -rf "$SNAP_DIR"
+    # restore reaches ensure_logs_dir, which creates demo/.data/logs.
+    if [ "$LOGS_EXISTED" -eq 0 ]; then
+      rm -rf "$LOGS_DIR"
+    fi
     if [ "$DATA_CREATED" -eq 1 ]; then
       rmdir "$DATA_DIR" 2>/dev/null || true
     fi
@@ -108,10 +148,29 @@ trap cleanup EXIT
 static_mode() {
   [ ! -e "$REPO_ROOT/demo/.env" ] || fail "demo/.env exists; move it aside to run the static checks"
   [ ! -e "$SNAP_DIR" ] || fail "demo/.data/snapshots exists; move it aside to run the static checks"
+  # restore signs in on the API's loopback port once the stub "starts" it
+  # (#361). PIN 1234 must never reach a real API there: five wrong PINs lock
+  # sign-in.
+  if curl -s --max-time 2 -o /dev/null "$API_URL/health"; then
+    fail "something answers on $API_URL; stop that demo stack to run the static checks"
+  fi
   [ -d "$DATA_DIR" ] || DATA_CREATED=1
+  [ -e "$LOGS_DIR" ] && LOGS_EXISTED=1
   CLEANUP_STATIC=1
   unset DOCKER_HOST DOCKER_CONTEXT COMPOSE_PROJECT_NAME
   export BUTLER_DEMO_PIN=1234
+
+  # A fresh export with a valid stamp (#184), newer than index.html, so
+  # restore reports it up to date and never calls npm (as in
+  # check-smoke-step.sh). Any real export is put back on exit.
+  DIST_FAKED=1
+  if [ -e "$DIST" ]; then
+    mv "$DIST" "$DIST_SAVED"
+  fi
+  mkdir -p "$DIST"
+  echo '<!doctype html><title>stub export</title>' > "$DIST/index.html"
+  printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' > "$DIST/.demo-build-env"
+  touch -d "@$(( $(date +%s) + 60 ))" "$DIST/.demo-build-env"
 
   REAL_DOCKER="$(command -v docker)"
   export REAL_DOCKER
@@ -155,6 +214,16 @@ fi
 exit 0
 STUB
   chmod +x "$stub_dir/docker"
+  # A stub npm: logs its arguments and fails. restore must not build here.
+  export NPM_STUB_LOG="$WORK/npm.log"
+  : > "$NPM_STUB_LOG"
+  cat > "$stub_dir/npm" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${NPM_STUB_LOG:-/dev/null}"
+echo "stub npm: restore must not build the export in this check: $*" >&2
+exit 64
+STUB
+  chmod +x "$stub_dir/npm"
   export PATH="$stub_dir:$PATH"
 
   local inspect="context inspect --format {{.Endpoints.docker.Host}}"
@@ -260,8 +329,7 @@ STUB
   expect_log "snapshot (up fails)" "$(printf '%s\n' "$inspect" "$config" "$c stop azurite" "$copy_call" "$up_call")"
 
   # AC2 and F1: restore stops the whole stack (down), wipes and copies in
-  # containers. Each failure stops before the stack starts (start_stack
-  # would run npm under the stub, so the static cases end at the copy).
+  # containers. Each failure stops before anything starts.
   local wipe_call="$c run --rm --no-deps -T --entrypoint find azurite /data -mindepth 1 -delete"
   local restore_call="$c run --rm --no-deps -T -v $MOUNT --entrypoint cp azurite -R /snapshots/taken/. /data"
   STUB_DOWN_RC=7 run_both "restore (down fails)" restore taken
@@ -278,6 +346,25 @@ STUB
   expect_rc "restore (copy fails)" 9
   expect_out "restore (copy fails)" "$(printf '%s\n' "$STOPPING" "$(restoring taken)" "$(restore_failed taken)")"
   expect_log "restore (copy fails)" "$(printf '%s\n' "$inspect" "$config" "$c down" "$wipe_call" "$restore_call")"
+
+  # #361: restore starts only Azurite and the API, never the hub (web), until
+  # the dataset id has changed. The API does not come up: no web call.
+  local api_up_call="$c up -d --build --wait --wait-timeout 300 azurite api"
+  STUB_UP_RC=4 run_both "restore (API start fails)" restore taken
+  expect_rc "restore (API start fails)" 4
+  expect_out "restore (API start fails)" "$(printf '%s\n' "$STOPPING" "$(restoring taken)" "$EXPORT_FRESH" "$STARTING_API" "$STACK_FAILED")"
+  expect_log "restore (API start fails)" "$(printf '%s\n' "$inspect" "$config" "$c down" "$wipe_call" "$restore_call" "$api_up_call")"
+
+  # The stub "starts" the API, but nothing answers on 127.0.0.1:5108, so the
+  # PIN sign-in fails and the hub stays down: no web call.
+  run_both "restore (sign-in fails, hub stays down)" restore taken
+  expect_rc "restore (sign-in fails, hub stays down)" 1
+  expect_out "restore (sign-in fails, hub stays down)" "$(printf '%s\n' "$STOPPING" "$(restoring taken)" "$EXPORT_FRESH" "$STARTING_API" "$API_UP" "$SIGNING_IN" "$SIGN_IN_FAILED")"
+  expect_log "restore (sign-in fails, hub stays down)" "$(printf '%s\n' "$inspect" "$config" "$c down" "$wipe_call" "$restore_call" "$api_up_call")"
+  if grep -qE ' web$' <<<"$LOG"; then
+    fail "restore (sign-in fails, hub stays down): the hub (web) was started"
+  fi
+  [ ! -s "$NPM_STUB_LOG" ] || fail "restore ran npm: $(cat "$NPM_STUB_LOG")"
 
   # AC7: an empty folder, then a list sorted newest first, ties by name in
   # byte order (Zeta before alpha), skipping files and invalid names.
@@ -311,6 +398,8 @@ STUB
     grep -qF "pwsh demo/demo.ps1 $cmd" "$README" || fail "demo/README.md does not show pwsh demo/demo.ps1 $cmd"
   done
   grep -qF 'snapshot dates do not move' "$README" || fail "demo/README.md does not warn that snapshot dates do not move"
+  grep -qF 'hub stays stopped until the dataset id has changed' "$README" \
+    || fail "demo/README.md does not say the hub stays stopped until the dataset id has changed (#361)"
   if LC_ALL=C grep -nP '[^\x00-\x7F]' "$README"; then
     fail "demo/README.md must stay plain ASCII"
   fi
@@ -414,6 +503,9 @@ own() {
     -e 'Hub export was not built with the demo settings; building Butler\.UI/dist \.\.\.' \
     -e 'Installing Butler\.UI dependencies \(npm ci\) \.\.\.' \
     -e 'Starting the demo stack \.\.\.' \
+    -e 'Starting Azurite and the API \(the hub starts after the dataset id changes\) \.\.\.' \
+    -e 'Azurite and the API are up and healthy\.' \
+    -e 'Starting the hub \.\.\.' \
     -e 'Recreating web to serve the new export \.\.\.' \
     -e 'Demo stack is up and healthy: http://localhost:8080' \
     -e 'Demo stack did not become healthy\. Run the logs command to see why\.' \
@@ -474,9 +566,70 @@ expect_core() {
 }
 
 EXPECTED_SNAPSHOT="$(printf '%s\n' "$STOPPING_AZURITE" "$(copying '<name>')" "$STARTING_AZURITE" "$(saved '<name>')")"
-EXPECTED_RESTORE="$(printf '%s\n' "$STOPPING" "$(restoring '<name>')" 'Starting the demo stack ...' \
-  'Demo stack is up and healthy: http://localhost:8080' "$SIGNING_IN" "$CHANGING" \
-  'Dataset: <old> -> <new>' "$(complete '<name>')" "$SIGN_IN_AGAIN")"
+# #361: the hub starts only after the dataset id has changed.
+EXPECTED_RESTORE="$(printf '%s\n' "$STOPPING" "$(restoring '<name>')" "$STARTING_API" "$API_UP" \
+  "$SIGNING_IN" "$CHANGING" 'Dataset: <old> -> <new>' "$STARTING_HUB" "$HUB_UP" \
+  "$(complete '<name>')" "$SIGN_IN_AGAIN")"
+
+# watch_hub <log>: polls the hub's dataset endpoint every 0.2 s until killed.
+# Logs nothing until the hub first stops answering (000), then 'down' once,
+# then '<code> <dataset id>' for each answer. Answers from before restore's
+# down (the previous id) are not logged. curl exits 7 on a refused
+# connection, hence || true.
+watch_hub() {
+  local log="$1" resp code id seen_down=0
+  : > "$log"
+  while :; do
+    resp="$(curl -s --max-time 2 -w '%{http_code}' "$HUB_URL/api/api/system/dataset" 2>/dev/null || true)"
+    code="000"
+    if [ "${#resp}" -ge 3 ]; then
+      code="${resp:${#resp}-3}"
+    fi
+    if [ "$code" = "000" ]; then
+      if [ "$seen_down" -eq 0 ]; then
+        echo down >> "$log"
+        seen_down=1
+      fi
+    elif [ "$seen_down" -eq 1 ]; then
+      id="$(printf '%s' "${resp%???}" | sed -n 's/.*"datasetId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+      echo "$code $id" >> "$log"
+    fi
+    sleep 0.2
+  done
+}
+
+# start_watch <log> / stop_watch: run watch_hub in the background around one
+# restore. cleanup also stops it.
+start_watch() {
+  watch_hub "$1" &
+  WATCH_PID=$!
+}
+
+stop_watch() {
+  if [ -n "$WATCH_PID" ]; then
+    kill "$WATCH_PID" 2>/dev/null || true
+    wait "$WATCH_PID" 2>/dev/null || true
+    WATCH_PID=""
+  fi
+}
+
+# check_hub_order <label> <log> (#361): the watcher saw the hub go down, and
+# every answer after that was 200 with the dataset id the API reports now, so
+# the hub never served the restored data under the snapshot's id. No answer
+# after down is allowed too.
+check_hub_order() {
+  local label="$1" log="$2" now line n=0
+  now="$(dataset_now)" || fail "$label: no dataset id after the restore"
+  line="$(head -n 1 "$log")"
+  [ "$line" = "down" ] || fail "$label: the hub watcher never saw the hub go down (first line '$line')"
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [ "$n" -eq 1 ] && continue
+    [ "$line" = "200 $now" ] \
+      || fail "$label: the hub answered '$line' (watcher line $n) before the dataset id changed to $now"
+  done < "$log"
+  echo "$label: the hub stayed down until the dataset id changed ($((n - 1)) answers, all '200 $now')"
+}
 
 # check_restore <label> <snapshot id> <old token> <old api container> <marker> <later>
 check_restore() {
@@ -536,8 +689,11 @@ stack_mode() {
 
   # AC2, AC6, F1: demo.sh restore.
   later="$(create_household "$token" "Snapshot CI Later")" || fail "could not create the later household"
+  start_watch "$WORK/hub-sh.log"
   run_cli "demo.sh restore" sh restore ci-snap-sh
+  stop_watch
   sh_restore="$OWN"
+  check_hub_order "demo.sh restore" "$WORK/hub-sh.log"
   check_restore "demo.sh restore" "$d0" "$token" "$api0" "$marker" "$later"
 
   # demo.ps1 snapshot prints the same lines.
@@ -552,7 +708,10 @@ stack_mode() {
   token="$(sign_in)" || fail "PIN sign-in failed before demo.ps1 restore"
   api0="$(api_container)"
   later="$(create_household "$token" "Snapshot CI Later 2")" || fail "could not create the second later household"
+  start_watch "$WORK/hub-ps.log"
   run_cli "demo.ps1 restore" ps restore ci-snap-sh
+  stop_watch
+  check_hub_order "demo.ps1 restore" "$WORK/hub-ps.log"
   if [ "$OWN" != "$sh_restore" ]; then
     diff <(printf '%s\n' "$sh_restore") <(printf '%s\n' "$OWN") || true
     fail "demo.sh and demo.ps1 restore print different lines"

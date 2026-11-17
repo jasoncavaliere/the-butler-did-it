@@ -60,7 +60,7 @@ pwsh demo/demo.ps1 unshare
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
 | `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
 | `demo.sh snapshot` | `snapshot <name>` saves a copy of the demo data: refuses to run unless the target is the local demo stack, stops only Azurite, copies `demo/.data/azurite` to `demo/.data/snapshots/<name>` and starts Azurite again. The API and the hub keep running, so the organizer stays signed in. Refuses a name that is already taken. See [Snapshots](#snapshots). |
-| `demo.sh restore` | `restore <name>` puts a snapshot back: checks the PIN, refuses to run unless the target is the local demo stack, stops the stack, replaces `demo/.data/azurite` with the snapshot, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and changes the dataset id. It prints the snapshot's and the new dataset id. Snapshot dates do not move. Needs `curl` (`demo.sh` only). See [Snapshots](#snapshots). |
+| `demo.sh restore` | `restore <name>` puts a snapshot back: checks the PIN, refuses to run unless the target is the local demo stack, stops the stack, replaces `demo/.data/azurite` with the snapshot, builds the hub export if needed and starts only Azurite and the API (without the smoke step), signs in with `BUTLER_DEMO_PIN` and changes the dataset id directly on the API (`127.0.0.1:5108`), then starts the hub (`web`): the hub stays stopped until the dataset id has changed. It prints the snapshot's and the new dataset id. Snapshot dates do not move. Needs `curl` (`demo.sh` only). See [Snapshots](#snapshots). |
 | `demo.sh snapshots` | Lists the snapshots in `demo/.data/snapshots`, newest first, with the local date and time each was taken. See [Snapshots](#snapshots). |
 | `demo.sh verify` | Checks the PIN, installs the browser suite in `demo/e2e` (`npm ci`) and its Chromium if needed, then runs the Playwright suite headless at 1280x800 against `http://localhost:8080`: it pairs the hub, claims a name, completes and reopens a chore, checks the fairness bars, adds a typed grocery item, confirms the cart as the organizer and sees the receipt, then reloads offline and syncs a chore completed offline. Exits non-zero when any test fails. Always runs `reset` afterwards, pass or fail. Needs Node 22 and a running stack (`up`). See [Verify the demo](#verify-the-demo). |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
@@ -726,12 +726,23 @@ digit, and are at most 64 characters. Snapshots live in
 4. Deletes everything in `demo/.data/azurite` and copies the snapshot into it,
    inside one-off `azurite` containers. The snapshot itself is not changed, so
    you can restore it again and again.
-5. Starts the stack as `up` does, without the smoke step, so the API starts
-   fresh on the restored data.
+5. Builds the hub export if needed, as `up` does, then starts only Azurite
+   and the API (not the hub, `web`), without the smoke step, so the API
+   starts fresh on the restored data.
 6. Signs in with `BUTLER_DEMO_PIN`, once, and changes the dataset id
-   (`POST /api/demo/dataset/regenerate`, organizer only).
+   (`POST /demo/dataset/regenerate`, organizer only), both directly on the
+   API at `127.0.0.1:5108`, not through the hub.
 7. Checks that the dataset id changed and prints
    `Dataset: <snapshot id> -> <new id>`.
+8. Starts the hub (`web`) and waits until it is healthy.
+
+The hub stays stopped until the dataset id has changed (#361). A snapshot
+keeps the dataset id it had when it was taken, so a hub that served the
+restored data under that old id would see no change and replay the writes it
+queued offline into the restored data. Starting the hub only after the id
+change rules that out. If the sign-in or the id change fails, the hub stays
+stopped: fix the cause (the message says what failed), then run `restore`
+again, or `reset`.
 
 After a restore:
 
@@ -740,9 +751,8 @@ After a restore:
 - A tablet paired after the snapshot was taken pairs again: its hub-device
   token is not in the restored data. Tablets paired before it stay paired.
 - The new dataset id tells the hub to drop its offline cache and its queue of
-  unsent writes (#100). A hub that reconnects in the few seconds between the
-  stack start and the id change can still replay taps queued before the
-  restore (#361), so keep tablets closed or offline during a restore.
+  unsent writes (#100). Taps queued before the restore are dropped, never
+  replayed into the restored data: the hub first answers with the new id.
 
 `snapshots` lists every snapshot, newest first, with the local date and time
 it was taken (`YYYY-MM-DD HH:MM`).
@@ -784,7 +794,8 @@ no table-creation steps.
 - Port 5108: the API is published on `127.0.0.1:5108`, which is also the
   port the in-memory quick loop documented in `.workspace/` binds `dotnet run`
   to. Stop a locally running API before `up`, or `up` fails with "port is
-  already allocated".
+  already allocated". `restore` also uses this port: it signs in and changes
+  the dataset id directly on the API there while the hub is still stopped.
 
 - Port 10012: Azurite's Table port is published on `127.0.0.1:10012` (loopback
   only, never `0.0.0.0`) so the smoke step can read the Rooms table. 10012,
