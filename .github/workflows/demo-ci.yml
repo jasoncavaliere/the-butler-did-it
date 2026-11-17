@@ -65,7 +65,9 @@
 #            API start or sign-in makes no web call; bad names, a missing PIN
 #            and non-local targets make no docker call; snapshots lists
 #            newest first; the same bytes and docker calls through both
-#            scripts.
+#            scripts. Its hub watcher check (check_hub_order) runs over
+#            fixture logs 20 times in a row with the same verdicts (#379,
+#            demo/ci/check-snapshot.sh hub-order).
 #            And the smoke step (#103): Azurite's Table port is published
 #            only on 127.0.0.1:10012 while the api keeps azurite:10002, and
 #            demo/ci/check-smoke-step.sh (stub dotnet and docker) shows both
@@ -108,8 +110,9 @@
 #            the organizer signed in; demo.sh restore and demo.ps1 restore
 #            recreate the api, bring back the snapshot's data and change the
 #            dataset id, and the hub stays down until the id has changed
-#            (#361, a hub watcher checks every answer). And the smoke
-#            step (#103): with the SDK from Butler.API/global.json, demo up
+#            (#361, a hub watcher checks every answer; the check waits up to
+#            30 s for an answer after down and requires one, #379). And the
+#            smoke step (#103): with the SDK from Butler.API/global.json, demo up
 #            runs the real Liveness and Rooms smoke tests through the proxy
 #            (signing in with the PIN, reading Azurite on 127.0.0.1:10012),
 #            never the Demo, Storage or Provisioning ones, and ends with the
@@ -430,6 +433,16 @@ jobs:
       # the same bytes and make the same docker calls. Stub docker.
       - name: "demo CLI: snapshot, restore and snapshots (#99)"
         run: bash demo/ci/check-snapshot.sh static
+
+      # #379 AC2, AC3, AC4: check_hub_order fails on a watcher log with
+      # down and no answer after it, or with any answer other than 200 and
+      # the new dataset id, and passes when every answer carries the new id.
+      # Fixture logs, no stack; 20 runs in a row must give the same verdicts.
+      - name: "demo CLI: check_hub_order verdicts are stable (#379)"
+        run: |
+          for i in $(seq 1 20); do
+            bash demo/ci/check-snapshot.sh hub-order > /dev/null || { echo "hub-order run $i failed"; exit 1; }
+          done
 
   stack:
     name: stack (Azurite + API + Caddy)
@@ -959,8 +972,9 @@ jobs:
       # organizer signed in; demo.sh restore and demo.ps1 restore (stdin
       # closed) recreate the api, bring the snapshot's data back and change
       # the dataset id, with the same own lines. #361: a hub watcher shows
-      # the hub stays down until the dataset id has changed. Starts with the
-      # stack up.
+      # the hub stays down until the dataset id has changed. #379: after each
+      # restore the check waits up to 30 s for an answer after down before
+      # it stops the watcher, and requires one. Starts with the stack up.
       - name: "demo CLI: snapshot and restore round trip (#99)"
         run: bash demo/ci/check-snapshot.sh stack
 

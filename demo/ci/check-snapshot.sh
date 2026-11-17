@@ -2,7 +2,7 @@
 # Checks the demo CLI's snapshot, restore and snapshots subcommands (#99)
 # through both demo/demo.sh and demo/demo.ps1.
 #
-# Usage: bash demo/ci/check-snapshot.sh static|stack
+# Usage: bash demo/ci/check-snapshot.sh static|stack|hub-order
 #   static - a stub docker, no stack. A missing, extra or invalid name exits
 #            2 with no docker call; a taken name (snapshot) and a missing
 #            snapshot (restore) exit 1 with no docker call; restore without a
@@ -35,21 +35,29 @@
 #            snapshot is back and the later one is gone (AC2). A background
 #            watcher polls the hub during each restore: once the hub has gone
 #            down, every answer it gives must be 200 with the new dataset id
-#            (#361). Also takes ci-snap-ps with demo.ps1. Deletes both
-#            snapshots on exit.
+#            (#361). After each restore the check waits up to 30 s for at
+#            least one answer after down before it stops the watcher, and
+#            requires one (#379). Also takes ci-snap-ps with demo.ps1.
+#            Deletes both snapshots on exit.
+#   hub-order - no stack and no docker. Runs check_hub_order over fixture
+#            watcher logs (empty, down only, down plus the new id, down plus
+#            the old id, down plus both) and checks each verdict and message
+#            (#379). CI runs it 20 times in a row to show the verdicts are
+#            stable.
 #
 # static runs both scripts in every case and fails unless their output
 # (stdout and stderr together), exit code and docker calls are identical.
 # stack compares the lines the scripts print themselves (docker and npm
 # output varies run to run), with the dataset ids and snapshot names masked.
 # Needs bash, pwsh (PowerShell 7), docker and curl; stack also needs jq.
+# hub-order needs only bash.
 set -euo pipefail
 
 mode="${1:-}"
 case "$mode" in
-  static|stack) ;;
+  static|stack|hub-order) ;;
   *)
-    echo "Usage: bash demo/ci/check-snapshot.sh static|stack" >&2
+    echo "Usage: bash demo/ci/check-snapshot.sh static|stack|hub-order" >&2
     exit 2
     ;;
 esac
@@ -100,9 +108,11 @@ fail() {
   exit 1
 }
 
-command -v docker >/dev/null 2>&1 || fail "docker must be on PATH"
-command -v pwsh >/dev/null 2>&1 || fail "pwsh (PowerShell 7) must be on PATH"
-command -v curl >/dev/null 2>&1 || fail "curl must be on PATH"
+if [ "$mode" != "hub-order" ]; then
+  command -v docker >/dev/null 2>&1 || fail "docker must be on PATH"
+  command -v pwsh >/dev/null 2>&1 || fail "pwsh (PowerShell 7) must be on PATH"
+  command -v curl >/dev/null 2>&1 || fail "curl must be on PATH"
+fi
 
 WORK="$(mktemp -d)"
 DIST_SAVED="$WORK/dist-saved"
@@ -613,15 +623,31 @@ stop_watch() {
   fi
 }
 
-# check_hub_order <label> <log> (#361): the watcher saw the hub go down, and
-# every answer after that was 200 with the dataset id the API reports now, so
-# the hub never served the restored data under the snapshot's id. No answer
-# after down is allowed too.
+# wait_hub_answer <log> (#379): waits up to 30 s, polling every 0.2 s, until
+# the watcher log holds an answer after 'down' (a second line), so stop_watch
+# cannot kill the watcher before its first poll after the hub came back. Also
+# stops waiting when the first line is not 'down' (nothing to wait for).
+# Never fails: on a timeout check_hub_order names the missing answer.
+wait_hub_answer() {
+  local log="$1" deadline=$((SECONDS + 30))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    [ "$(head -n 1 "$log")" = "down" ] || break
+    [ -n "$(sed -n 2p "$log")" ] && break
+    sleep 0.2
+  done
+  return 0
+}
+
+# check_hub_order <label> <log> <new id> (#361, #379): the watcher saw the hub
+# go down, answered at least once after that, and every answer was 200 with
+# the new dataset id, so the hub never served the restored data under the
+# snapshot's id. Reads only the log, so hub-order mode can test it.
 check_hub_order() {
-  local label="$1" log="$2" now line n=0
-  now="$(dataset_now)" || fail "$label: no dataset id after the restore"
+  local label="$1" log="$2" now="$3" line n=0
   line="$(head -n 1 "$log")"
   [ "$line" = "down" ] || fail "$label: the hub watcher never saw the hub go down (first line '$line')"
+  [ -n "$(sed -n 2p "$log")" ] \
+    || fail "$label: the hub watcher saw the hub go down but no answer after it (expected '200 $now')"
   while IFS= read -r line; do
     n=$((n + 1))
     [ "$n" -eq 1 ] && continue
@@ -629,6 +655,36 @@ check_hub_order() {
       || fail "$label: the hub answered '$line' (watcher line $n) before the dataset id changed to $now"
   done < "$log"
   echo "$label: the hub stayed down until the dataset id changed ($((n - 1)) answers, all '200 $now')"
+}
+
+# expect_hub_order <name> <log> <want rc> <want text>: runs check_hub_order on
+# a fixture log with the new id 'new-id' and requires the exit code and a
+# substring of its output (#379).
+expect_hub_order() {
+  local name="$1" log="$2" want_rc="$3" want_text="$4" out rc
+  set +e
+  out="$(check_hub_order 'fixture restore' "$log" new-id 2>&1)"
+  rc=$?
+  set -e
+  [ "$rc" -eq "$want_rc" ] || fail "hub-order: $name: expected exit $want_rc, got $rc: $out"
+  grep -qF -- "$want_text" <<<"$out" || fail "hub-order: $name: expected '$want_text' in: $out"
+  echo "hub-order: $name: ok"
+}
+
+# hub_order_mode (#379): check_hub_order verdicts on fixture watcher logs.
+hub_order_mode() {
+  local dir="$WORK/hub-order"
+  mkdir -p "$dir"
+  : > "$dir/empty.log"
+  printf '%s\n' down > "$dir/down-only.log"
+  printf '%s\n' down '200 new-id' '200 new-id' > "$dir/new.log"
+  printf '%s\n' down '200 old-id' > "$dir/old.log"
+  printf '%s\n' down '200 new-id' '200 old-id' > "$dir/mixed.log"
+  expect_hub_order empty "$dir/empty.log" 1 'fixture restore: the hub watcher never saw the hub go down'
+  expect_hub_order down-only "$dir/down-only.log" 1 'fixture restore: the hub watcher saw the hub go down but no answer after it'
+  expect_hub_order new "$dir/new.log" 0 "fixture restore: the hub stayed down until the dataset id changed (2 answers, all '200 new-id')"
+  expect_hub_order old "$dir/old.log" 1 "fixture restore: the hub answered '200 old-id' (watcher line 2)"
+  expect_hub_order mixed "$dir/mixed.log" 1 "fixture restore: the hub answered '200 old-id' (watcher line 3)"
 }
 
 # check_restore <label> <snapshot id> <old token> <old api container> <marker> <later>
@@ -665,7 +721,7 @@ stack_mode() {
   [ ! -e "$SNAP_DIR/ci-snap-sh" ] && [ ! -e "$SNAP_DIR/ci-snap-ps" ] \
     || fail "demo/.data/snapshots/ci-snap-sh or ci-snap-ps exists; delete it first"
   CLEANUP_STACK=1
-  local token marker later d0 api0 code sh_restore
+  local token marker later d0 api0 code sh_restore now
 
   token="$(sign_in)" || fail "PIN sign-in failed before the snapshot"
   marker="$(create_household "$token" "Snapshot CI Marker")" || fail "could not create the marker household"
@@ -691,9 +747,11 @@ stack_mode() {
   later="$(create_household "$token" "Snapshot CI Later")" || fail "could not create the later household"
   start_watch "$WORK/hub-sh.log"
   run_cli "demo.sh restore" sh restore ci-snap-sh
+  wait_hub_answer "$WORK/hub-sh.log"
   stop_watch
   sh_restore="$OWN"
-  check_hub_order "demo.sh restore" "$WORK/hub-sh.log"
+  now="$(dataset_now)" || fail "demo.sh restore: no dataset id after the restore"
+  check_hub_order "demo.sh restore" "$WORK/hub-sh.log" "$now"
   check_restore "demo.sh restore" "$d0" "$token" "$api0" "$marker" "$later"
 
   # demo.ps1 snapshot prints the same lines.
@@ -710,8 +768,10 @@ stack_mode() {
   later="$(create_household "$token" "Snapshot CI Later 2")" || fail "could not create the second later household"
   start_watch "$WORK/hub-ps.log"
   run_cli "demo.ps1 restore" ps restore ci-snap-sh
+  wait_hub_answer "$WORK/hub-ps.log"
   stop_watch
-  check_hub_order "demo.ps1 restore" "$WORK/hub-ps.log"
+  now="$(dataset_now)" || fail "demo.ps1 restore: no dataset id after the restore"
+  check_hub_order "demo.ps1 restore" "$WORK/hub-ps.log" "$now"
   if [ "$OWN" != "$sh_restore" ]; then
     diff <(printf '%s\n' "$sh_restore") <(printf '%s\n' "$OWN") || true
     fail "demo.sh and demo.ps1 restore print different lines"
@@ -721,6 +781,8 @@ stack_mode() {
 
 if [ "$mode" = "static" ]; then
   static_mode
+elif [ "$mode" = "hub-order" ]; then
+  hub_order_mode
 else
   stack_mode
 fi
