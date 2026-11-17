@@ -2,7 +2,7 @@
 # Checks the demo CLI's reset subcommand (#98) through both demo/demo.sh and
 # demo/demo.ps1.
 #
-# Usage: bash demo/ci/check-reset.sh static|stack
+# Usage: bash demo/ci/check-reset.sh static|stack|hub-order
 #   static - a stub docker, no stack. A missing PIN (AC8b) and every
 #            non-local target (AC7: a remote DOCKER_HOST, an ssh context,
 #            another compose project, an api that does not store its data in
@@ -26,20 +26,28 @@
 #            seeded household (AC3-AC5), that the dataset id changed (AC6), and
 #            that a household created before the reset is gone. A hub watcher
 #            polls the hub during each reset and fails unless every answer
-#            after down carries the new dataset id (#378).
+#            after down carries the new dataset id (#378). After each reset
+#            the check waits up to 30 s for at least one answer after down
+#            before it stops the watcher, and requires one (#383).
+#   hub-order - no stack and no docker. Runs check_hub_order over fixture
+#            watcher logs (empty, down only, down plus the new id, down plus
+#            the old id, down plus both) and checks each verdict and message
+#            (#383). CI runs it 20 times in a row to show the verdicts are
+#            stable.
 #
 # static runs both scripts in every case and fails unless their output
 # (stdout and stderr together), exit code and docker calls are identical.
 # stack compares the lines the scripts print themselves (docker and npm
 # output varies run to run), with the dataset ids masked.
 # Needs bash, pwsh (PowerShell 7), docker and curl; stack also needs jq.
+# hub-order needs only bash.
 set -euo pipefail
 
 mode="${1:-}"
 case "$mode" in
-  static|stack) ;;
+  static|stack|hub-order) ;;
   *)
-    echo "Usage: bash demo/ci/check-reset.sh static|stack" >&2
+    echo "Usage: bash demo/ci/check-reset.sh static|stack|hub-order" >&2
     exit 2
     ;;
 esac
@@ -78,9 +86,11 @@ fail() {
   exit 1
 }
 
-command -v docker >/dev/null 2>&1 || fail "docker must be on PATH"
-command -v pwsh >/dev/null 2>&1 || fail "pwsh (PowerShell 7) must be on PATH"
-command -v curl >/dev/null 2>&1 || fail "curl must be on PATH"
+if [ "$mode" != "hub-order" ]; then
+  command -v docker >/dev/null 2>&1 || fail "docker must be on PATH"
+  command -v pwsh >/dev/null 2>&1 || fail "pwsh (PowerShell 7) must be on PATH"
+  command -v curl >/dev/null 2>&1 || fail "curl must be on PATH"
+fi
 
 WORK="$(mktemp -d)"
 DIST_SAVED="$WORK/dist-saved"
@@ -455,15 +465,31 @@ stop_watch() {
   fi
 }
 
-# check_hub_order <label> <log> (#378): the watcher saw the hub go down, and
-# every answer after that was 200 with the dataset id the API reports now, so
-# the hub never served the wiped data before the seed changed the id. No
-# answer after down is allowed too.
+# wait_hub_answer <log> (#383): waits up to 30 s, polling every 0.2 s, until
+# the watcher log holds an answer after 'down' (a second line), so stop_watch
+# cannot kill the watcher before its first poll after the hub came back. Also
+# stops waiting when the first line is not 'down' (nothing to wait for).
+# Never fails: on a timeout check_hub_order names the missing answer.
+wait_hub_answer() {
+  local log="$1" deadline=$((SECONDS + 30))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    [ "$(head -n 1 "$log")" = "down" ] || break
+    [ -n "$(sed -n 2p "$log")" ] && break
+    sleep 0.2
+  done
+  return 0
+}
+
+# check_hub_order <label> <log> <new id> (#378, #383): the watcher saw the hub
+# go down, answered at least once after that, and every answer was 200 with
+# the new dataset id, so the hub never served the wiped data before the seed
+# changed the id. Reads only the log, so hub-order mode can test it.
 check_hub_order() {
-  local label="$1" log="$2" now line n=0
-  now="$(dataset_now)" || fail "$label: no dataset id after the reset"
+  local label="$1" log="$2" now="$3" line n=0
   line="$(head -n 1 "$log")"
   [ "$line" = "down" ] || fail "$label: the hub watcher never saw the hub go down (first line '$line')"
+  [ -n "$(sed -n 2p "$log")" ] \
+    || fail "$label: the hub watcher saw the hub go down but no answer after it (expected '200 $now')"
   while IFS= read -r line; do
     n=$((n + 1))
     [ "$n" -eq 1 ] && continue
@@ -471,6 +497,36 @@ check_hub_order() {
       || fail "$label: the hub answered '$line' (watcher line $n) before the seed changed the dataset id to $now"
   done < "$log"
   echo "$label: the hub stayed down until the seed changed the dataset id ($((n - 1)) answers, all '200 $now')"
+}
+
+# expect_hub_order <name> <log> <want rc> <want text>: runs check_hub_order on
+# a fixture log with the new id 'new-id' and requires the exit code and a
+# substring of its output (#383).
+expect_hub_order() {
+  local name="$1" log="$2" want_rc="$3" want_text="$4" out rc
+  set +e
+  out="$(check_hub_order 'fixture reset' "$log" new-id 2>&1)"
+  rc=$?
+  set -e
+  [ "$rc" -eq "$want_rc" ] || fail "hub-order: $name: expected exit $want_rc, got $rc: $out"
+  grep -qF -- "$want_text" <<<"$out" || fail "hub-order: $name: expected '$want_text' in: $out"
+  echo "hub-order: $name: ok"
+}
+
+# hub_order_mode (#383): check_hub_order verdicts on fixture watcher logs.
+hub_order_mode() {
+  local dir="$WORK/hub-order"
+  mkdir -p "$dir"
+  : > "$dir/empty.log"
+  printf '%s\n' down > "$dir/down-only.log"
+  printf '%s\n' down '200 new-id' '200 new-id' > "$dir/new.log"
+  printf '%s\n' down '200 old-id' > "$dir/old.log"
+  printf '%s\n' down '200 new-id' '200 old-id' > "$dir/mixed.log"
+  expect_hub_order empty "$dir/empty.log" 1 'fixture reset: the hub watcher never saw the hub go down'
+  expect_hub_order down-only "$dir/down-only.log" 1 'fixture reset: the hub watcher saw the hub go down but no answer after it'
+  expect_hub_order new "$dir/new.log" 0 "fixture reset: the hub stayed down until the seed changed the dataset id (2 answers, all '200 new-id')"
+  expect_hub_order old "$dir/old.log" 1 "fixture reset: the hub answered '200 old-id' (watcher line 2)"
+  expect_hub_order mixed "$dir/mixed.log" 1 "fixture reset: the hub answered '200 old-id' (watcher line 3)"
 }
 
 # A household that the reset must delete.
@@ -482,9 +538,10 @@ make_leftover() {
 }
 
 # run_reset <label> <sh|ps> <dataset before>: runs reset with stdin closed and
-# a 600 s timeout while a hub watcher polls the hub, checks its own lines, the
-# dataset line and the hub order (#378), and leaves the masked own lines in
-# OWN.
+# a 600 s timeout while a hub watcher polls the hub, waits up to 30 s after a
+# successful reset for the watcher to log an answer after down (#383), checks
+# its own lines, the dataset line and the hub order (#378), and leaves the
+# masked own lines in OWN.
 run_reset() {
   local label="$1" script="$2" before="$3" out rc line new now
   local watch_log
@@ -499,6 +556,7 @@ run_reset() {
   fi
   rc=$?
   set -e
+  if [ "$rc" -eq 0 ]; then wait_hub_answer "$watch_log"; fi
   stop_watch
   echo "== $label: exit=$rc"
   printf '%s\n' "$out" | own
@@ -518,7 +576,7 @@ run_reset() {
   [ -n "$new" ] && [ "$new" != "$before" ] || fail "$label: the dataset id did not change ($before)"
   now="$(dataset_now)" || fail "$label: no dataset id after the reset"
   [ "$now" = "$new" ] || fail "$label: the reset printed $new but the API reports $now"
-  check_hub_order "$label" "$watch_log"
+  check_hub_order "$label" "$watch_log" "$now"
 }
 
 # AC3-AC5 and the wipe: the seeded household is all there is.
@@ -584,6 +642,8 @@ stack_mode() {
 
 if [ "$mode" = "static" ]; then
   static_mode
+elif [ "$mode" = "hub-order" ]; then
+  hub_order_mode
 else
   stack_mode
 fi
