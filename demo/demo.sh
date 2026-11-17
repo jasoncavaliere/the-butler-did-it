@@ -21,6 +21,8 @@ COMPOSE_SERVICES="azurite api web"
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 LOGS_DIR="$DEMO_DIR/.data/logs"
 UI_DIR="$REPO_ROOT/Butler.UI"
+# The headless browser test of the demo path that verify runs (#121).
+E2E_DIR="$DEMO_DIR/e2e"
 # The hub export's freshness marker. A failed build deletes it (#183), so the
 # next up rebuilds instead of reporting a broken export as up to date.
 EXPORT_MARKER="$UI_DIR/dist/index.html"
@@ -78,6 +80,7 @@ reset|Delete the demo data, restart the stack, re-seed the demo household and ch
 snapshot|Save a copy of the demo data in demo/.data/snapshots/<name> (stops Azurite while it copies)
 restore|Replace the demo data with a snapshot, restart the stack and change the dataset id
 snapshots|List the snapshots in demo/.data/snapshots with their dates
+verify|Run the headless browser test of the demo path against the stack, then reset the stack
 status|Show container health, the hub URL and the dataset id
 logs|Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)
 share|Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code
@@ -147,11 +150,13 @@ export_state() {
 }
 
 # npm ci is needed when node_modules is missing or older than the lockfile.
+# $1 is the package folder (default Butler.UI).
 needs_npm_ci() {
-  local installed="$UI_DIR/node_modules/.package-lock.json"
-  [ ! -d "$UI_DIR/node_modules" ] && return 0
+  local dir="${1:-$UI_DIR}"
+  local installed="$dir/node_modules/.package-lock.json"
+  [ ! -d "$dir/node_modules" ] && return 0
   [ ! -f "$installed" ] && return 0
-  [ "$UI_DIR/package-lock.json" -nt "$installed" ] && return 0
+  [ "$dir/package-lock.json" -nt "$installed" ] && return 0
   return 1
 }
 
@@ -460,6 +465,42 @@ cmd_reset() {
   echo "Dataset: $old -> $new"
   echo "Demo reset complete: the demo household is seeded at $HUB_URL"
   echo "Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings."
+}
+
+# verify (#121): run the Playwright suite in demo/e2e headless against the
+# running stack, then (its global teardown) demo reset, pass or fail. Exits
+# non-zero when a test or the reset fails. The PIN and this script's path go
+# to Playwright only through its environment, so the PIN is never in argv or
+# printed. Takes no arguments and, like up and down, ignores extras.
+cmd_verify() {
+  local rc=0
+  check_pin || return 1
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "npm was not found. Install Node 22 to run verify." >&2
+    return 1
+  fi
+  if needs_npm_ci "$E2E_DIR"; then
+    echo "Installing the browser suite dependencies (npm ci) ..."
+    (cd "$E2E_DIR" && npm ci --no-audit --no-fund --loglevel=error) || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "Could not install the browser suite dependencies in demo/e2e." >&2
+      return "$rc"
+    fi
+  fi
+  echo "Installing the Playwright browser (chromium) if needed ..."
+  (cd "$E2E_DIR" && npx playwright install chromium) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "Could not install the Playwright browser. See demo/README.md." >&2
+    return "$rc"
+  fi
+  echo "Running the browser suite against $HUB_URL ..."
+  (cd "$E2E_DIR" && BUTLER_DEMO_PIN="$(demo_pin)" BUTLER_DEMO_CLI="$DEMO_DIR/demo.sh" npx playwright test) || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "Demo verified: the browser suite passed and the stack was reset."
+    return 0
+  fi
+  echo "Demo verify failed. See the Playwright output above; traces are in demo/e2e/test-results." >&2
+  return "$rc"
 }
 
 # snapshot and restore (#99) take exactly one name. $1 is the verb; the rest

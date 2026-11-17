@@ -1,0 +1,12 @@
+{
+  "name": "butler-demo-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Headless browser test of the demo path, run by demo verify (#121).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

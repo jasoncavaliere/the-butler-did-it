@@ -305,7 +305,7 @@ jobs:
               diff <(printf '%s\n' "$sh_out") <(printf '%s\n' "$ps_out") || true
               exit 1
             fi
-            for cmd in up down reset snapshot restore snapshots status logs share unshare; do
+            for cmd in up down reset snapshot restore snapshots verify status logs share unshare; do
               printf '%s\n' "$sh_out" | grep -qE "^  $cmd " || { echo "usage does not list '$cmd'" >&2; exit 1; }
             done
           done

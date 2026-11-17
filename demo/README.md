@@ -27,6 +27,7 @@ demo/demo.sh reset     # delete the demo data, restart and re-seed the demo hous
 demo/demo.sh snapshot <name>   # save a copy of the demo data in demo/.data/snapshots/<name>
 demo/demo.sh restore <name>    # put that copy back and change the dataset id
 demo/demo.sh snapshots         # list the snapshots with their dates
+demo/demo.sh verify    # headless browser test of the demo path, then reset
 demo/demo.sh share     # HTTPS URL + QR code for a tablet on your tailnet
 demo/demo.sh unshare   # stop sharing; localhost:8080 keeps working
 ```
@@ -44,6 +45,7 @@ pwsh demo/demo.ps1 reset
 pwsh demo/demo.ps1 snapshot <name>
 pwsh demo/demo.ps1 restore <name>
 pwsh demo/demo.ps1 snapshots
+pwsh demo/demo.ps1 verify
 pwsh demo/demo.ps1 share
 pwsh demo/demo.ps1 unshare
 ```
@@ -56,6 +58,7 @@ pwsh demo/demo.ps1 unshare
 | `demo.sh snapshot` | `snapshot <name>` saves a copy of the demo data: refuses to run unless the target is the local demo stack, stops only Azurite, copies `demo/.data/azurite` to `demo/.data/snapshots/<name>` and starts Azurite again. The API and the hub keep running, so the organizer stays signed in. Refuses a name that is already taken. See [Snapshots](#snapshots). |
 | `demo.sh restore` | `restore <name>` puts a snapshot back: checks the PIN, refuses to run unless the target is the local demo stack, stops the stack, replaces `demo/.data/azurite` with the snapshot, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and changes the dataset id. It prints the snapshot's and the new dataset id. Snapshot dates do not move. Needs `curl` (`demo.sh` only). See [Snapshots](#snapshots). |
 | `demo.sh snapshots` | Lists the snapshots in `demo/.data/snapshots`, newest first, with the local date and time each was taken. See [Snapshots](#snapshots). |
+| `demo.sh verify` | Checks the PIN, installs the browser suite in `demo/e2e` (`npm ci`) and its Chromium if needed, then runs the Playwright suite headless at 1280x800 against `http://localhost:8080`: it pairs the hub, claims a name, completes and reopens a chore, checks the fairness bars, adds a typed grocery item, confirms the cart as the organizer and sees the receipt, then reloads offline and syncs a chore completed offline. Exits non-zero when any test fails. Always runs `reset` afterwards, pass or fail. Needs Node 22 and a running stack (`up`). See [Verify the demo](#verify-the-demo). |
 | `demo.sh status` | Shows each container's state and health, the hub URL `http://localhost:8080` and the dataset id. |
 | `demo.sh logs` | Follows the API and Caddy (`web`) logs together, starting from the last 100 lines of each. `--api` shows only the API. Any other argument goes to `docker compose logs` as-is and turns off the default `--follow --tail 100` (for example `logs --api --since 10m`). Naming a compose service (`azurite`, `api` or `web`) shows only the services named: `logs -f azurite` follows Azurite alone, and the API and Caddy default applies only when no service is named. See [Logs](#logs). |
 | `demo.sh share` | Checks that Tailscale is installed and logged in, runs `tailscale serve --bg 8080`, and prints the hub's `https://<host>.<tailnet>.ts.net` URL and a terminal QR code of it. Stops with a message and a non-zero exit if Tailscale is missing, logged out, or has no HTTPS name. See [Connecting a tablet](#connecting-a-tablet). |
@@ -74,6 +77,11 @@ sections below are the fallback when you want to run the steps yourself.
   `up` runs (see [Smoke step](#smoke-step)). Without an SDK, `up` stops
   before it starts anything.
 - PowerShell 7 to use `demo/demo.ps1` (bash is enough for `demo/demo.sh`).
+- For `verify`: Node 22 again, and a one-time download of about 150 MB for
+  Playwright's Chromium (`verify` fetches it). On Linux, Chromium also needs
+  some system libraries; if it will not start, run
+  `npx playwright install-deps chromium` in `demo/e2e` once. That needs
+  `sudo`, which the scripts never run for you.
 - Optional, for `share`: Tailscale 1.52 or later (older versions use a
   different `tailscale serve` syntax).
 - Optional, for `share`: `qrencode` to print the QR code offline. Without it,
@@ -595,6 +603,66 @@ After a reset:
   organizer signs in with the PIN; pair it again from there.
 - The new dataset id tells the hub to drop its offline cache and its queue of
   unsent writes (#100), so nothing from before the reset is replayed.
+
+## Verify the demo
+
+`demo/demo.sh verify` (or `pwsh demo/demo.ps1 verify`) walks the demo path in
+a headless browser and tells you whether it still works. The suite is in
+`demo/e2e` (Playwright, with its own `package.json`); it is not part of the
+UI's jest gate or of PR CI.
+
+Before the first run:
+
+1. Start the stack: `demo/demo.sh up`.
+2. Reset it, so the suite starts from the seeded demo household:
+   `demo/demo.sh reset`.
+3. Make sure `BUTLER_DEMO_PIN` is set (in `demo/.env` or the shell), as for
+   `up`. `verify` passes it to the suite through the environment only; it is
+   never printed or put on a command line.
+
+Then run `demo/demo.sh verify`. It installs the suite's dependencies
+(`npm ci` in `demo/e2e`) and Playwright's Chromium when they are missing,
+then runs the suite headless in a 1280x800 window against
+`http://localhost:8080`. In order, the suite:
+
+1. Opens the hub, signs the organizer in with the PIN, checks that "The
+   Parker Household" and its four members show, pairs the tablet and signs
+   the organizer out again.
+2. Checks the browser window is 1280x800.
+3. Taps Maria's name and checks her tile shows her as claimed.
+4. Taps one of her Open chores, checks it shows Done, taps it again and
+   checks it shows Open.
+5. Checks the fairness view draws its bars.
+6. Types "oat milk" into the grocery cart and checks H-E-B Oat Milk appears
+   in the cart.
+7. Signs the organizer in with the PIN, confirms the cart and checks the
+   receipt screen shows.
+8. Takes the browser offline, reloads and checks the last-known board shows.
+9. Comes back online, completes a chore offline, goes online again and
+   checks the queued completion syncs and the chore is still Done after a
+   reload.
+
+`verify` exits 0 and prints `Demo verified: the browser suite passed and the
+stack was reset.` when every test passes. When a test fails it exits
+non-zero and prints `Demo verify failed. See the Playwright output above;
+traces are in demo/e2e/test-results.` The trace and a screenshot of each
+failed test are in `demo/e2e/test-results` (git-ignored); open a trace with
+`npx playwright show-trace <path>` from `demo/e2e`.
+
+`verify` ALWAYS runs `reset` when the suite finishes, pass or fail (from
+Playwright's global teardown), so the stack is back in the seeded state and
+the next demo does not start with the suite's confirmed cart. This takes a
+minute or more. It also means:
+
+- Anything you staged by hand for a demo is wiped. Take a snapshot first if
+  you want it back.
+- The tablet must pair again, and the organizer sign in again, afterwards.
+- If that reset fails, `verify` exits non-zero with `demo reset failed after
+  the browser suite. Run demo reset by hand.`
+
+`verify` takes no arguments and ignores extras. To run the suite yourself
+(for example headed, or one test), run `npx playwright test` in `demo/e2e`
+with `BUTLER_DEMO_PIN` set; its teardown still runs `reset`.
 
 ## Snapshots
 
