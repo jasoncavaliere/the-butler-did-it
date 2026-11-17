@@ -30,6 +30,11 @@
       snapshots
               List the snapshots in demo/.data/snapshots, newest first,
               with their dates.
+      verify  Run the Playwright suite in demo/e2e headless (1280x800)
+              against http://localhost:8080: pair, claim, chores,
+              fairness, grocery, confirm and receipt, offline and
+              reconnect. Then run reset, pass or fail. Exits non-zero
+              when a test or the reset fails. Needs Node 22 (#121).
       status  Show each container's state and health, the hub URL and the
               dataset id.
       logs    Follow the API and Caddy (web) logs, last 100 lines each.
@@ -72,6 +77,8 @@ $ComposeServices = @('azurite', 'api', 'web')
 # Bind-mounted at /app/logs in the api container (#107): its rolling log files.
 $LogsDir = Join-Path (Join-Path $PSScriptRoot '.data') 'logs'
 $UiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Butler.UI'
+# The headless browser test of the demo path that verify runs (#121).
+$E2eDir = Join-Path $PSScriptRoot 'e2e'
 # The hub export's freshness marker. A failed build deletes it (#183), so the
 # next up rebuilds instead of reporting a broken export as up to date.
 $ExportMarker = Join-Path (Join-Path $UiDir 'dist') 'index.html'
@@ -130,6 +137,7 @@ $Commands = [ordered]@{
     snapshot  = 'Save a copy of the demo data in demo/.data/snapshots/<name> (stops Azurite while it copies)'
     restore   = 'Replace the demo data with a snapshot, restart the stack and change the dataset id'
     snapshots = 'List the snapshots in demo/.data/snapshots with their dates'
+    verify    = 'Run the headless browser test of the demo path against the stack, then reset the stack'
     status    = 'Show container health, the hub URL and the dataset id'
     logs      = 'Follow the API and Caddy logs (--api: API only; extra arguments go to docker compose logs)'
     share     = 'Share the hub on your tailnet over HTTPS (tailscale serve) and print its URL and a QR code'
@@ -195,12 +203,13 @@ function Get-ExportState {
 }
 
 # npm ci is needed when node_modules is missing or older than the lockfile.
-function Test-NeedsNpmCi {
-    $modules = Join-Path $UiDir 'node_modules'
+# -Dir is the package folder (default Butler.UI).
+function Test-NeedsNpmCi([string]$Dir = $UiDir) {
+    $modules = Join-Path $Dir 'node_modules'
     $installed = Join-Path $modules '.package-lock.json'
     if (-not (Test-Path -LiteralPath $modules -PathType Container)) { return $true }
     if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) { return $true }
-    $lock = Get-Item -LiteralPath (Join-Path $UiDir 'package-lock.json') -Force
+    $lock = Get-Item -LiteralPath (Join-Path $Dir 'package-lock.json') -Force
     return $lock.LastWriteTimeUtc -gt (Get-Item -LiteralPath $installed -Force).LastWriteTimeUtc
 }
 
@@ -621,6 +630,70 @@ function Invoke-DemoReset {
     Write-Out 'Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings.'
 }
 
+# verify (#121): run the Playwright suite in demo/e2e headless against the
+# running stack, then (its global teardown) demo reset, pass or fail. Exits
+# non-zero when a test or the reset fails. The PIN and this script's path go
+# to Playwright only through its environment, so the PIN is never in argv or
+# printed. Takes no arguments and, like up and down, ignores extras. Same
+# lines as cmd_verify in demo.sh.
+function Invoke-DemoVerify {
+    if (-not (Test-DemoPin)) { return }
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Err 'npm was not found. Install Node 22 to run verify.'
+        $script:ExitCode = 1
+        return
+    }
+    Push-Location -LiteralPath $E2eDir
+    try {
+        if (Test-NeedsNpmCi -Dir $E2eDir) {
+            Write-Out 'Installing the browser suite dependencies (npm ci) ...'
+            & npm ci --no-audit --no-fund --loglevel=error
+            $script:ExitCode = $LASTEXITCODE
+            if ($script:ExitCode -ne 0) {
+                Write-Err 'Could not install the browser suite dependencies in demo/e2e.'
+                return
+            }
+        }
+        Write-Out 'Installing the Playwright browser (chromium) if needed ...'
+        & npx playwright install chromium
+        $script:ExitCode = $LASTEXITCODE
+        if ($script:ExitCode -ne 0) {
+            Write-Err 'Could not install the Playwright browser. See demo/README.md.'
+            return
+        }
+        Write-Out "Running the browser suite against $HubUrl ..."
+        $names = @{
+            BUTLER_DEMO_PIN = [string](Get-DemoPin)
+            BUTLER_DEMO_CLI = Join-Path $PSScriptRoot 'demo.ps1'
+        }
+        $saved = @{}
+        foreach ($name in $names.Keys) {
+            $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+            [Environment]::SetEnvironmentVariable($name, $names[$name])
+        }
+        try {
+            & npx playwright test
+            $script:ExitCode = $LASTEXITCODE
+        }
+        finally {
+            foreach ($name in $saved.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $saved[$name])
+            }
+        }
+    }
+    catch {
+        $script:ExitCode = 1
+    }
+    finally {
+        Pop-Location
+    }
+    if ($script:ExitCode -eq 0) {
+        Write-Out 'Demo verified: the browser suite passed and the stack was reset.'
+        return
+    }
+    Write-Err 'Demo verify failed. See the Playwright output above; traces are in demo/e2e/test-results.'
+}
+
 # snapshot and restore (#99) take exactly one name. Writes the usage or the
 # name rule to stderr, sets exit code 2 and returns $false otherwise. The rule
 # also keeps the name safe as a container path. Same text as
@@ -1015,6 +1088,7 @@ function Invoke-Main([object[]]$Arguments) {
         'snapshot' { Invoke-DemoSnapshot -SnapshotArgs $rest }
         'restore' { Invoke-DemoRestore -RestoreArgs $rest }
         'snapshots' { Invoke-DemoSnapshots }
+        'verify' { Invoke-DemoVerify }
         'status' { Invoke-DemoStatus }
         'logs' { Invoke-DemoLogs -LogArgs $rest }
         'share' { Invoke-DemoShare }
