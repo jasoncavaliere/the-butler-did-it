@@ -8,6 +8,7 @@ import {
   resolveAuthConfig,
   DEV_BUILD_SHA,
   resolveUiBuildSha,
+  resolveDemoHouseholdId,
 } from './config';
 
 describe('resolveApiBaseUrl', () => {
@@ -156,6 +157,35 @@ describe('resolveUiBuildSha', () => {
         delete process.env.EXPO_PUBLIC_BUILD_SHA;
       } else {
         process.env.EXPO_PUBLIC_BUILD_SHA = saved;
+      }
+    }
+  });
+});
+
+describe('resolveDemoHouseholdId (#316)', () => {
+  it('returns null when unset or blank', () => {
+    expect(resolveDemoHouseholdId(undefined)).toBeNull();
+    expect(resolveDemoHouseholdId('')).toBeNull();
+    expect(resolveDemoHouseholdId('  \n')).toBeNull();
+  });
+
+  it('uses and trims a provided value', () => {
+    expect(resolveDemoHouseholdId('demo-household')).toBe('demo-household');
+    expect(resolveDemoHouseholdId('  demo-household\n')).toBe('demo-household');
+  });
+
+  it('reads process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID by default', () => {
+    const saved = process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID;
+    try {
+      process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = 'demo-household';
+      expect(resolveDemoHouseholdId()).toBe('demo-household');
+      delete process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID;
+      expect(resolveDemoHouseholdId()).toBeNull();
+    } finally {
+      if (saved === undefined) {
+        delete process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID;
+      } else {
+        process.env.EXPO_PUBLIC_DEMO_HOUSEHOLD_ID = saved;
       }
     }
   });

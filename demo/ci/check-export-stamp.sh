@@ -12,6 +12,7 @@
 #   Case A: no stamp.
 #   Case B: a stamp for another API base (localhost:5108).
 #   Case C: a valid stamp that is older than dist/index.html.
+#   Case G: a pre-#316 stamp, without EXPO_PUBLIC_DEMO_HOUSEHOLD_ID.
 # And the export must not be rebuilt when the stamp matches:
 #   Case D: a valid stamp, newer than dist/index.html.
 #   Case F: the same stamp with CRLF line endings.
@@ -47,7 +48,7 @@ L_RECREATE='Recreating web to serve the new export ...'
 L_HEALTHY='Demo stack is up and healthy: http://localhost:8080'
 # The smoke step (#103): the stub dotnet passes, so every up ends ready.
 L_READY='Demo ready: hub http://localhost:8080 | API http://localhost:8080/api/health | Swagger http://localhost:5108/swagger'
-L_BUILD_ENV='EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin'
+L_BUILD_ENV='EXPO_PUBLIC_API_BASE_URL=/api EXPO_PUBLIC_AUTH_PROVIDER=pin EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household'
 
 WORK="$(mktemp -d)"
 SAVED="$WORK/dist-saved"
@@ -76,7 +77,7 @@ fi
 
 # The exact bytes up must write: LF only, no BOM, a final LF.
 EXPECTED="$WORK/expected.stamp"
-printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' > "$EXPECTED"
+printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' > "$EXPECTED"
 
 STUB_DIR="$WORK/bin"
 mkdir -p "$STUB_DIR"
@@ -97,8 +98,9 @@ case "$1" in
     ;;
 esac
 if [ "$*" = "run build:web" ]; then
-  printf 'EXPO_PUBLIC_API_BASE_URL=%s EXPO_PUBLIC_AUTH_PROVIDER=%s\n' \
-    "${EXPO_PUBLIC_API_BASE_URL-}" "${EXPO_PUBLIC_AUTH_PROVIDER-}" >> "${NPM_STUB_LOG:-/dev/null}"
+  printf 'EXPO_PUBLIC_API_BASE_URL=%s EXPO_PUBLIC_AUTH_PROVIDER=%s EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=%s\n' \
+    "${EXPO_PUBLIC_API_BASE_URL-}" "${EXPO_PUBLIC_AUTH_PROVIDER-}" "${EXPO_PUBLIC_DEMO_HOUSEHOLD_ID-}" \
+    >> "${NPM_STUB_LOG:-/dev/null}"
   rm -rf dist
   mkdir -p dist
   echo '<!doctype html><title>stub export</title>' > dist/index.html
@@ -159,7 +161,7 @@ setup_no_stamp() {
 }
 setup_wrong_stamp() {
   new_export
-  printf 'EXPO_PUBLIC_API_BASE_URL=http://localhost:5108\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' > "$STAMP"
+  printf 'EXPO_PUBLIC_API_BASE_URL=http://localhost:5108\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' > "$STAMP"
   touch -d "$(later)" "$STAMP"
 }
 setup_old_stamp() {
@@ -174,7 +176,13 @@ setup_valid_stamp() {
 }
 setup_crlf_stamp() {
   new_export
-  printf 'EXPO_PUBLIC_API_BASE_URL=/api\r\nEXPO_PUBLIC_AUTH_PROVIDER=pin\r\n' > "$STAMP"
+  printf 'EXPO_PUBLIC_API_BASE_URL=/api\r\nEXPO_PUBLIC_AUTH_PROVIDER=pin\r\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\r\n' > "$STAMP"
+  touch -d "$(later)" "$STAMP"
+}
+# G (#316): the two-line stamp an up before #316 wrote, newer than the export.
+setup_pre316_stamp() {
+  new_export
+  printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' > "$STAMP"
   touch -d "$(later)" "$STAMP"
 }
 setup_stale_no_stamp() {
@@ -293,6 +301,7 @@ check_rebuilt_once() {
 check_rebuilt_once "no stamp" setup_no_stamp "$L_UNSTAMPED"
 check_rebuilt_once "stamp for localhost:5108" setup_wrong_stamp "$L_UNSTAMPED"
 check_rebuilt_once "stamp older than the export" setup_old_stamp "$L_UNSTAMPED"
+check_rebuilt_once "stamp without EXPO_PUBLIC_DEMO_HOUSEHOLD_ID" setup_pre316_stamp "$L_UNSTAMPED"
 
 # D and F: a matching stamp is not rebuilt, and up leaves the stamp alone.
 for spec in "valid stamp|setup_valid_stamp" "valid stamp with CRLF|setup_crlf_stamp"; do

@@ -27,13 +27,16 @@ EXPORT_MARKER="$UI_DIR/dist/index.html"
 # The EXPO_PUBLIC_* values up builds the hub export with.
 DEMO_API_BASE_URL=/api
 DEMO_AUTH_PROVIDER=pin
+# The household a hub with nothing stored opens (#316): the one demo reset seeds.
+DEMO_HOUSEHOLD_ID=demo-household
 # up writes this stamp after each successful build (#184), so an export built
 # another way (for example by hand, without EXPO_PUBLIC_API_BASE_URL=/api) is
-# rebuilt instead of served. demo.ps1 writes the same bytes: these two lines,
+# rebuilt instead of served. demo.ps1 writes the same bytes: these three lines,
 # LF only, with a final LF.
 EXPORT_STAMP="$UI_DIR/dist/.demo-build-env"
 EXPORT_STAMP_TEXT="EXPO_PUBLIC_API_BASE_URL=$DEMO_API_BASE_URL
-EXPO_PUBLIC_AUTH_PROVIDER=$DEMO_AUTH_PROVIDER"
+EXPO_PUBLIC_AUTH_PROVIDER=$DEMO_AUTH_PROVIDER
+EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=$DEMO_HOUSEHOLD_ID"
 # Git-ignored; holds BUTLER_DEMO_PIN, the organizer PIN (#105). Compose reads it.
 ENV_FILE="$DEMO_DIR/.env"
 
@@ -169,10 +172,11 @@ build_export() {
   # Expo inlines EXPO_PUBLIC_* at bundle time; /api keeps the hub same-origin,
   # and pin makes the hub sign the organizer in on the PIN pad (#105).
   # EXPO_PUBLIC_BUILD_SHA stamps the hub with the same git SHA as the API (#126).
+  # EXPO_PUBLIC_DEMO_HOUSEHOLD_ID opens the seeded demo household when nothing is stored (#316).
   # The stamp is written only after a successful build (#184).
   rm -f "$EXPORT_STAMP"
   (cd "$UI_DIR" && EXPO_PUBLIC_API_BASE_URL="$DEMO_API_BASE_URL" EXPO_PUBLIC_AUTH_PROVIDER="$DEMO_AUTH_PROVIDER" \
-    EXPO_PUBLIC_BUILD_SHA="${BUTLER_BUILD_SHA:-}" npm run build:web) || rc=$?
+    EXPO_PUBLIC_DEMO_HOUSEHOLD_ID="$DEMO_HOUSEHOLD_ID" EXPO_PUBLIC_BUILD_SHA="${BUTLER_BUILD_SHA:-}" npm run build:web) || rc=$?
   if [ "$rc" -ne 0 ]; then
     # build:web runs expo export and then pwa-export.js, so a failure in the
     # second step leaves a new index.html behind. Delete it (#183): the export

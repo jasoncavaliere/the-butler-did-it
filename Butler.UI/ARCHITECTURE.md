@@ -419,7 +419,7 @@ src/
               HouseholdContext.tsx # current householdId + setter (useHousehold)
               OrganizerContext.tsx # signed-in organizer + token, backed by IAuthProvider (T4)
               HubDeviceContext.tsx # paired hub device token for the shared tablet (T5); rejectDevice on a refused token (#188)
-              HubPairingProvider.tsx # household + device providers seeded from, and mirrored to, the stored pairing (#188)
+              HubPairingProvider.tsx # household + device providers seeded from, and mirrored to, the stored pairing (#188); else the demo household (#316)
               hubPairingStorage.ts # read/write/clear the butler.hubPairing.v1 localStorage record; never throws (#188)
 public/                     # copied verbatim into dist/ by the web export (O1)
   index.html                # the HTML template: links the manifest, keeps the Expo placeholders
@@ -635,7 +635,12 @@ hub-device providers in `App.tsx`) persists only the household id and device tok
 (`butler.hubPairing.v1`), so a reload keeps the hub paired but signs the organizer out (#188). A `401` on a
 request sent on `X-Device-Token` calls the client's `onDeviceRejected` (wired to `rejectDevice`), and
 `HubShell` treats a device-token `403` on `GET /households/{id}` the same way; either clears the device
-token and household, which drops the stored record and returns the navigator to setup. With the PIN provider, `OrganizerGate` shows the
+token and household, which drops the stored record and returns the navigator to setup. A hub built with
+`EXPO_PUBLIC_DEMO_HOUSEHOLD_ID` (#316, `demo/demo.sh up` sets `demo-household`) instead starts on that
+household when nothing is stored, unpaired, and a rejected device token falls back to it rather than to
+none, so after `demo reset` the hub returns to the re-seeded family and reads it once the organizer signs
+in. A stored pairing wins over it, and an explicit `setHouseholdId(null)` (household teardown) still
+returns to setup. With the PIN provider, `OrganizerGate` shows the
 `PinPad` when `/me` is `401`/`403`, and `OrganizerBar`'s sign-in button opens it inline. `OrganizerBar` (rendered at the top of `HubShell`) offers only a sign-in button with no
 organizer signed in; once signed in it shows the organizer's name, sign-out, and the sensitive-action
 affordances - hidden entirely rather than merely disabled, so a participant is never presented them.

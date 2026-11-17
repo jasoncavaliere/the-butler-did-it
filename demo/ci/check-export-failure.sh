@@ -114,7 +114,7 @@ setup_stale() {
   echo '<!doctype html><title>old export</title>' > "$MARKER"
   touch -d '2000-01-01 00:00:00' "$MARKER"
   # A matching build stamp (#184): the failed rebuild must delete it too.
-  printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\n' > "$STAMP"
+  printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' > "$STAMP"
   touch -d '2000-01-01 00:00:00' "$STAMP"
 }
 setup_missing() {
