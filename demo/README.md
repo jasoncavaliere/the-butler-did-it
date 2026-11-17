@@ -58,7 +58,7 @@ pwsh demo/demo.ps1 unshare
 | --- | --- |
 | `demo.sh up` | Checks that `BUTLER_DEMO_PIN` is a 4-6 digit PIN (from the shell, else from `demo/.env`) and stops with `demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.` before running npm or docker if it is not. Then builds `Butler.UI/dist` when it is missing, older than the `Butler.UI` sources, or lacks a matching, current build stamp (running `npm ci` first if `node_modules` is missing or stale, and setting `EXPO_PUBLIC_API_BASE_URL=/api`, `EXPO_PUBLIC_AUTH_PROVIDER=pin`, `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household` and `EXPO_PUBLIC_BUILD_SHA` for the build), starts the stack (passing the same git short SHA to the API image build as `BUILD_SHA`), recreates `web` after a rebuild, and waits until every service reports healthy. Then it runs the smoke suite with the host .NET SDK and prints `Demo ready: <urls>` and exits 0 only when every smoke check passes (see [Smoke step](#smoke-step)); it checks for the SDK first, before running npm or docker. After each successful build, `up` writes the stamp `Butler.UI/dist/.demo-build-env` (the `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_AUTH_PROVIDER` and `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID` values it used), so an export built another way, such as by hand, or by an older `up` without `EXPO_PUBLIC_DEMO_HOUSEHOLD_ID`, is rebuilt once. If the export build fails, `up` deletes `Butler.UI/dist/index.html` and the stamp, so the next `up` rebuilds the export instead of serving the broken one. See [Organizer PIN](#organizer-pin). |
 | `demo.sh down` | Stops the stack. The Azurite data in `demo/.data/azurite` is kept. |
-| `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, starts the stack as `up` does (without the smoke step), signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household"), which also changes the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
+| `demo.sh reset` | Puts the demo back to a known state with no prompts: refuses to run unless the target is the local demo stack, stops the stack, deletes the Azurite data in `demo/.data/azurite`, builds the hub export if needed and starts only Azurite and the API (without the smoke step), signs in with `BUTLER_DEMO_PIN` and seeds the demo household ("The Parker Household") directly on the API (`127.0.0.1:5108`), which also changes the dataset id, then starts the hub (`web`): the hub stays stopped until the seed has changed the dataset id. It prints the old and new dataset id. Needs `curl` (`demo.sh` only). See [Reset the demo](#reset-the-demo). |
 | `demo.sh snapshot` | `snapshot <name>` saves a copy of the demo data: refuses to run unless the target is the local demo stack, stops only Azurite, copies `demo/.data/azurite` to `demo/.data/snapshots/<name>` and starts Azurite again. The API and the hub keep running, so the organizer stays signed in. Refuses a name that is already taken. See [Snapshots](#snapshots). |
 | `demo.sh restore` | `restore <name>` puts a snapshot back: checks the PIN, refuses to run unless the target is the local demo stack, stops the stack, replaces `demo/.data/azurite` with the snapshot, builds the hub export if needed and starts only Azurite and the API (without the smoke step), signs in with `BUTLER_DEMO_PIN` and changes the dataset id directly on the API (`127.0.0.1:5108`), then starts the hub (`web`): the hub stays stopped until the dataset id has changed. It prints the snapshot's and the new dataset id. Snapshot dates do not move. Needs `curl` (`demo.sh` only). See [Snapshots](#snapshots). |
 | `demo.sh snapshots` | Lists the snapshots in `demo/.data/snapshots`, newest first, with the local date and time each was taken. See [Snapshots](#snapshots). |
@@ -591,14 +591,23 @@ CI. In order, it:
 4. Deletes everything in `demo/.data/azurite`, inside a one-off `azurite`
    container (`find /data -mindepth 1 -delete`), so it needs no `sudo` on
    Linux. The API log files in `demo/.data/logs` are kept.
-5. Starts the stack as `up` does: builds the hub export if needed and waits
-   until every service is healthy. It does not run the smoke step or need
-   the .NET SDK.
-6. Signs in with `BUTLER_DEMO_PIN` (`POST /api/auth/pin/sign-in`), once, and
-   seeds the demo household (`POST /api/demo/seed`): "The Parker Household",
-   id `demo-household`, with Maria, Dan, Ava and Leo on the roster, chores,
-   this week's assignments and a fairness history.
+5. Builds the hub export if needed, as `up` does, then starts only Azurite
+   and the API (not the hub, `web`) and waits until both are healthy. It does
+   not run the smoke step or need the .NET SDK.
+6. Signs in with `BUTLER_DEMO_PIN` (`POST /auth/pin/sign-in`), once, and
+   seeds the demo household (`POST /demo/seed`), both directly on the API at
+   `127.0.0.1:5108`, not through the hub: "The Parker Household", id
+   `demo-household`, with Maria, Dan, Ava and Leo on the roster, chores, this
+   week's assignments and a fairness history.
 7. Checks that the dataset id changed and prints `Dataset: <old> -> <new>`.
+8. Starts the hub (`web`) and waits until it is healthy.
+
+The hub stays stopped until the seed has changed the dataset id (#378). A hub
+that served between the restart and the seed could replay the writes it
+queued offline into the fresh data. Starting the hub only after the seed rules
+that out. If the API does not start, or the sign-in or the seed fails, the hub
+stays stopped: fix the cause (the message says what failed), then run `reset`
+again.
 
 After a reset:
 
@@ -797,8 +806,9 @@ no table-creation steps.
 - Port 5108: the API is published on `127.0.0.1:5108`, which is also the
   port the in-memory quick loop documented in `.workspace/` binds `dotnet run`
   to. Stop a locally running API before `up`, or `up` fails with "port is
-  already allocated". `restore` also uses this port: it signs in and changes
-  the dataset id directly on the API there while the hub is still stopped.
+  already allocated". `reset` and `restore` also use this port: they sign in
+  and change the dataset id directly on the API there while the hub is still
+  stopped.
 
 - Port 10012: Azurite's Table port is published on `127.0.0.1:10012` (loopback
   only, never `0.0.0.0`) so the smoke step can read the Rooms table. 10012,
