@@ -4,3 +4,6 @@ demo/.data/
 demo/.env
 # Fully Kiosk APKs for demo/tablet/provision-tablet (#128); never commit one.
 *.apk
+# Python bytecode from running the KB tool tests (Butler.KnowledgeBase/tools/, #360).
+__pycache__/
+*.pyc

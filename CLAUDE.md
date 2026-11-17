@@ -33,7 +33,8 @@ inside the relevant folder.
 - `Butler.UI/` - Expo (React Native + react-native-web), **web-first**: the v1 hub is the Expo web
   export deployed as an Azure Static Web App (installable PWA). Has its own `AGENTS.md`.
 - `Butler.API/` - .NET 10 Web API (`Butler.API.sln` -> `src/Butler.Api`), deployed to Azure App Service.
-- `Butler.KnowledgeBase/` - **agent-managed** wiki (see "Working in the knowledge base"). Not product code.
+- `Butler.KnowledgeBase/` - **agent-managed** wiki (see "Working in the knowledge base"), published to the
+  GitHub wiki by `.github/workflows/kb-wiki.yml`. Not product code.
 - `Butler.Site/` - the static one-page pilot landing page (plain HTML/CSS, no build), deployed to GitHub
   Pages by `.github/workflows/site-pages.yml` (#134).
 
@@ -140,7 +141,10 @@ read `index.md` (root) and `brd/index.md`. Do not read `intake/` (raw provenance
 are graph nodes with bidirectional `related:` edges; every write there is a graph edit (index entry,
 reciprocal edges, `generated:` on meaningful changes). The rules are in `HOW-TO-MAINTAIN.md`. Use the
 `knowledge-base` skill for any non-trivial change. Plain ASCII only - no em dashes, curly quotes, or
-ellipsis (the usability scorer hard-fails them).
+ellipsis (the usability scorer hard-fails them). The GitHub wiki is generated from the repo: on every push
+to main that touches `Butler.KnowledgeBase/`, `.github/workflows/kb-wiki.yml` runs
+`Butler.KnowledgeBase/tools/publish_wiki.py` and overwrites the wiki, so wiki edits are overwritten - edit
+the repo instead. A broken KB link fails that workflow's PR check (#360).
 
 **Demo push (temporary; decided in #143 on 2026-11-13).** Until the demo ships, a ticket updates only the
 code-adjacent docs its change touches (READMEs, `ARCHITECTURE.md`) and skips full knowledge-graph edits:
