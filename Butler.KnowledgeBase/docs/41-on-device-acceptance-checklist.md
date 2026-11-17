@@ -6,7 +6,7 @@ tags: [hub, tablet, kiosk, acceptance, checklist, offline, chrome, fully kiosk]
 category: Operations
 lifecycle: Living
 owner: agent-managed
-related: [18-demo-video-script, 40-hub-tablet-kiosk-setup]
+related: [18-demo-video-script, 40-hub-tablet-kiosk-setup, 42-demo-day-runbook]
 sources:
   - { id: issue-132, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/132, title: K6 - On-device acceptance checklist (run by a human on the real tablet) }
   - { id: issue-31, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/31, title: O1 - PWA manifest, service worker, and installability }
@@ -293,6 +293,7 @@ Every acceptance criterion of #31 to #34, and where it is checked. "CI only" mea
 
 - [Demo Video Script and Shot List](18-demo-video-script.md) - the demo video shoot; run this checklist on the tablet before the shoot day.
 - [Hub Tablet Kiosk Setup](40-hub-tablet-kiosk-setup.md) - the runbook that sets up the tablet these checks run on, and its recovery steps.
+- [Demo-Day Runbook](42-demo-day-runbook.md) - the demo-day checklist; run these checks before demo day, and its reset steps follow DD-3.
 
 ## Results table
 

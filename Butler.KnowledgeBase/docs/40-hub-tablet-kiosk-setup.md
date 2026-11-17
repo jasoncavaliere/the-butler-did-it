@@ -6,7 +6,7 @@ tags: [hub, tablet, kiosk, device owner, fully kiosk, fire tablet, guided access
 category: Operations
 lifecycle: Living
 owner: agent-managed
-related: [11-hub-hardware-findings, 17-byo-tablet-setup-guidance, ADR-0012, 41-on-device-acceptance-checklist]
+related: [11-hub-hardware-findings, 17-byo-tablet-setup-guidance, ADR-0012, 41-on-device-acceptance-checklist, 42-demo-day-runbook]
 sources:
   - { id: issue-127, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/127, title: Runbook - hub tablet kiosk setup }
   - { id: hub-hardware-findings, resource: 11-hub-hardware-findings.md, title: Hub Hardware Findings - F1, F2, F3, F5 and F6 }
@@ -244,3 +244,4 @@ If you still want it, find the exact model on the [LineageOS devices wiki](https
 - [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md) - the family-facing version: choosing, powering, mounting, and locking down a tablet.
 - [ADR-0012](../adr/0012-hub-reference-validation-tablet.md) - the ratified demo device (this runbook's Fire path) and offline-epic validation runtime.
 - [On-Device Acceptance Checklist](41-on-device-acceptance-checklist.md) - the checks to run on the tablet after this setup and before each demo, with a results table.
+- [Demo-Day Runbook](42-demo-day-runbook.md) - the demo-day checklist that uses this tablet, and links back here to exit kiosk mode on site.

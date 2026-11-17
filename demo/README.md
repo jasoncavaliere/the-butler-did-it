@@ -9,6 +9,10 @@ the hub PWA served by Caddy, all started with one Docker Compose command.
 | `api` | `butler-api:demo` (built from `Butler.API/`) | The Butler API in the `Demo` environment |
 | `web` | `caddy:2.10.2-alpine` | Serves the hub PWA export on port 8080 and proxies `/api/*` to the API |
 
+For a live demo, the day-of checklist (night-before commands, on-site network
+fallbacks, the reset between demos and common fixes) is the
+[Demo-Day Runbook](../Butler.KnowledgeBase/docs/42-demo-day-runbook.md).
+
 ## Demo CLI
 
 Two scripts drive the stack: `demo/demo.sh` (bash, Linux and macOS) and
