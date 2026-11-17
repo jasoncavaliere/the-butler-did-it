@@ -629,9 +629,13 @@ then runs the suite headless in a 1280x800 window against
    Parker Household" and its four members show, pairs the tablet and signs
    the organizer out again.
 2. Checks the browser window is 1280x800.
-3. Taps Maria's name and checks her tile shows her as claimed.
-4. Taps one of her Open chores, checks it shows Done, taps it again and
-   checks it shows Open.
+3. Taps Maria's name and checks her tile shows her as claimed and the board
+   focuses on her. The check passes on an empty board too: in the seeded
+   week fair assignment gives Maria no chores.
+4. Taps an Open chore of the claimed member, checks it shows Done, taps it
+   again and checks it shows Open. When that member has no Open chore (Maria
+   in the seeded week), the suite claims the next member in roster order
+   (Dan, then Ava, then Leo) and taps one of theirs.
 5. Checks the fairness view draws its bars.
 6. Types "oat milk" into the grocery cart and checks H-E-B Oat Milk appears
    in the cart.
