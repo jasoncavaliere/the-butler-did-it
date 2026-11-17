@@ -260,6 +260,9 @@ jobs:
           grep -F 'tailscale serve --bg 8080' demo/README.md
           grep -F 'mkcert' demo/README.md
           grep -F 'adb reverse tcp:8080 tcp:8080' demo/README.md
+          # #370 AC1: the #132 checklist note is scoped to the Tailscale share.
+          grep -F 'checks only the Tailscale share' demo/README.md
+          ! grep -F 'tracked in #132' demo/README.md
           # #103 AC8: the smoke step, its .NET SDK prerequisite and the
           # loopback Azurite port are documented.
           grep -F '.NET 10 SDK' demo/README.md
