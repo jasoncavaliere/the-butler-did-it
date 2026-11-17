@@ -280,8 +280,11 @@ in `src/layout/hubLayout.ts`) and hands it to `TodayPanel` and `ChoreBoard`, whi
 | `portrait` (800x1280, jest default) | height > width | the same zones stacked in one column inside a page `ScrollView`, tiles 3 to a row, 1 column of groups | title / subhead / subhead |
 
 - **Stable tree (#210).** Every layout renders the same elements (page ScrollView, hub-main,
-  hub-today-zone, hub-side, the Today panel ScrollView); only styles and scrollEnabled change, so a
-  rotation never remounts a widget: no reads repeat, and an open PIN pad or typed grocery text is kept.
+  hub-today-zone, hub-side, the Today panel ScrollView); only styles and the page ScrollView's
+  scrollEnabled change, so a rotation never remounts a widget: no reads repeat, and an open PIN pad or
+  typed grocery text is kept. The Today panel and side-column ScrollViews stay scroll-enabled in every
+  layout, because react-native-web sets touch-action: none on a disabled ScrollView and would block
+  page swipes that start on them in portrait (#280).
 - **Tokens only.** Every font size, line height (`round(size * 1.2)`), padding, gap and fixed height
   comes from `design-tokens.json` through `src/layout/tokens.ts` (spacing named `s1`..`s9` as in the
   mockup). Every layout keeps the 64px hub row (ADR-0008). The palette is unchanged.
