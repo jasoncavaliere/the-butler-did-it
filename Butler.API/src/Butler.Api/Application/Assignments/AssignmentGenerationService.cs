@@ -144,7 +144,9 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
 
     // The C2/C3 body shared by POST generate and the lazy GET: fetch the active
     // chores, members, and the week's rows, run the engine, persist the week in
-    // one all-or-nothing write (#319), and respond.
+    // one write (#319; all-or-nothing on the Table store only up to 100
+    // placements, larger weeks go in chunks of 100 - see PersistAsync), and
+    // respond.
     // The caller holds the household's lock.
     private async Task<AssignmentSetResponse> GenerateWeekAsync(
         string householdId,
@@ -322,12 +324,15 @@ public sealed class AssignmentGenerationService : IAssignmentGenerationService
     private static DateTimeOffset DueDateFor(string targetWeek) =>
         WeekIso.StartOfWeekUtc(targetWeek).AddDays(6).AddHours(23).AddMinutes(59);
 
-    // Persist the engine's placements as one all-or-nothing write (#319): an Open
-    // row for a chore is replaced in place under a wildcard precondition; a chore
-    // with no row yet is added. Done rows are never touched here - their chores
-    // were excluded from the request. An interrupted write leaves no rows, so the
-    // next lazy read still sees an empty week and generates it in full. Nothing to
-    // place means no write at all.
+    // Persist the engine's placements in one write (#319): an Open row for a
+    // chore is replaced in place under a wildcard precondition; a chore with no
+    // row yet is added. Done rows are never touched here - their chores were
+    // excluded from the request. On the Table store the write is all-or-nothing
+    // only for a week of up to 100 placements, so an interrupted write of such a
+    // week leaves no rows and the next lazy read still sees an empty week and
+    // generates it in full. A larger week is written in chunks of 100, so an
+    // interruption between chunks can leave a partial week; weeks over 100
+    // placements are outside v1 (#343). Nothing to place means no write at all.
     private async Task PersistAsync(
         string householdId,
         string targetWeek,

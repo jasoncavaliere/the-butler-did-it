@@ -36,11 +36,15 @@ public interface IAssignmentRepository
     Task UpdateAsync(string householdId, AssignmentEntity assignment, string? ifMatch, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Writes a generated week as one all-or-nothing unit (#319): every row in
+    /// Writes a generated week in one call (#319): every row in
     /// <paramref name="added"/> is inserted (failing on an existing
     /// <c>RowKey</c>) and every row in <paramref name="replaced"/> is replaced
-    /// under a wildcard <c>If-Match</c>, or none of them is written. The two lists
-    /// must not share a <c>RowKey</c>.
+    /// under a wildcard <c>If-Match</c>. The two lists must not share a
+    /// <c>RowKey</c>. On the Table store the write is all-or-nothing only for a
+    /// week of up to 100 placements (one entity-group transaction); a larger week
+    /// is written in chunks of 100, one transaction each, so an interruption
+    /// between chunks can leave a partial week. Weeks over 100 placements are
+    /// outside v1 (#343).
     /// </summary>
     Task SaveAllAsync(
         string householdId,
