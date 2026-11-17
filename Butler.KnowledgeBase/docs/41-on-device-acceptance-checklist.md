@@ -19,7 +19,7 @@ sources:
   - { id: demo-readme, resource: ../../demo/README.md, title: Butler demo stack README - Connecting a tablet, Organizer PIN, Reset the demo }
   - { id: demo-tablet-readme, resource: ../../demo/tablet/README.md, title: Fully Kiosk settings for the hub tablet }
   - { id: ui-architecture, resource: ../../Butler.UI/ARCHITECTURE.md, title: Butler.UI architecture notes - offline epic, updates, organizer auth }
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T03:09:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T07:06:13Z }
 ---
 
 # On-Device Acceptance Checklist
@@ -98,10 +98,10 @@ These five checks run on the Fire only. They test the kiosk, not the offline epi
 - **Steps:**
   1. Leave the hub idle: no name claimed for 45 seconds, and no "waiting to sync" chip.
   2. On the desktop, from the repo root, run `rm -f Butler.UI/dist/.demo-build-env && BUTLER_BUILD_SHA=dd4-check demo/demo.sh up`. Removing the stamp forces a rebuild. The new build id changes the bundle, so the service worker sees a new build. A rebuild with the same id and no UI change looks the same to the tablet.
-  3. Wait for `up` to print `Demo ready`. Touch nothing on the Fire.
-  4. Afterwards, restore the normal build: `rm -f Butler.UI/dist/.demo-build-env && demo/demo.sh up`. This is a second pass of the same check.
-- **Expected:** Within about two minutes of `Demo ready`, the Fire reloads once by itself. The hub checks for a new build every 60 seconds, and it waits for the idle gate. The line "Updated to build dd4-check" shows for about 10 seconds. The hub stays paired. The maintenance menu shows hub and API build `dd4-check`. This is issue [#108](https://github.com/jasoncavaliere/the-butler-did-it/issues/108).
-- **If it fails:** In the maintenance menu, choose `Reload app`. Run `demo/demo.sh logs` and look for `/sw.js` requests from the tablet. File a bug that names DD-4. Note that `up` runs the smoke step, so it needs the host .NET SDK.
+  3. Watch the `up` output. When it prints `Recreating web to serve the new export ...`, note the time. The new build is live from then, before the smoke suite runs. Touch nothing on the Fire, and let `up` finish with `Demo ready`. If `up` never prints that line, the hub was not rebuilt, so this run does not count: do step 2 again.
+  4. Afterwards, restore the normal build: `rm -f Butler.UI/dist/.demo-build-env && demo/demo.sh up`. This is a second pass of the same check. Time it the same way, from its own `Recreating web` line.
+- **Expected:** Within about two minutes of the `Recreating web` line, the Fire reloads once by itself. The hub checks for a new build every 60 seconds, and it waits for the idle gate. The reload often comes before `up` prints `Demo ready`, because `up` runs the smoke suite after it recreates `web`. A reload before `Demo ready` is a pass. The line "Updated to build dd4-check" shows for about 10 seconds. The hub stays paired. The maintenance menu shows hub and API build `dd4-check`. This is issue [#108](https://github.com/jasoncavaliere/the-butler-did-it/issues/108).
+- **If it fails:** Before you record a fail, check the time against the `Recreating web` line, not `Demo ready`. In the maintenance menu, choose `Reload app`. Run `demo/demo.sh logs` and look for `/sw.js` requests from the tablet. File a bug that names DD-4. Note that `up` runs the smoke step, so it needs the host .NET SDK.
 
 ### DD-5 Overnight dim and morning wake
 
@@ -234,7 +234,7 @@ Shared recovery, used by every check below when it fails:
 - **Steps:**
   1. Start online. Claim a name.
   2. Go offline without a reload. Within 45 seconds of the claim, tap one of that person's open chores.
-  3. Move the device clock forward to next Monday. On Android, open Settings > Date and time and turn off automatic time. On the desktop, change the OS clock.
+  3. Move the device clock forward by exactly one week: keep the time, and set the date to the same day next week. On Android, open Settings > Date and time, turn off automatic time, then set the date. On the desktop, change the OS clock. The week is counted in UTC, so a full week ahead always puts the tap in a week that has already ended in UTC, wherever you are. Moving only to next Monday is not enough east of UTC: midnight Monday there is still Sunday in UTC.
   4. Go back online.
   5. Sign in as the organizer.
   6. Check the Expected result below. Then always do this cleanup, pass or fail. Set the clock back to automatic. Then choose `Clear local cache` in the maintenance menu. On the desktop, the API container uses the same clock, so also run `demo/demo.sh reset`. The reset unpairs every hub, so pair the Fire, the Android device and desktop Chrome again, as in DD-3 steps 2 and 3. For that reason, run OE-9 on the desktop last.
