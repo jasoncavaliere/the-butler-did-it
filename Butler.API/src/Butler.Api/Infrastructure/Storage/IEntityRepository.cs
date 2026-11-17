@@ -52,16 +52,17 @@ public interface IEntityRepository<TEntity>
     Task DeleteAsync(string householdId, string rowKey, string? ifMatch, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Writes every operation in the household's partition as one all-or-nothing
-    /// unit (#319): either all of them are applied or none is. An
+    /// Writes every operation in the household's partition (#319). The write is
+    /// all-or-nothing per chunk of up to 100 operations: the Table store submits
+    /// one entity-group transaction per 100 operations, so a batch of up to 100 is
+    /// applied whole or not at all, and a larger batch can be left partly applied
+    /// when a later chunk fails (the in-memory store applies any batch whole). An
     /// <see cref="EntityBatchOperationKind.Add"/> fails when its <c>RowKey</c>
     /// already exists; an <see cref="EntityBatchOperationKind.Update"/> requires
     /// <see cref="EntityBatchOperation{TEntity}.IfMatch"/> (<c>428</c> when
     /// missing) and fails with <c>412</c> when the stored version is stale or has
     /// vanished. A <c>RowKey</c> may appear at most once per batch. An empty list
-    /// is a no-op. Sets <c>PartitionKey = householdId</c> on every entity. The
-    /// Table store submits one entity-group transaction per 100 operations, so
-    /// atomicity holds per 100-operation chunk.
+    /// is a no-op. Sets <c>PartitionKey = householdId</c> on every entity.
     /// </summary>
     Task SubmitBatchAsync(
         string householdId,

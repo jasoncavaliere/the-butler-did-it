@@ -4,8 +4,8 @@ namespace Butler.Api.Infrastructure.Storage;
 
 /// <summary>
 /// The kind of write one <see cref="EntityBatchOperation{TEntity}"/> carries in an
-/// all-or-nothing <see cref="IEntityRepository{TEntity}.SubmitBatchAsync"/> call
-/// (#319).
+/// <see cref="IEntityRepository{TEntity}.SubmitBatchAsync"/> call (#319), which is
+/// all-or-nothing per chunk of up to 100 operations on the Table store.
 /// </summary>
 public enum EntityBatchOperationKind
 {
@@ -20,8 +20,10 @@ public enum EntityBatchOperationKind
 }
 
 /// <summary>
-/// One write in an all-or-nothing batch submitted through
-/// <see cref="IEntityRepository{TEntity}.SubmitBatchAsync"/> (#319). An
+/// One write in a batch submitted through
+/// <see cref="IEntityRepository{TEntity}.SubmitBatchAsync"/> (#319), which the
+/// Table store commits all-or-nothing per 100-operation chunk (see that
+/// method's summary). An
 /// <see cref="EntityBatchOperationKind.Update"/> carries the <c>If-Match</c>
 /// version it replaces; an <see cref="EntityBatchOperationKind.Add"/> ignores it.
 /// </summary>
