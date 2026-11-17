@@ -350,6 +350,29 @@ class BrokenLinkTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 1)
             self.assertRegex(proc.stderr, r"docs/bad\.md:12: broken link")
 
+    # #376: a block-style related: list reports the failing item's line, not a TypeError.
+    def test_block_related_broken_slug_reports_item_line(self):
+        self.assertEqual(
+            publish_wiki.parse_page("---\nrelated:\n  - a\n  - nope\n---\n")[1]["related"], [3, 4])
+        extra = {
+            "Butler.KnowledgeBase/docs/blocky.md": (
+                "---\ntype: Guide\ntitle: Blocky\nrelated:\n  - a\n  - nope\n---\n\n# Blocky\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            kb = build_fixture(root, extra)
+            out = Path(tmp) / "out"
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = publish_wiki.main([
+                    "--out", str(out), "--kb", str(kb), "--repo-root", str(root)])
+            self.assertEqual(code, 1)
+            text = err.getvalue()
+            self.assertIn("Butler.KnowledgeBase/docs/blocky.md:6: broken link 'nope' (related)", text)
+            self.assertIn("1 broken link(s)", text)
+            self.assertIn("- [Doc A](a)", (out / "blocky.md").read_text())
+
     def test_non_empty_out_is_usage_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
