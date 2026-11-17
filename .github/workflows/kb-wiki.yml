@@ -1,0 +1,98 @@
+# Knowledge base -> GitHub wiki (issue #360).
+#
+# The Markdown in Butler.KnowledgeBase/ is canonical; the wiki is generated
+# from it. Every publish overwrites the wiki, so wiki edits are lost: change
+# the repo instead.
+#
+# Path-filtered: this runs only when a change touches Butler.KnowledgeBase/**
+# (which holds the converter in tools/) or this workflow file itself.
+#
+# Two jobs:
+#   check   - the converter's unit tests, then a full conversion of the
+#             knowledge base. A broken KB link fails the run (the converter
+#             exits 1 and lists each link as file:line), so it fails the PR.
+#   publish - on a push to main or a manual run only (never on a PR): runs
+#             the converter, clones <repo>.wiki.git with the workflow's own
+#             token, replaces its contents with the output, and commits and
+#             pushes only when something changed. GitHub creates the wiki
+#             repo only after the first page is made in the web UI, so a
+#             missing wiki fails with that instruction (one-time owner step).
+name: kb-wiki
+
+on:
+  pull_request:
+    paths:
+      - "Butler.KnowledgeBase/**"
+      - ".github/workflows/kb-wiki.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Butler.KnowledgeBase/**"
+      - ".github/workflows/kb-wiki.yml"
+  workflow_dispatch:
+
+# Least privilege: the check only reads the source. Only the publish job may
+# write, and it uses github.token (no PAT, no stored secret).
+permissions:
+  contents: read
+
+# Supersede in-flight PR runs for the same ref; never cancel a publish midway.
+concurrency:
+  group: kb-wiki-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: convert and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stdlib-only Python; the runner's python3 is enough.
+      - name: Run the converter tests
+        run: python3 -m unittest discover Butler.KnowledgeBase/tools
+
+      - name: Convert the knowledge base (fails on broken links)
+        run: python3 Butler.KnowledgeBase/tools/publish_wiki.py --out "$RUNNER_TEMP/wiki-out"
+
+  publish:
+    name: publish to the wiki
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Convert the knowledge base
+        run: python3 Butler.KnowledgeBase/tools/publish_wiki.py --out "$RUNNER_TEMP/wiki-out"
+
+      # WIKI_URL embeds the token; never echo it.
+      - name: Push the wiki
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          WIKI_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          git ls-remote "$WIKI_URL" >/dev/null 2>&1 || {
+            echo "::error title=Wiki not initialized::The wiki repo ${GITHUB_REPOSITORY}.wiki.git does not exist yet. Create the first wiki page in the GitHub web UI (Wiki tab -> Create the first page), then re-run this workflow."
+            exit 1
+          }
+          git clone --quiet --depth 1 "$WIKI_URL" "$RUNNER_TEMP/wiki"
+          cd "$RUNNER_TEMP/wiki"
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "$RUNNER_TEMP/wiki-out/." .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -m "Publish knowledge base from ${GITHUB_SHA}"
+          git push --quiet origin HEAD
