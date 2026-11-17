@@ -56,7 +56,10 @@
 #            exit 1 with the same message through both scripts and make no
 #            down, run or up call; reset then starts only Azurite and the API
 #            and keeps the hub down until the seed has changed the dataset id
-#            (#378): a failed API start or sign-in makes no web call.
+#            (#378): a failed API start or sign-in makes no web call. Its hub
+#            watcher check (check_hub_order) runs over fixture logs 20 times
+#            in a row with the same verdicts (#383, demo/ci/check-reset.sh
+#            hub-order).
 #            And snapshots (#99, demo/ci/check-snapshot.sh static): with a
 #            stub docker, snapshot stops only Azurite, copies in a container
 #            and starts Azurite again; restore stops the stack, wipes and
@@ -105,7 +108,8 @@
 #            wipe the data, re-seed The Parker Household (roster, this week's
 #            assignments, fairness) and change the dataset id, and the hub
 #            stays down until the seed has changed the id (#378, a hub
-#            watcher checks every answer). And snapshots
+#            watcher checks every answer; the check waits up to 30 s for an
+#            answer after down and requires one, #383). And snapshots
 #            (#99, demo/ci/check-snapshot.sh stack): demo.sh snapshot keeps
 #            the organizer signed in; demo.sh restore and demo.ps1 restore
 #            recreate the api, bring back the snapshot's data and change the
@@ -423,6 +427,17 @@ jobs:
       # docker.
       - name: "demo CLI: reset refuses non-local targets (#98)"
         run: bash demo/ci/check-reset.sh static
+
+      # #383 AC2, AC3, AC4: check_hub_order in check-reset.sh fails on a
+      # watcher log with down and no answer after it, or with any answer
+      # other than 200 and the new dataset id, and passes when every answer
+      # carries the new id. Fixture logs, no stack; 20 runs in a row must
+      # give the same verdicts.
+      - name: "demo CLI: reset check_hub_order verdicts are stable (#383)"
+        run: |
+          for i in $(seq 1 20); do
+            bash demo/ci/check-reset.sh hub-order > /dev/null || { echo "hub-order run $i failed"; exit 1; }
+          done
 
       # #99 AC1, AC2, AC6b, AC7, AC8: snapshot stops only Azurite and copies
       # in a container; restore stops the stack (down) and wipes and copies
@@ -953,8 +968,10 @@ jobs:
       # each wipe the demo data, sign in with the PIN, re-seed The Parker
       # Household and change the dataset id, with the same own lines; a reset
       # from a stopped stack works too. #378: a hub watcher shows the hub
-      # stays down until the seed has changed the dataset id. Starts with the
-      # stack up.
+      # stays down until the seed has changed the dataset id. #383: after
+      # each reset the check waits up to 30 s for an answer after down
+      # before it stops the watcher, and requires one. Starts with the stack
+      # up.
       - name: "demo CLI: reset wipes and re-seeds the demo (#98)"
         run: bash demo/ci/check-reset.sh stack
 
