@@ -45,17 +45,17 @@ describe('TodayPanel', () => {
     );
 
     const scroll = screen.getByTestId('today-panel-scroll');
-    expect(scroll.props.scrollEnabled).toBe(true);
+    expect(scroll.props.scrollEnabled).not.toBe(false);
     expect(within(scroll).getByTestId('board-content')).toBeOnTheScreen();
     expect(StyleSheet.flatten(screen.getByTestId('today-panel').props.style)).toMatchObject({
       padding: LANDSCAPE_COMPACT.panelPadding,
     });
   });
 
-  it('keeps the body ScrollView with scrolling off in the default portrait layout (#210)', async () => {
+  it('keeps the body ScrollView scroll-enabled in the default portrait layout (#280)', async () => {
     await render(<TodayPanel />);
 
-    expect(screen.getByTestId('today-panel-scroll').props.scrollEnabled).toBe(false);
+    expect(screen.getByTestId('today-panel-scroll').props.scrollEnabled).not.toBe(false);
   });
 
   it('does not remount its children when the layout rotates (#210)', async () => {
@@ -80,7 +80,7 @@ describe('TodayPanel', () => {
       </TodayPanel>,
     );
 
-    expect(screen.getByTestId('today-panel-scroll').props.scrollEnabled).toBe(false);
+    expect(screen.getByTestId('today-panel-scroll').props.scrollEnabled).not.toBe(false);
     expect(screen.getByTestId('board-content')).toBeOnTheScreen();
     expect(mounted).toHaveBeenCalledTimes(1);
   });

@@ -190,9 +190,9 @@ export function revealAndFocus(node: RevealTarget | null): void {
  * steps and 1920x1200 at the roomy ones, and both fit a 4-person household with
  * 8 chores due today without a page scroll. A portrait window stacks the same
  * zones in one column inside a page scroll. Both orientations render the same
- * element tree and only styles and scrolling switch, so a rotation keeps every
- * widget's state (an open PIN pad, typed grocery text) and makes no reads
- * (#210). Every size and gap is read from the layout, which reads
+ * element tree and only styles and the page's scrolling switch, so a rotation
+ * keeps every widget's state (an open PIN pad, typed grocery text) and makes no
+ * reads (#210). Every size and gap is read from the layout, which reads
  * `design-tokens.json`.
  *
  * The whole hub, the dataset check included, renders inside one
@@ -875,8 +875,11 @@ function HubShellBody({
 
       {/* The main zone. Landscape: Today beside a side column holding the
           groceries and the balance. Portrait: the same elements stacked in one
-          column, the side column not scrolling on its own. The tree is the same
-          in both, so a rotation never remounts a widget (#210). */}
+          column. There the side column is content-sized so it has nothing to
+          scroll, but it stays scroll-enabled: react-native-web gives a disabled
+          ScrollView touch-action: none, which would stop a swipe that starts on
+          it from scrolling the page (#280). The tree is the same in both, so a
+          rotation never remounts a widget (#210). */}
       <View style={styles.main} testID="hub-main">
         <View style={styles.todayZone} testID="hub-today-zone">
           {todayPanel}
@@ -884,7 +887,6 @@ function HubShellBody({
         <ScrollView
           style={styles.side}
           contentContainerStyle={styles.sideContent}
-          scrollEnabled={layout.sideColumn}
           testID="hub-side"
         >
           {groceries}

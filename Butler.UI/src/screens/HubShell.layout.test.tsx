@@ -165,6 +165,39 @@ function shellZones(): (string | undefined)[] {
   return hostChildren(node('hub-shell')).map((child) => child.props.testID);
 }
 
+/**
+ * What caps a panel ScrollView's height below its content, from the panel up to
+ * the page ScrollView (#280). A capped panel has something to scroll, and in
+ * react-native-web (overflow-y: auto) that is a nested scrollbar: scrollHeight
+ * greater than clientHeight. The page content container caps everything inside
+ * it when it is exactly the window height (flex, as in landscape) rather than
+ * at least the window height (flexGrow); any node on the way caps with a fixed
+ * height, a maxHeight, or a set flexBasis; and the panel itself caps with flex,
+ * the landscape fill-the-zone style. An empty list means the panel is
+ * content-sized, so scrollHeight equals clientHeight.
+ */
+function heightCaps(testID: string): string[] {
+  const caps: string[] = [];
+  const capping = (owner: string, style: Record<string, unknown>) => {
+    for (const key of ['height', 'maxHeight', 'flexBasis']) {
+      if (style[key] !== undefined && style[key] !== 'auto') caps.push(`${owner} ${key}`);
+    }
+  };
+  for (let at: HostNode | null = node(testID); at; at = at.parent) {
+    const owner = at.props.testID ?? '(unnamed)';
+    if (owner === 'hub-scroll') {
+      const content = (StyleSheet.flatten(at.props.contentContainerStyle as never) ?? {}) as Record<string, unknown>;
+      if (content.flex !== undefined) caps.push('hub-scroll content flex');
+      capping('hub-scroll content', content);
+      return caps;
+    }
+    const style = (StyleSheet.flatten(at.props.style as never) ?? {}) as Record<string, unknown>;
+    if (owner === testID && style.flex !== undefined) caps.push(`${owner} flex`);
+    capping(owner, style);
+  }
+  throw new Error(`${testID} is not inside hub-scroll`);
+}
+
 /** Rows rendered per person in the Today bucket, in roster order. */
 function todayRowsByPerson(): number[] {
   return roster.map(
@@ -207,8 +240,9 @@ function expectLandscapeZones() {
   expect(node('hub-scroll').props.scrollEnabled).toBe(false);
   // Exactly the window height, so the inner panels scroll instead of clipping.
   expect(StyleSheet.flatten(node('hub-scroll').props.contentContainerStyle as never)).toMatchObject({ flex: 1 });
-  expect(node('hub-side').props.scrollEnabled).toBe(true);
-  expect(node('today-panel-scroll').props.scrollEnabled).toBe(true);
+  // The panels are never scroll-disabled (#280); jest sees the omitted prop as undefined.
+  expect(node('hub-side').props.scrollEnabled).not.toBe(false);
+  expect(node('today-panel-scroll').props.scrollEnabled).not.toBe(false);
   expect(shellZones()).toEqual(['hub-chrome', 'hub-header', 'hub-name-tiles', 'hub-main']);
   expect(hostChildren(node('hub-main')).map((child) => child.props.testID)).toEqual([
     'hub-today-zone',
@@ -277,11 +311,13 @@ describe('HubShell layout (#118)', () => {
     await renderHubAt(800, 1280);
 
     expect(within(screen.getByTestId('hub-scroll')).getByTestId('hub-shell')).toBeOnTheScreen();
-    // The page scrolls; the side column and the Today panel do not (#210).
+    // The page scrolls. The side column and the Today panel are content-sized so
+    // they have nothing to scroll, but stay scroll-enabled so swipes reach the
+    // page (#210, #280).
     expect(node('hub-scroll').props.scrollEnabled).toBe(true);
     expect(StyleSheet.flatten(node('hub-scroll').props.contentContainerStyle as never)).toMatchObject({ flexGrow: 1 });
-    expect(node('hub-side').props.scrollEnabled).toBe(false);
-    expect(node('today-panel-scroll').props.scrollEnabled).toBe(false);
+    expect(node('hub-side').props.scrollEnabled).not.toBe(false);
+    expect(node('today-panel-scroll').props.scrollEnabled).not.toBe(false);
     // The same zones as landscape, stacked in one column, in order.
     expect(shellZones()).toEqual(['hub-chrome', 'hub-header', 'hub-name-tiles', 'hub-main']);
     expect(hostChildren(node('hub-main')).map((child) => child.props.testID)).toEqual([
@@ -311,6 +347,50 @@ describe('HubShell layout (#118)', () => {
     expect(styleOf('hub-main')).toMatchObject({ flexDirection: 'column' });
     expect(node('hub-scroll').props.scrollEnabled).toBe(true);
     expect(screen.getAllByTestId(/^chore-item-c\d+$/)).toHaveLength(8);
+  });
+
+  it('keeps the Today panel and side column scroll-enabled in portrait so page swipes reach hub-scroll (#280)', async () => {
+    // react-native-web gives a scroll-disabled ScrollView touch-action: none,
+    // which swallows a swipe that starts on it instead of scrolling the page.
+    function expectPortraitSwipesReachPage() {
+      expect(node('hub-scroll').props.scrollEnabled).toBe(true);
+      expect(node('hub-side').props.scrollEnabled).not.toBe(false);
+      expect(node('today-panel-scroll').props.scrollEnabled).not.toBe(false);
+    }
+
+    await renderHubAt(800, 1280);
+    expectPortraitSwipesReachPage();
+
+    await act(async () => {
+      setWindow(1280, 800);
+    });
+    expect(node('hub-scroll').props.scrollEnabled).toBe(false);
+
+    await act(async () => {
+      setWindow(800, 1280);
+    });
+    expectPortraitSwipesReachPage();
+  });
+
+  it('keeps the Today panel and side column content-sized in portrait so neither shows a nested scrollbar (#280)', async () => {
+    // Scroll-enabled panels (above) render overflow-y: auto on the web, so in
+    // portrait nothing may cap them below their content.
+    await renderHubAt(800, 1280);
+    expect(heightCaps('today-panel-scroll')).toEqual([]);
+    expect(heightCaps('hub-side')).toEqual([]);
+
+    // Landscape caps both on purpose: they fill their zones and scroll inside.
+    await act(async () => {
+      setWindow(1280, 800);
+    });
+    expect(heightCaps('today-panel-scroll')).toEqual(['today-panel-scroll flex', 'hub-scroll content flex']);
+    expect(heightCaps('hub-side')).toEqual(['hub-side flex', 'hub-scroll content flex']);
+
+    await act(async () => {
+      setWindow(800, 1280);
+    });
+    expect(heightCaps('today-panel-scroll')).toEqual([]);
+    expect(heightCaps('hub-side')).toEqual([]);
   });
 });
 
