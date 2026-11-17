@@ -44,17 +44,16 @@ ENV_FILE="$DEMO_DIR/.env"
 
 HUB_URL="http://localhost:8080"
 DATASET_URL="$HUB_URL/api/api/system/dataset"
-# reset (#98) signs the organizer in with the PIN, then seeds the demo household.
-PIN_SIGN_IN_URL="$HUB_URL/api/auth/pin/sign-in"
-SEED_URL="$HUB_URL/api/demo/seed"
-# restore keeps the hub (web) stopped until the dataset id has changed (#361),
-# so it signs in, changes the id and reads it straight from the API on its
-# loopback port. Caddy strips /api, so these paths have no /api prefix except
+# reset (#378) and restore (#361) keep the hub (web) stopped until the dataset
+# id has changed, so both sign in, change the id and read it straight from the
+# API on its loopback port. Caddy strips /api, so these paths have no /api prefix except
 # the system route, which keeps its own. 127.0.0.1, not localhost: the port is
 # bound on IPv4 only.
 API_URL="http://127.0.0.1:5108"
 API_DATASET_URL="$API_URL/api/system/dataset"
 API_PIN_SIGN_IN_URL="$API_URL/auth/pin/sign-in"
+# reset (#98) seeds the demo household here, which also changes the dataset id.
+API_SEED_URL="$API_URL/demo/seed"
 # restore (#99) copies a snapshot back, then changes the dataset id through
 # this organizer-only endpoint. Snapshots live in git-ignored demo/.data.
 REGENERATE_URL="$API_URL/demo/dataset/regenerate"
@@ -327,8 +326,9 @@ start_stack() {
   echo "Demo stack is up and healthy: $HUB_URL"
 }
 
-# restore (#361): builds the hub export if needed, then starts only Azurite
-# and the API, so the hub (web) cannot serve before the dataset id changes.
+# restore (#361) and reset (#378): builds the hub export if needed, then
+# starts only Azurite and the API, so the hub (web) cannot serve before the
+# dataset id changes.
 start_api() {
   local rc=0
   ensure_export || return $?
@@ -343,9 +343,9 @@ start_api() {
   echo "Azurite and the API are up and healthy."
 }
 
-# restore (#361): starts the hub (web) once the dataset id has changed. down
-# removed the web container, so it is created fresh and serves the current
-# export.
+# restore (#361) and reset (#378): starts the hub (web) once the dataset id
+# has changed. down removed the web container, so it is created fresh and
+# serves the current export.
 start_hub() {
   local rc=0
   echo "Starting the hub ..."
@@ -458,9 +458,13 @@ check_local_target() {
   return 0
 }
 
-# reset (#98): stop the stack, delete the Azurite data, start it again, sign
-# in with the PIN and seed the demo household, which also changes the dataset
-# id. Asks nothing. Takes no arguments and, like up and down, ignores extras.
+# reset (#98): stop the stack, delete the Azurite data, start only Azurite and
+# the API, sign in with the PIN and seed the demo household on the API, which
+# also changes the dataset id, then start the hub (web). The hub stays stopped
+# until the seed has changed the dataset id (#378): served earlier, it could
+# replay queued offline writes into the fresh data. A failure before the seed
+# leaves the hub stopped. Asks nothing. Takes no arguments and, like up and
+# down, ignores extras.
 cmd_reset() {
   local old new token="" rc=0
   check_pin || return 1
@@ -469,7 +473,9 @@ cmd_reset() {
     return 1
   fi
   check_local_target reset || return 1
-  old="$(dataset_id)"
+  # Read from the API, not the hub: a failed reset can leave the API up with
+  # the hub stopped.
+  old="$(dataset_id "$API_DATASET_URL")"
   [ -z "$old" ] && old="unavailable"
 
   echo "Stopping the demo stack ..."
@@ -488,13 +494,13 @@ cmd_reset() {
     return "$rc"
   fi
 
-  start_stack || return $?
+  start_api || return $?
 
-  # Sign in once, after up (a restart drops PIN tokens), with no retry: five
+  # Sign in once, after the restart (a restart drops PIN tokens), with no retry: five
   # wrong PINs lock sign-in. The PIN goes to curl on stdin, not in argv.
   echo "Signing in with the demo PIN ..."
   token="$(printf '{"pin":"%s"}' "$(demo_pin)" \
-    | curl -fsS --max-time 30 -X POST "$PIN_SIGN_IN_URL" -H 'Content-Type: application/json' --data-binary @- 2>/dev/null \
+    | curl -fsS --max-time 30 -X POST "$API_PIN_SIGN_IN_URL" -H 'Content-Type: application/json' --data-binary @- 2>/dev/null \
     | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || token=""
   if [ -z "$token" ]; then
     echo "PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run reset again." >&2
@@ -502,17 +508,20 @@ cmd_reset() {
   fi
 
   echo "Seeding the demo household ..."
-  if ! curl -fsS --max-time 120 -o /dev/null -X POST "$SEED_URL" -H "Authorization: Bearer $token" -d '' 2>/dev/null; then
+  if ! curl -fsS --max-time 120 -o /dev/null -X POST "$API_SEED_URL" -H "Authorization: Bearer $token" -d '' 2>/dev/null; then
     echo "Seeding the demo household failed. Run the logs command to see why." >&2
     return 1
   fi
 
-  new="$(dataset_id)"
+  new="$(dataset_id "$API_DATASET_URL")"
   if [ -z "$new" ] || [ "$new" = "$old" ]; then
     echo "The dataset id did not change after the reset. Run the logs command to see why." >&2
     return 1
   fi
   echo "Dataset: $old -> $new"
+
+  # Only now, with the seeded dataset id in storage, may the hub serve (#378).
+  start_hub || return $?
   echo "Demo reset complete: the demo household is seeded at $HUB_URL"
   echo "Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings."
 }

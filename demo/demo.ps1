@@ -98,17 +98,16 @@ $EnvFile = Join-Path $PSScriptRoot '.env'
 
 $HubUrl = 'http://localhost:8080'
 $DatasetUrl = "$HubUrl/api/api/system/dataset"
-# reset (#98) signs the organizer in with the PIN, then seeds the demo household.
-$PinSignInUrl = "$HubUrl/api/auth/pin/sign-in"
-$SeedUrl = "$HubUrl/api/demo/seed"
-# restore keeps the hub (web) stopped until the dataset id has changed (#361),
-# so it signs in, changes the id and reads it straight from the API on its
-# loopback port. Caddy strips /api, so these paths have no /api prefix except
+# reset (#378) and restore (#361) keep the hub (web) stopped until the dataset
+# id has changed, so both sign in, change the id and read it straight from the
+# API on its loopback port. Caddy strips /api, so these paths have no /api prefix except
 # the system route, which keeps its own. 127.0.0.1, not localhost: the port is
 # bound on IPv4 only.
 $ApiUrl = 'http://127.0.0.1:5108'
 $ApiDatasetUrl = "$ApiUrl/api/system/dataset"
 $ApiPinSignInUrl = "$ApiUrl/auth/pin/sign-in"
+# reset (#98) seeds the demo household here, which also changes the dataset id.
+$ApiSeedUrl = "$ApiUrl/demo/seed"
 # restore (#99) copies a snapshot back, then changes the dataset id through
 # this organizer-only endpoint. Snapshots live in git-ignored demo/.data.
 $RegenerateUrl = "$ApiUrl/demo/dataset/regenerate"
@@ -433,9 +432,9 @@ function Start-DemoStack {
     Write-Out "Demo stack is up and healthy: $HubUrl"
 }
 
-# restore (#361): builds the hub export if needed, then starts only Azurite
-# and the API, so the hub (web) cannot serve before the dataset id changes.
-# Same as start_api in demo.sh.
+# restore (#361) and reset (#378): builds the hub export if needed, then
+# starts only Azurite and the API, so the hub (web) cannot serve before the
+# dataset id changes. Same as start_api in demo.sh.
 function Start-DemoApi {
     Update-HubExport
     if ($script:ExportRebuilt -and $script:ExitCode -ne 0) { return }
@@ -450,9 +449,9 @@ function Start-DemoApi {
     Write-Out 'Azurite and the API are up and healthy.'
 }
 
-# restore (#361): starts the hub (web) once the dataset id has changed. down
-# removed the web container, so it is created fresh and serves the current
-# export. Same as start_hub in demo.sh.
+# restore (#361) and reset (#378): starts the hub (web) once the dataset id
+# has changed. down removed the web container, so it is created fresh and
+# serves the current export. Same as start_hub in demo.sh.
 function Start-DemoHub {
     Write-Out 'Starting the hub ...'
     Invoke-Compose @('up', '-d', '--no-deps', '--wait', '--wait-timeout', $WaitTimeout, 'web')
@@ -611,13 +610,19 @@ function Test-LocalTarget([string]$Verb) {
     return $true
 }
 
-# reset (#98): stop the stack, delete the Azurite data, start it again, sign
-# in with the PIN and seed the demo household, which also changes the dataset
-# id. Asks nothing. Takes no arguments and, like up and down, ignores extras.
+# reset (#98): stop the stack, delete the Azurite data, start only Azurite and
+# the API, sign in with the PIN and seed the demo household on the API, which
+# also changes the dataset id, then start the hub (web). The hub stays stopped
+# until the seed has changed the dataset id (#378): served earlier, it could
+# replay queued offline writes into the fresh data. A failure before the seed
+# leaves the hub stopped. Asks nothing. Takes no arguments and, like up and
+# down, ignores extras. Same lines as cmd_reset in demo.sh.
 function Invoke-DemoReset {
     if (-not (Test-DemoPin)) { return }
     if (-not (Test-LocalTarget -Verb 'reset')) { return }
-    $old = Get-DatasetId
+    # Read from the API, not the hub: a failed reset can leave the API up with
+    # the hub stopped.
+    $old = Get-DatasetId -Url $ApiDatasetUrl
     if (-not $old) { $old = 'unavailable' }
 
     Write-Out 'Stopping the demo stack ...'
@@ -636,16 +641,16 @@ function Invoke-DemoReset {
         return
     }
 
-    Start-DemoStack
+    Start-DemoApi
     if ($script:ExitCode -ne 0) { return }
 
-    # Sign in once, after up (a restart drops PIN tokens), with no retry: five
+    # Sign in once, after the restart (a restart drops PIN tokens), with no retry: five
     # wrong PINs lock sign-in.
     Write-Out 'Signing in with the demo PIN ...'
     $token = ''
     try {
         $body = @{ pin = [string](Get-DemoPin) } | ConvertTo-Json -Compress
-        $response = Invoke-RestMethod -Method Post -Uri $PinSignInUrl -ContentType 'application/json' -Body $body -TimeoutSec 30
+        $response = Invoke-RestMethod -Method Post -Uri $ApiPinSignInUrl -ContentType 'application/json' -Body $body -TimeoutSec 30
         if ($response -and $response.PSObject.Properties['token'] -and $response.token) {
             $token = [string]$response.token
         }
@@ -661,7 +666,7 @@ function Invoke-DemoReset {
 
     Write-Out 'Seeding the demo household ...'
     try {
-        $null = Invoke-RestMethod -Method Post -Uri $SeedUrl -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 120
+        $null = Invoke-RestMethod -Method Post -Uri $ApiSeedUrl -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 120
     }
     catch {
         Write-Err 'Seeding the demo household failed. Run the logs command to see why.'
@@ -669,13 +674,17 @@ function Invoke-DemoReset {
         return
     }
 
-    $new = Get-DatasetId
+    $new = Get-DatasetId -Url $ApiDatasetUrl
     if (-not $new -or $new -ceq $old) {
         Write-Err 'The dataset id did not change after the reset. Run the logs command to see why.'
         $script:ExitCode = 1
         return
     }
     Write-Out "Dataset: $old -> $new"
+
+    # Only now, with the seeded dataset id in storage, may the hub serve (#378).
+    Start-DemoHub
+    if ($script:ExitCode -ne 0) { return }
     Write-Out "Demo reset complete: the demo household is seeded at $HubUrl"
     Write-Out 'Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings.'
 }

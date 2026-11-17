@@ -10,21 +10,29 @@
 #            that does not render) exit 1 with the exact message and make no
 #            down, run or up call. A failed down deletes nothing, a failed
 #            wipe does not start the stack, and the wipe is the exact
-#            in-container find. Also checks that demo/README.md documents
-#            reset (AC8). Refuses to run when demo/.env exists: these cases
-#            need control of the PIN.
+#            in-container find. Then reset starts only Azurite and the API,
+#            and the hub (web) only once the seed has changed the dataset id
+#            (#378): a failed API start, or a failed PIN sign-in (no API
+#            answers on 127.0.0.1:5108 here), ends reset with no web call. A
+#            fake fresh hub export and a failing npm stub keep the build out
+#            of these cases. Also checks that demo/README.md documents reset
+#            (AC8) and its order (#378). Refuses to run when demo/.env exists
+#            (these cases need control of the PIN) or when something answers
+#            on 127.0.0.1:5108 (the PIN must not reach a real API).
 #   stack  - needs the stack up (demo/demo.sh up) and BUTLER_DEMO_PIN (from
 #            the shell or demo/.env). DELETES THE LOCAL DEMO DATA. Runs
 #            demo.sh reset, demo.ps1 reset and a reset from a stopped stack,
 #            each with stdin closed (AC1, AC2), and after each one checks the
 #            seeded household (AC3-AC5), that the dataset id changed (AC6), and
-#            that a household created before the reset is gone.
+#            that a household created before the reset is gone. A hub watcher
+#            polls the hub during each reset and fails unless every answer
+#            after down carries the new dataset id (#378).
 #
 # static runs both scripts in every case and fails unless their output
 # (stdout and stderr together), exit code and docker calls are identical.
 # stack compares the lines the scripts print themselves (docker and npm
 # output varies run to run), with the dataset ids masked.
-# Needs bash, pwsh (PowerShell 7) and docker; stack also needs curl and jq.
+# Needs bash, pwsh (PowerShell 7), docker and curl; stack also needs jq.
 set -euo pipefail
 
 mode="${1:-}"
@@ -40,17 +48,29 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_YML="$REPO_ROOT/demo/docker-compose.yml"
 README="$REPO_ROOT/demo/README.md"
 HUB_URL="http://localhost:8080"
+API_URL="http://127.0.0.1:5108"
+DATA_DIR="$REPO_ROOT/demo/.data"
+LOGS_DIR="$DATA_DIR/logs"
+DIST="$REPO_ROOT/Butler.UI/dist"
 
 PIN_MSG='demo/.env must set BUTLER_DEMO_PIN to a 4-6 digit PIN. See demo/README.md.'
 STOPPING='Stopping the demo stack ...'
 DELETING='Deleting the demo data in demo/.data/azurite ...'
 DOWN_FAILED='Could not stop the demo stack. Nothing was deleted.'
 WIPE_FAILED='Could not delete the demo data in demo/.data/azurite.'
+EXPORT_FRESH='Hub export is up to date (Butler.UI/dist).'
+STARTING_API='Starting Azurite and the API (the hub starts after the dataset id changes) ...'
+API_UP='Azurite and the API are up and healthy.'
+STARTING_HUB='Starting the hub ...'
+HUB_UP='Demo stack is up and healthy: http://localhost:8080'
+STACK_FAILED='Demo stack did not become healthy. Run the logs command to see why.'
 SIGNING_IN='Signing in with the demo PIN ...'
+SIGN_IN_FAILED='PIN sign-in failed. Check BUTLER_DEMO_PIN in demo/.env, then run reset again.'
 SEEDING='Seeding the demo household ...'
 COMPLETE="Demo reset complete: the demo household is seeded at $HUB_URL"
 PAIR_AGAIN='Sign in with the PIN and pair the tablet again: the reset cleared organizer sessions and hub pairings.'
 WIPE_CALL="compose -f $COMPOSE_YML run --rm --no-deps -T --entrypoint find azurite /data -mindepth 1 -delete"
+API_UP_CALL="compose -f $COMPOSE_YML up -d --build --wait --wait-timeout 300 azurite api"
 refusal() { echo "Refusing to reset: $1. reset only runs against the local demo stack."; }
 
 fail() {
@@ -60,14 +80,67 @@ fail() {
 
 command -v docker >/dev/null 2>&1 || fail "docker must be on PATH"
 command -v pwsh >/dev/null 2>&1 || fail "pwsh (PowerShell 7) must be on PATH"
+command -v curl >/dev/null 2>&1 || fail "curl must be on PATH"
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+DIST_SAVED="$WORK/dist-saved"
+CLEANUP_STATIC=0
+DATA_CREATED=0
+LOGS_EXISTED=0
+DIST_FAKED=0
+WATCH_PID=""
+RESET_N=0
+cleanup() {
+  set +e
+  if [ -n "$WATCH_PID" ]; then
+    kill "$WATCH_PID" 2>/dev/null
+    wait "$WATCH_PID" 2>/dev/null
+  fi
+  if [ "$DIST_FAKED" -eq 1 ]; then
+    # Drop the fake export and put back any real one.
+    rm -rf "$DIST"
+    if [ -d "$DIST_SAVED" ]; then
+      mv "$DIST_SAVED" "$DIST"
+    fi
+  fi
+  rm -rf "$WORK"
+  if [ "$CLEANUP_STATIC" -eq 1 ]; then
+    # reset reaches ensure_logs_dir, which creates demo/.data/logs.
+    if [ "$LOGS_EXISTED" -eq 0 ]; then
+      rm -rf "$LOGS_DIR"
+    fi
+    if [ "$DATA_CREATED" -eq 1 ]; then
+      rmdir "$DATA_DIR" 2>/dev/null || true
+    fi
+  fi
+}
+trap cleanup EXIT
 
 static_mode() {
   [ ! -e "$REPO_ROOT/demo/.env" ] || fail "demo/.env exists; move it aside to run the static checks"
+  # reset signs in on the API's loopback port once the stub "starts" it
+  # (#378). PIN 1234 must never reach a real API there: five wrong PINs lock
+  # sign-in.
+  if curl -s --max-time 2 -o /dev/null "$API_URL/health"; then
+    fail "something answers on $API_URL; stop that demo stack to run the static checks"
+  fi
+  [ -d "$DATA_DIR" ] || DATA_CREATED=1
+  [ -e "$LOGS_DIR" ] && LOGS_EXISTED=1
+  CLEANUP_STATIC=1
   unset DOCKER_HOST DOCKER_CONTEXT COMPOSE_PROJECT_NAME
   export BUTLER_DEMO_PIN=1234
+
+  # A fresh export with a valid stamp (#184), newer than index.html, so reset
+  # reports it up to date and never calls npm (as in check-snapshot.sh). Any
+  # real export is put back on exit.
+  DIST_FAKED=1
+  if [ -e "$DIST" ]; then
+    mv "$DIST" "$DIST_SAVED"
+  fi
+  mkdir -p "$DIST"
+  echo '<!doctype html><title>stub export</title>' > "$DIST/index.html"
+  printf 'EXPO_PUBLIC_API_BASE_URL=/api\nEXPO_PUBLIC_AUTH_PROVIDER=pin\nEXPO_PUBLIC_DEMO_HOUSEHOLD_ID=demo-household\n' > "$DIST/.demo-build-env"
+  touch -d "@$(( $(date +%s) + 60 ))" "$DIST/.demo-build-env"
 
   REAL_DOCKER="$(command -v docker)"
   export REAL_DOCKER
@@ -79,8 +152,8 @@ static_mode() {
   # A stub docker: logs its arguments. `context inspect` prints
   # $STUB_ENDPOINT (a local socket by default). `compose ... config` prints
   # $STUB_CONFIG_FILE when set, fails with $STUB_CONFIG_RC when set, and
-  # otherwise renders the real compose file. down and run exit with
-  # $STUB_DOWN_RC / $STUB_RUN_RC; anything else succeeds.
+  # otherwise renders the real compose file. down, run and up exit with
+  # $STUB_DOWN_RC / $STUB_RUN_RC / $STUB_UP_RC; anything else succeeds.
   cat > "$stub_dir/docker" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${DOCKER_STUB_LOG:-/dev/null}"
@@ -103,11 +176,22 @@ if [ "${1:-}" = "compose" ]; then
       ;;
     down) exit "${STUB_DOWN_RC:-0}" ;;
     run) exit "${STUB_RUN_RC:-0}" ;;
+    up) exit "${STUB_UP_RC:-0}" ;;
   esac
 fi
 exit 0
 STUB
   chmod +x "$stub_dir/docker"
+  # A stub npm: logs its arguments and fails. reset must not build here.
+  export NPM_STUB_LOG="$WORK/npm.log"
+  : > "$NPM_STUB_LOG"
+  cat > "$stub_dir/npm" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${NPM_STUB_LOG:-/dev/null}"
+echo "stub npm: reset must not build the export in this check: $*" >&2
+exit 64
+STUB
+  chmod +x "$stub_dir/npm"
   export PATH="$stub_dir:$PATH"
 
   # Rendered configs that point somewhere else. They hold the test PIN only.
@@ -184,11 +268,31 @@ STUB
   expect_out "reset (wipe fails)" "$(printf '%s\n' "$STOPPING" "$DELETING" "$WIPE_FAILED")"
   expect_log "reset (wipe fails)" "$(printf '%s\n' "$inspect" "$config" "compose -f $COMPOSE_YML down" "$WIPE_CALL")"
 
+  # #378: reset starts only Azurite and the API, never the hub (web), until
+  # the seed has changed the dataset id. The API does not come up: no web call.
+  STUB_UP_RC=4 run_both "reset (API start fails)" reset
+  expect_rc "reset (API start fails)" 4
+  expect_out "reset (API start fails)" "$(printf '%s\n' "$STOPPING" "$DELETING" "$EXPORT_FRESH" "$STARTING_API" "$STACK_FAILED")"
+  expect_log "reset (API start fails)" "$(printf '%s\n' "$inspect" "$config" "compose -f $COMPOSE_YML down" "$WIPE_CALL" "$API_UP_CALL")"
+
+  # The stub "starts" the API, but nothing answers on 127.0.0.1:5108, so the
+  # PIN sign-in fails and the hub stays down: no web call.
+  run_both "reset (sign-in fails, hub stays down)" reset
+  expect_rc "reset (sign-in fails, hub stays down)" 1
+  expect_out "reset (sign-in fails, hub stays down)" "$(printf '%s\n' "$STOPPING" "$DELETING" "$EXPORT_FRESH" "$STARTING_API" "$API_UP" "$SIGNING_IN" "$SIGN_IN_FAILED")"
+  expect_log "reset (sign-in fails, hub stays down)" "$(printf '%s\n' "$inspect" "$config" "compose -f $COMPOSE_YML down" "$WIPE_CALL" "$API_UP_CALL")"
+  if grep -qE ' web$' <<<"$LOG"; then
+    fail "reset (sign-in fails, hub stays down): the hub (web) was started"
+  fi
+  [ ! -s "$NPM_STUB_LOG" ] || fail "reset ran npm: $(cat "$NPM_STUB_LOG")"
+
   # AC8: the README documents reset.
   grep -qxF '## Reset the demo' "$README" || fail "demo/README.md has no '## Reset the demo' section"
   grep -qF 'demo/demo.sh reset' "$README" || fail "demo/README.md does not show demo/demo.sh reset"
   grep -qF 'pwsh demo/demo.ps1 reset' "$README" || fail "demo/README.md does not show pwsh demo/demo.ps1 reset"
   grep -qF '| `demo.sh reset` |' "$README" || fail "demo/README.md has no demo.sh reset table row"
+  grep -qF 'hub stays stopped until the seed has changed the dataset id' "$README" \
+    || fail "demo/README.md does not say the hub stays stopped until the seed has changed the dataset id (#378)"
   if LC_ALL=C grep -nP '[^\x00-\x7F]' "$README"; then
     fail "demo/README.md must stay plain ASCII"
   fi
@@ -279,6 +383,9 @@ own() {
     -e 'Hub export was not built with the demo settings; building Butler\.UI/dist \.\.\.' \
     -e 'Installing Butler\.UI dependencies \(npm ci\) \.\.\.' \
     -e 'Starting the demo stack \.\.\.' \
+    -e 'Starting Azurite and the API \(the hub starts after the dataset id changes\) \.\.\.' \
+    -e 'Azurite and the API are up and healthy\.' \
+    -e 'Starting the hub \.\.\.' \
     -e 'Recreating web to serve the new export \.\.\.' \
     -e 'Demo stack is up and healthy: http://localhost:8080' \
     -e 'Demo stack did not become healthy\. Run the logs command to see why\.' \
@@ -301,9 +408,70 @@ core() {
   grep -vE '^(Hub export |Installing Butler\.UI |Recreating web )' || true
 }
 
-EXPECTED_CORE="$(printf '%s\n' "$STOPPING" "$DELETING" 'Starting the demo stack ...' \
-  'Demo stack is up and healthy: http://localhost:8080' "$SIGNING_IN" "$SEEDING" \
-  'Dataset: <old> -> <new>' "$COMPLETE" "$PAIR_AGAIN")"
+# #378: the hub starts only after the seed has changed the dataset id.
+EXPECTED_CORE="$(printf '%s\n' "$STOPPING" "$DELETING" "$STARTING_API" "$API_UP" \
+  "$SIGNING_IN" "$SEEDING" 'Dataset: <old> -> <new>' "$STARTING_HUB" "$HUB_UP" \
+  "$COMPLETE" "$PAIR_AGAIN")"
+
+# watch_hub <log>: polls the hub's dataset endpoint every 0.2 s until killed.
+# Logs nothing until the hub first stops answering (000), then 'down' once,
+# then '<code> <dataset id>' for each answer. Answers from before reset's
+# down (the previous id) are not logged. curl exits 7 on a refused
+# connection, hence || true.
+watch_hub() {
+  local log="$1" resp code id seen_down=0
+  : > "$log"
+  while :; do
+    resp="$(curl -s --max-time 2 -w '%{http_code}' "$HUB_URL/api/api/system/dataset" 2>/dev/null || true)"
+    code="000"
+    if [ "${#resp}" -ge 3 ]; then
+      code="${resp:${#resp}-3}"
+    fi
+    if [ "$code" = "000" ]; then
+      if [ "$seen_down" -eq 0 ]; then
+        echo down >> "$log"
+        seen_down=1
+      fi
+    elif [ "$seen_down" -eq 1 ]; then
+      id="$(printf '%s' "${resp%???}" | sed -n 's/.*"datasetId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+      echo "$code $id" >> "$log"
+    fi
+    sleep 0.2
+  done
+}
+
+# start_watch <log> / stop_watch: run watch_hub in the background around one
+# reset. cleanup also stops it.
+start_watch() {
+  watch_hub "$1" &
+  WATCH_PID=$!
+}
+
+stop_watch() {
+  if [ -n "$WATCH_PID" ]; then
+    kill "$WATCH_PID" 2>/dev/null || true
+    wait "$WATCH_PID" 2>/dev/null || true
+    WATCH_PID=""
+  fi
+}
+
+# check_hub_order <label> <log> (#378): the watcher saw the hub go down, and
+# every answer after that was 200 with the dataset id the API reports now, so
+# the hub never served the wiped data before the seed changed the id. No
+# answer after down is allowed too.
+check_hub_order() {
+  local label="$1" log="$2" now line n=0
+  now="$(dataset_now)" || fail "$label: no dataset id after the reset"
+  line="$(head -n 1 "$log")"
+  [ "$line" = "down" ] || fail "$label: the hub watcher never saw the hub go down (first line '$line')"
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [ "$n" -eq 1 ] && continue
+    [ "$line" = "200 $now" ] \
+      || fail "$label: the hub answered '$line' (watcher line $n) before the seed changed the dataset id to $now"
+  done < "$log"
+  echo "$label: the hub stayed down until the seed changed the dataset id ($((n - 1)) answers, all '200 $now')"
+}
 
 # A household that the reset must delete.
 make_leftover() {
@@ -314,10 +482,15 @@ make_leftover() {
 }
 
 # run_reset <label> <sh|ps> <dataset before>: runs reset with stdin closed and
-# a 600 s timeout, checks its own lines and the dataset line, and leaves the
-# masked own lines in OWN.
+# a 600 s timeout while a hub watcher polls the hub, checks its own lines, the
+# dataset line and the hub order (#378), and leaves the masked own lines in
+# OWN.
 run_reset() {
   local label="$1" script="$2" before="$3" out rc line new now
+  local watch_log
+  RESET_N=$((RESET_N + 1))
+  watch_log="$WORK/hub-$RESET_N.log"
+  start_watch "$watch_log"
   set +e
   if [ "$script" = "sh" ]; then
     out="$(timeout 600 bash "$REPO_ROOT/demo/demo.sh" reset < /dev/null 2>&1)"
@@ -326,6 +499,7 @@ run_reset() {
   fi
   rc=$?
   set -e
+  stop_watch
   echo "== $label: exit=$rc"
   printf '%s\n' "$out" | own
   [ "$rc" -eq 0 ] || { printf '%s\n' "$out" | tail -n 40; fail "$label: expected exit 0, got $rc"; }
@@ -344,6 +518,7 @@ run_reset() {
   [ -n "$new" ] && [ "$new" != "$before" ] || fail "$label: the dataset id did not change ($before)"
   now="$(dataset_now)" || fail "$label: no dataset id after the reset"
   [ "$now" = "$new" ] || fail "$label: the reset printed $new but the API reports $now"
+  check_hub_order "$label" "$watch_log"
 }
 
 # AC3-AC5 and the wipe: the seeded household is all there is.
