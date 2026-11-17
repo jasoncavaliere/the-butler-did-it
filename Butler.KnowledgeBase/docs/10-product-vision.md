@@ -6,7 +6,7 @@ tags: [vision, strategy, household, chores, fair assignment, grocery, store conn
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 15-pilot-success-criteria, 16-pilot-one-pager, 17-byo-tablet-setup-guidance, 20-architecture-overview, 90-glossary]
+related: [00-overview, 11-hub-hardware-findings, 12-pricing-hypothesis, 13-customer-interview-guide, 15-pilot-success-criteria, 16-pilot-one-pager, 17-byo-tablet-setup-guidance, 18-demo-video-script, 20-architecture-overview, 90-glossary]
 sources:
   - { id: vision-v0, resource: ../intake/household-concierge-vision-v0.md, title: Raw v0 product vision }
   - { id: build-brief, resource: ../intake/vision-build-brief.md, title: Knowledge base build brief }
@@ -197,5 +197,6 @@ Each of these risks is tested with households after every demo, using the [Custo
 - [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 pilot thresholds derived from the north star and guardrails above.
 - [Pilot One-Pager](16-pilot-one-pager.md) - the six-week pilot offer made to families, built on the v1 scope above.
 - [BYO-Tablet Setup Guidance](17-byo-tablet-setup-guidance.md) - what a family is told about choosing, powering, mounting, and locking down the tablet it already owns.
+- [Demo Video Script and Shot List](18-demo-video-script.md) - the 90-second demo video that shows this vision's v1 scope on the hub.
 - [Architecture Overview](20-architecture-overview.md) - how v1 is built to serve this vision.
 - [Glossary](90-glossary.md) - every term used above, defined once.

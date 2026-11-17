@@ -6,7 +6,7 @@ tags: [pilot, one-pager, offer, check-in, privacy, pilot-to-paid, families, go t
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 12-pricing-hypothesis, 15-pilot-success-criteria]
+related: [10-product-vision, 12-pricing-hypothesis, 15-pilot-success-criteria, 18-demo-video-script]
 sources:
   - { id: issue-136, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/136, title: S3 - Pilot one-pager }
   - { id: pilot-success-criteria, resource: 15-pilot-success-criteria.md, title: Pilot Success Criteria and Week-4 Go/No-Go }
@@ -67,3 +67,4 @@ This repeats the in-app Your data page, which shows what Butler keeps and how to
 - [Product Vision](10-product-vision.md) - the v1 scope this pilot offers.
 - [Pricing Hypothesis](12-pricing-hypothesis.md) - the full pilot-to-paid offer.
 - [Pilot Success Criteria](15-pilot-success-criteria.md) - the metric thresholds.
+- [Demo Video Script and Shot List](18-demo-video-script.md) - the 90-second demo video that goes out with this offer.
