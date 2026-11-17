@@ -101,8 +101,8 @@ def name_pages(pages):
 
 
 def _split_flow(inner):
-    """Split a flow list body on commas outside quotes."""
-    items, buf, quote = [], "", None
+    """Split a flow list body on commas outside quotes and outside nested [] or {}."""
+    items, buf, quote, depth = [], "", None, 0
     for ch in inner:
         if quote:
             buf += ch
@@ -111,7 +111,13 @@ def _split_flow(inner):
         elif ch in "\"'":
             quote = ch
             buf += ch
-        elif ch == ",":
+        elif ch in "[{":
+            depth += 1
+            buf += ch
+        elif ch in "]}":
+            depth = max(depth - 1, 0)
+            buf += ch
+        elif ch == "," and depth == 0:
             items.append(buf)
             buf = ""
         else:
@@ -189,6 +195,19 @@ def parse_page(text):
             start = end + 1
     body = [(i + 1, lines[i]) for i in range(start, len(lines))]
     return fm, fm_lines, body
+
+
+def item_line(entry, idx):
+    """Return the line to report for item idx of a frontmatter list.
+
+    entry is fm_lines[key]: one int (the key line) for a flow list, or a list
+    of per-item lines for a block list. Anything else gives 0.
+    """
+    if isinstance(entry, list):
+        return entry[idx] if idx < len(entry) else 0
+    if isinstance(entry, int):
+        return entry
+    return 0
 
 
 # ---------------------------------------------------------------- links
@@ -384,8 +403,6 @@ class Converter:
         trailer = []
         related = fm.get("related")
         if isinstance(related, list) and related:
-            # fm_lines["related"] is one int (the key line) for a flow list, or a
-            # list of per-item lines for a block list.
             rel_lines = fm_lines.get("related")
             items = []
             for idx, slug in enumerate(related):
@@ -393,13 +410,7 @@ class Converter:
                     continue
                 target = self.resolve_slug(slug)
                 if target is None:
-                    if isinstance(rel_lines, list):
-                        lineno = rel_lines[idx] if idx < len(rel_lines) else 0
-                    elif isinstance(rel_lines, int):
-                        lineno = rel_lines
-                    else:
-                        lineno = 0
-                    self.report(rel, lineno, "broken link '%s' (related)" % slug)
+                    self.report(rel, item_line(rel_lines, idx), "broken link '%s' (related)" % slug)
                     continue
                 items.append("- [%s](%s)" % (self.link_text(self.page_title(target)),
                                              self.names[target]))
@@ -407,10 +418,10 @@ class Converter:
                 trailer += ["**Related**", ""] + items + [""]
         sources = fm.get("sources")
         if isinstance(sources, list) and sources:
-            item_lines = fm_lines.get("sources") or []
+            item_lines = fm_lines.get("sources")
             items = []
             for idx, src in enumerate(sources):
-                lineno = item_lines[idx] if idx < len(item_lines) else 0
+                lineno = item_line(item_lines, idx)
                 if isinstance(src, dict):
                     label = src.get("title") or src.get("id") or src.get("resource") or ""
                     resource = src.get("resource") or ""
