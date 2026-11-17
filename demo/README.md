@@ -387,7 +387,10 @@ The hub is an offline-first PWA, and its service worker only registers in a
 secure context: HTTPS, or `http://localhost`. On a tablet,
 `http://<lan-ip>:8080` loads, but the service worker never registers, so the
 hub silently stops working the moment the tablet goes offline. Use one of the
-three options below. Checking them on real devices is tracked in #132.
+three options below. The on-device acceptance checklist for #132
+([On-Device Acceptance Checklist](../Butler.KnowledgeBase/docs/41-on-device-acceptance-checklist.md))
+checks only the Tailscale share (`demo.sh share`). The local CA and adb
+reverse options are not checked on real devices.
 
 For a hub tablet running Fully Kiosk Browser, import the reviewed hub settings
 from [tablet/README.md](tablet/README.md) (#129).
