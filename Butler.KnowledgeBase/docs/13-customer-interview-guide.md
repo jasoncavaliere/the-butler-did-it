@@ -6,7 +6,7 @@ tags: [customer interviews, discovery, demo, go to market, risks, retention, wil
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 12-pricing-hypothesis, 14-feedback-log-template, 15-pilot-success-criteria, 18-demo-video-script]
+related: [10-product-vision, 12-pricing-hypothesis, 14-feedback-log-template, 15-pilot-success-criteria, 18-demo-video-script, 42-demo-day-runbook]
 sources:
   - { id: issue-139, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/139, title: S6 - Customer interview guide and feedback log }
   - { id: vision-retention, resource: 10-product-vision.md#the-retention-thesis, title: Product Vision - The retention thesis }
@@ -106,3 +106,4 @@ Complete the log entry within 24 hours, while the conversation is still fresh; t
 - [Feedback Log Template](14-feedback-log-template.md) - where every answer from this interview is recorded.
 - [Pilot Success Criteria](15-pilot-success-criteria.md) - the week-4 pilot numbers that later test question 12's month-3 signal with usage data.
 - [Demo Video Script and Shot List](18-demo-video-script.md) - the 90-second demo video the household may have seen before this interview.
+- [Demo-Day Runbook](42-demo-day-runbook.md) - how to run the live demo that comes right before this interview.

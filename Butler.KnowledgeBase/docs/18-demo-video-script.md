@@ -6,7 +6,7 @@ tags: [demo, video, script, shot list, recording, go to market, landing page, hu
 category: Product & Strategy
 lifecycle: Living
 owner: agent-managed
-related: [10-product-vision, 13-customer-interview-guide, 16-pilot-one-pager, 41-on-device-acceptance-checklist]
+related: [10-product-vision, 13-customer-interview-guide, 16-pilot-one-pager, 41-on-device-acceptance-checklist, 42-demo-day-runbook]
 sources:
   - { id: issue-135, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/135, title: S2 - 90-second demo video script and shot list }
   - { id: issue-121, resource: https://github.com/jasoncavaliere/the-butler-did-it/issues/121, title: P12 - Browser test of the full demo path against the local stack }
@@ -150,3 +150,4 @@ Every step of the suite has at least one shot.
 - [Customer Interview Guide](13-customer-interview-guide.md) - the questions to ask after a prospect has seen the demo or this video.
 - [Pilot One-Pager](16-pilot-one-pager.md) - the pilot offer this video's end card points to.
 - [On-Device Acceptance Checklist](41-on-device-acceptance-checklist.md) - the checks to run on the tablet before the shoot day.
+- [Demo-Day Runbook](42-demo-day-runbook.md) - the live-demo runbook, whose talk track follows this script's beats.
